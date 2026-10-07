@@ -1,0 +1,480 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Из каких чисел состоит герой — Первый герой</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%231d2b27'/%3E%3Ctext x='32' y='45' text-anchor='middle' font-size='48' fill='%23f0b45a'%3E∞%3C/text%3E%3C/svg%3E">
+<link rel="stylesheet" href="../lib/engine.css">
+<link rel="expect" href="#bar" blocking="render"><!-- hold the first frame until the player exists, so the page transition can run -->
+</head>
+<body>
+<script src="../lib/engine.js"></script>
+<script src="../lib/pf.js"></script>
+<script src="audio/ru/timings.js"></script>
+<script>
+'use strict';
+const CHAPTER = { number: 3, title: 'Из каких чисел состоит герой', minutes: 11, language: 'ru', next: '../ch04/' };
+
+/* ---------- chapter drawing helpers (shared ones: lib/pf.js) ---------- */
+// Parts of a number on the sheet: attribute modifier, proficiency bonus, armour (item) bonus; HP parts: ancestry, class.
+const ATTR = HERO, PROF = RULE, ITEM = COL.real, ANC = COL.dim, CLS = COL.int;
+// A number with a caption under it, centred on (x, y).
+function addend(p, v, cap, colr, x, y, t0, size = 44) {
+  const g = G(p, { x, y, o: 0 });
+  T(g, v, { size, fill: colr, weight: 700, anchor: 'middle' });
+  if (cap) T(g, cap, { y: 36, size: 22, fill: colr, anchor: 'middle' });
+  if (t0 != null) show(g, t0);
+  return g;
+}
+// A sum centred on cx: terms [value, caption, colour, t0] joined by '+', then '=' and the total; each '+' comes with its term.
+function sumRow(p, cx, y, terms, total, size = 44) {
+  const all = [...terms, total], ws = all.map(([v, cap]) => Math.max(uiW(v, size), cap ? uiW(cap, 22) : 0));
+  const op = 64, W = ws.reduce((a, b) => a + b, 0) + op * (all.length - 1);
+  let x = cx - W / 2;
+  return all.map(([v, cap, colr, t0], i) => {
+    if (i) { say(p, i === all.length - 1 ? '=' : '+', x + op / 2, y, t0, { size, fill: COL.dim, weight: 700 }); x += op; }
+    const g = addend(p, v, cap, colr, x + ws[i] / 2, y, t0, size);
+    x += ws[i];
+    return g;
+  });
+}
+const hr = (p, y, t0, x1 = 120, x2 = 1480) => draw(path(p, `M${x1} ${y}H${x2}`, { stroke: COL.faint, 'stroke-width': 2 }, { d: 0 }), t0, .5);
+const strike = (p, x1, y1, x2, y2, t0) => draw(path(p, `M${x1} ${y1}L${x2} ${y2}`, { stroke: NO, 'stroke-width': 5, 'stroke-linecap': 'round' }, { d: 0 }), t0, .4);
+
+// The dwarf fighter of the chapter, 1st level.
+const DW_ATTRS = [['Сила', '+4'], ['Ловкость', '+1'], ['Выносливость', '+2'], ['Интеллект', '0'], ['Мудрость', '+1'], ['Харизма', '−1']];
+// Sheet rows: label, sum at level 1, total, sum at level 2, total.
+const DW_ROWS = [
+  ['Внимание (эксперт)', [['1', ATTR], [' + ', COL.dim], ['5', PROF]], '+6', [['1', ATTR], [' + ', COL.dim], ['6', PROF]], '+7'],
+  ['Стойкость (эксперт)', [['2', ATTR], [' + ', COL.dim], ['5', PROF]], '+7', [['2', ATTR], [' + ', COL.dim], ['6', PROF]], '+8'],
+  ['Реакция (эксперт)', [['1', ATTR], [' + ', COL.dim], ['5', PROF]], '+6', [['1', ATTR], [' + ', COL.dim], ['6', PROF]], '+7'],
+  ['Воля (изучен)', [['1', ATTR], [' + ', COL.dim], ['3', PROF]], '+4', [['1', ATTR], [' + ', COL.dim], ['4', PROF]], '+5'],
+  ['Атлетика (изучен)', [['4', ATTR], [' + ', COL.dim], ['3', PROF]], '+7', [['4', ATTR], [' + ', COL.dim], ['4', PROF]], '+8'],
+  ['Дипломатия (неизучен)', [['−1', ATTR], [' + ', COL.dim], ['0', PROF]], '−1', null, null],
+  ['Длинный меч (эксперт)', [['4', ATTR], [' + ', COL.dim], ['5', PROF]], '+9', [['4', ATTR], [' + ', COL.dim], ['6', PROF]], '+10'],
+  ['КБ, кольчуга (изучен)', [['10'], [' + ', COL.dim], ['1', ATTR], [' + ', COL.dim], ['3', PROF], [' + ', COL.dim], ['4', ITEM]], '18',
+    [['10'], [' + ', COL.dim], ['1', ATTR], [' + ', COL.dim], ['4', PROF], [' + ', COL.dim], ['4', ITEM]], '19'],
+  ['ПЗ', [['10', ANC], [' + ', COL.dim], ['10', CLS], [' + ', COL.dim], ['2', ATTR]], '22', [['22'], [' + ', COL.dim], ['10', CLS], [' + ', COL.dim], ['2', ATTR]], '34'],
+  ['Скорость', [['дварф', COL.dim]], '20 футов', null, null],
+];
+
+/* ---------- beats: [id, title, run(m, D), { ask }?] ---------- */
+const BEATS = [
+  ['intro', 'Из каких чисел состоит герой', (m, D) => {
+    const g = G(scene, { o: 0, y: 24 });
+    T(g, 'Раздел 1 «Основы» · Глава 3', { x: 800, y: 330, size: 28, fill: COL.dim, anchor: 'middle' });
+    T(g, 'Из каких чисел состоит герой', { x: 800, y: 440, size: 76, weight: 600, anchor: 'middle' });
+    tw(g, { o: 1, y: 0 }, .2, 1.1, out);
+    const r = say(scene, 'характеристики, умение, испытания, навыки, КБ, ПЗ', 800, 560, m('sub'), { size: 34, fill: COL.dim });
+    tw(g, { o: 0, y: -24 }, D - .9, .8); hide(r, D - .9, .8);
+  }],
+  ['attrs', 'Шесть характеристик', (m) => {
+    const p = panel(0);
+    say(p, 'Шесть характеристик', 800, 80, .2, { size: 36, weight: 600 });
+    // modifier scale −1 … +4
+    const sx = v => 660 + v * 130, sy = 200;
+    say(p, 'модификатор на 1-м уровне', 490, sy + 8, m('mod'), { size: 24, fill: COL.dim, anchor: 'end' });
+    draw(path(p, `M${sx(-1)} ${sy}H${sx(4)}`, { stroke: COL.dim, 'stroke-width': 3 }, { d: 0 }), m('mod', .2), .6);
+    for (let v = -1; v <= 4; v++) {
+      draw(path(p, `M${sx(v)} ${sy - 10}V${sy + 10}`, { stroke: COL.dim, 'stroke-width': 2 }, { d: 0 }), m('mod', .3), .3);
+      say(p, v > 0 ? '+' + v : v < 0 ? '−1' : '0', sx(v), sy - 24, m('mod', .4 + (v + 1) * .1), { size: 26, fill: ATTR, weight: 700 });
+    }
+    const dot = G(p, { x: sx(0), y: sy, o: 0 });
+    mk('circle', { r: 12, fill: ATTR, stroke: COL.board, 'stroke-width': 3 }, dot);
+    show(dot, m('zero'), .3);
+    const c0 = say(p, 'средний человек', sx(0), sy + 46, m('zero'), { size: 24, fill: COL.chalk });
+    hide(c0, m('four', -.1), .3);
+    tw(dot, { x: sx(4) }, m('four'), .9);
+    say(p, 'лучшее в начале пути', sx(4), sy + 46, m('four', .6), { size: 24, fill: COL.chalk });
+    arrowTo(p, sx(4) + 24, sy, sx(4) + 140, sy, ATTR, m('grow'), true);
+    say(p, 'с уровнями — выше', sx(4) + 156, sy + 8, m('grow', .3), { size: 24, fill: COL.dim, anchor: 'start' });
+    // six cards: names at once, uses on the word
+    const cards = [
+      ['Сила', ['атаки в ближнем бою', 'Атлетика'], 'str'], ['Ловкость', ['стрельба и метание', 'КБ, Реакция'], 'dex'],
+      ['Выносливость', ['пункты здоровья', 'Стойкость'], 'con'], ['Интеллект', ['знания, Ремесло', '+1 = ещё один навык'], 'int'],
+      ['Мудрость', ['Внимание', 'Воля'], 'wis'], ['Харизма', ['Дипломатия, Обман', 'Запугивание'], 'cha'],
+    ];
+    cards.forEach(([name, lines, mark], i) => {
+      const x = 130 + (i % 3) * 460, y = i < 3 ? 350 : 620;
+      const b = mk('rect', { x, y, width: 420, height: 176, rx: 18, fill: '#22322d', stroke: ATTR, 'stroke-width': 2.5 }, p);
+      put(b, { o: 0 }); show(b, .4 + i * .08);
+      say(p, name, x + 28, y + 48, .5 + i * .08, { size: 32, fill: ATTR, weight: 700, anchor: 'start' });
+      lines.forEach((ln, j) => say(p, ln, x + 28, y + 100 + j * 44, m(mark, .3 + j * .4), { size: 25, anchor: 'start' }));
+    });
+    say(p, 'физические', 130, 330, m('phys'), { size: 24, fill: COL.dim, weight: 600, anchor: 'start' });
+    say(p, 'ментальные', 130, 600, m('ment'), { size: 24, fill: COL.dim, weight: 600, anchor: 'start' });
+    say(p, 'как распределить модификаторы — главы 4–6', 800, 860, m('later'), { size: 26, fill: COL.dim });
+  }],
+  ['ranks', 'Умение: пять рангов', (m) => {
+    const p = panel(0), x0 = 640, u = 50, ys = [240, 330, 420, 510, 600], add = [0, 2, 4, 6, 8];
+    say(p, 'Умение: пять рангов', 800, 80, .2, { size: 36, weight: 600 });
+    const names = ['неизучен', 'изучен', 'эксперт', 'мастер', 'легенда'], forms = ['0', 'уровень + 2', 'уровень + 4', 'уровень + 6', 'уровень + 8'];
+    const marks = ['untr', 'tr', 'ex', 'ms', 'lg'];
+    // legend
+    const lg = G(p, { x: 640, y: 160, o: 0 });
+    mk('rect', { x: 0, y: -20, width: 28, height: 28, rx: 5, fill: COL.dim, 'fill-opacity': .35, stroke: COL.dim, 'stroke-width': 2 }, lg);
+    T(lg, 'уровень героя', { x: 40, y: 2, size: 24, fill: COL.dim });
+    mk('rect', { x: 230, y: -20, width: 28, height: 28, rx: 5, fill: PROF, 'fill-opacity': .6, stroke: PROF, 'stroke-width': 2 }, lg);
+    T(lg, 'надбавка ранга', { x: 270, y: 2, size: 24, fill: PROF });
+    show(lg, m('tr', .6));
+    const lvT = say(p, 'уровень героя: 1', 1340, 160, m('lvl1'), { size: 30, weight: 700 });
+    const rows = names.map((nm, i) => {
+      const y = ys[i], t0 = m(marks[i]);
+      say(p, nm, 300, y + 10, .4 + i * .1, { size: 30, weight: 600, anchor: 'end' });
+      say(p, forms[i], 330, y + 9, t0, { size: 26, fill: PROF, anchor: 'start' });
+      if (!i) {
+        const d = G(p, { x: x0, y, o: 0 });
+        mk('circle', { r: 10, fill: PROF }, d);
+        show(d, t0 + .3);
+        return null;
+      }
+      const lv = mk('rect', { x: x0, y: y - 22, width: 0, height: 44, rx: 6, fill: COL.dim, 'fill-opacity': .35, stroke: COL.dim, 'stroke-width': 2 }, p);
+      const rk = mk('rect', { x: x0, y: y - 22, width: 0, height: 44, rx: 6, fill: PROF, 'fill-opacity': .6, stroke: PROF, 'stroke-width': 2 }, p);
+      const val = say(p, '+' + (1 + add[i]), x0, y + 11, m('lvl1', .4 + (i - 1) * .55), { size: 32, fill: PROF, weight: 700, anchor: 'start' });
+      return { lv, rk, val, a: add[i] };
+    });
+    // a row's bar for level L, grown to fraction q
+    const setRow = (r, L, q = 1) => {
+      r.lv.setAttribute('width', L * u * q);
+      r.rk.setAttribute('x', x0 + L * u * q);
+      r.rk.setAttribute('width', r.a * u * q);
+      put(r.val, { x: x0 + (L + r.a) * u * q + 16 });
+      r.val.textContent = '+' + (Math.round(L) + r.a);
+    };
+    rows.forEach((r, i) => { if (r) prog(q => setRow(r, 1, q), m(marks[i], .2), .7); });
+    // gap between untrained and trained, drawn on the untrained row
+    const gy = ys[0], gap = path(p, '', { stroke: NO, 'stroke-width': 4, 'stroke-dasharray': '10 8' });
+    const head = G(p, { o: 0 });
+    mk('path', { d: 'M0 0L-18 -10L-18 10Z', fill: NO }, head);
+    put(gap, { o: 0 });
+    const gT = say(p, '', x0 + 75, gy - 30, m('key', 1.4), { size: 26, fill: NO, weight: 700 });
+    const setGap = L => {
+      const xe = x0 + (L + 2) * u;
+      gap.setAttribute('d', `M${x0 + 16} ${gy}H${xe - 14}`);
+      put(head, { x: xe, y: gy });
+      put(gT, { x: (x0 + xe) / 2 });
+      gT.textContent = 'разрыв ' + (Math.round(L) + 2);
+    };
+    prog(() => setGap(1), m('key', 1.2), .01);
+    show(gap, m('key', 1.2)); show(head, m('key', 1.2));
+    rows.forEach(r => { if (r) pulse(r.lv, m('key', .3), 1.04); });
+    // level 1 → 5: every bar except untrained grows by 4
+    prog(q => {
+      const L = 1 + 4 * q;
+      rows.forEach(r => r && setRow(r, L));
+      setGap(L);
+      lvT.textContent = 'уровень героя: ' + Math.round(L);
+    }, m('up', .3), 2.6);
+    pulse(rows[1].val, m('lvl5'), 1.3);
+    pulse(gT, m('gap', .2), 1.3);
+    say(p, 'волшебник 5-го уровня: Мистицизм изучен → +7 · воин не изучал → 0', 800, 720, m('ex5'), { size: 26 });
+    say(p, 'ранги дают: класс, происхождение, Интеллект', 800, 800, m('src'), { size: 26, fill: COL.dim });
+  }],
+  ['formula', 'Одна формула', (m) => {
+    const p = panel(0);
+    say(p, 'Почти любое число на листе', 800, 80, .2, { size: 34, weight: 600 });
+    const parts = [['модификатор характеристики', ATTR], ['бонус умения', PROF], ['постоянные бонусы', ITEM]];
+    const ws = parts.map(([s]) => s.length * 28 * .56 + 44), W = ws.reduce((a, b) => a + b, 0) + 2 * 64;
+    let x = 800 - W / 2;
+    parts.forEach(([s, c], i) => {
+      if (i) { say(p, '+', x + 32, 202, m('f', i * .9), { size: 40, fill: COL.dim, weight: 700 }); x += 64; }
+      pill(p, s, c, x + ws[i] / 2, 190, m('f', i * .9), 28);
+      if (i === 2) S.permX = x + ws[i] / 2;
+      x += ws[i];
+    });
+    say(p, 'например, бонус предмета от волшебного меча', S.permX - 60, 262, m('perm'), { size: 24, fill: ITEM });
+    colorLine(p, [['ситуативные бонусы — ', COL.dim], ['не на лист', NO], [', а при броске', COL.dim]], 800, 322, m('sit'), { size: 26 });
+    hr(p, 380, m('perc', -.4));
+    colorLine(p, [['Внимание', COL.chalk], [' = ', COL.dim], ['Мудрость', ATTR], [' + ', COL.dim], ['бонус умения', PROF]], 800, 450, m('perc'), { size: 38 });
+    say(p, 'шорох за дверью, ложь в голосе, засада в кустах', 800, 500, m('perc', 1.6), { size: 24, fill: COL.dim });
+    who(p, 'Дварф-воин', HERO, 260, 640, m('dw'));
+    const [, , tot] = sumRow(p, 800, 650, [['1', 'Мудрость', ATTR, m('wis', .4)], ['5', 'эксперт: 1 + 4', PROF, m('rank', .6)]], ['+6', 'Внимание', COL.chalk, m('sum')]);
+    pulse(tot, m('sum', .4), 1.2);
+    colorLine(p, [['в начале боя: бросок Внимания = ', COL.dim], ['инициатива', COL.chalk]], 800, 820, m('init'), { size: 28 });
+  }],
+  ['q1', 'Быстрая проверка', () => { panel(0); }, { ask: done => quiz(WIDE, [{
+    id: 'c-prof', prompt: ['Посчитайте.'], build: blanks(Q_PROF),
+  }], done) }],
+  ['saves', 'Испытания', (m) => {
+    const p = panel(0), ys = [300, 420, 540];
+    say(p, 'Испытания', 800, 80, .2, { size: 36, weight: 600 });
+    const saves = [['Стойкость', 'Выносливость', 'fort'], ['Реакция', 'Ловкость', 'ref'], ['Воля', 'Мудрость', 'will']];
+    saves.forEach(([sv, at, mark], i) => {
+      say(p, sv, 120, ys[i] + 12, .3 + i * .12, { size: 36, weight: 600, anchor: 'start' });
+      say(p, '←', 370, ys[i] + 10, m(mark), { size: 34, fill: COL.dim, weight: 700 });
+      pill(p, at, ATTR, 530, ys[i], m(mark), 26);
+    });
+    say(p, 'любой герой — как минимум «изучен»; где эксперт — решает класс', 800, 650, m('min'), { size: 26, fill: COL.dim });
+    const col = (title, x, ranks, t0, step) => {
+      say(p, title, x, 200, t0, { size: 28, fill: COL.dim, weight: 600 });
+      ranks.forEach((r, i) => pill(p, r, PROF, x, ys[i], t0 + .3 + i * step, 24));
+    };
+    col('воин', 800, ['эксперт', 'эксперт', 'изучен'], m('ftr'), .6);
+    col('волшебник', 1040, ['изучен', 'изучен', 'эксперт'], m('wiz'), .3);
+    say(p, 'дварф-воин', 1360, 200, m('calc'), { size: 28, fill: HERO, weight: 600 });
+    [[['2', ATTR], [' + ', COL.dim], ['5', PROF], [' = ', COL.dim], ['+7']], [['1', ATTR], [' + ', COL.dim], ['5', PROF], [' = ', COL.dim], ['+6']],
+      [['1', ATTR], [' + ', COL.dim], ['3', PROF], [' = ', COL.dim], ['+4']]]
+      .forEach((sg, i) => {
+        const t0 = m(['calc', 'calc2', 'calc3'][i], i ? .2 : 1.4);
+        colorLine(p, sg, 1360, ys[i] + 13, t0, { size: 38, weight: 700 });
+        say(p, ['Выносливость + эксперт', 'Ловкость + эксперт', 'Мудрость + изучен'][i], 1360, ys[i] + 50, t0 + .3, { size: 20, fill: COL.dim });
+      });
+  }],
+  ['skills', '17 навыков', (m) => {
+    const p = panel(0);
+    say(p, '17 навыков по характеристикам', 800, 70, .2, { size: 34, weight: 600 });
+    const cols = [
+      ['Сила', ['Атлетика'], 'str'], ['Ловкость', ['Акробатика', 'Воровство', 'Скрытность'], 'dex'], ['Выносливость', [], 'con'],
+      ['Интеллект', ['Знание', 'Мистицизм', 'Общество', 'Оккультизм', 'Ремесло'], 'int'], ['Мудрость', ['Медицина', 'Природа', 'Выживание', 'Религия'], 'wis'],
+      ['Харизма', ['Дипломатия', 'Обман', 'Запугивание', 'Исполнение'], 'cha'],
+    ];
+    const el = {};
+    cols.forEach(([at, sk, mark], i) => {
+      const x = 160 + i * 256;
+      say(p, at, x, 140, .4 + i * .08, { size: 28, fill: ATTR, weight: 700 });
+      if (!sk.length) say(p, 'нет навыков', x, 190, m(mark), { size: 24, fill: COL.dim });
+      sk.forEach((s, j) => { el[s] = say(p, s, x, 190 + j * 42, m(mark, .2 + j * .25), { size: 25 }); });
+    });
+    hr(p, 440, m('ath', -.4));
+    say(p, 'Атлетика (изучен)', 120, 540, m('ath'), { size: 30, weight: 600, anchor: 'start' });
+    pulse(el['Атлетика'], m('ath'), 1.3);
+    sumRow(p, 940, 540, [['4', 'Сила', ATTR, m('s4')], ['3', 'изучен', PROF, m('a3')]], ['+7', 'Атлетика', COL.chalk, m('a7')]);
+    say(p, 'Дипломатия (неизучен)', 120, 660, m('dip'), { size: 30, weight: 600, anchor: 'start' });
+    pulse(el['Дипломатия'], m('dip'), 1.3);
+    sumRow(p, 940, 660, [['−1', 'Харизма', ATTR, m('c1')], ['0', 'неизучен', PROF, m('z0')]], ['−1', 'Дипломатия', COL.chalk, m('d1')]);
+    say(p, 'неизученный навык пробовать можно: бонус умения 0', 800, 780, m('try'), { size: 28, fill: OK, weight: 600 });
+    pulse(el['Воровство'], m('lock'), 1.3);
+    colorLine(p, [['но часть действий — только обученным: ', COL.chalk], ['вскрыть замок без изученного Воровства нельзя', NO]], 800, 840, m('lock', .3), { size: 26 });
+  }],
+  ['q2', 'Быстрая проверка', () => { panel(0); }, { ask: done => quiz(WIDE, [{
+    id: 'c-attr', prompt: ['От какой характеристики считают?'],
+    build: grid(Q_ATTR, ATTR_COLS, { multi: false, text: true }),
+  }], done) }],
+  ['ac', 'Класс брони', (m) => {
+    const p = panel(0), base = 590, bh = 40, step = 46, cxs = [420, 1180];
+    say(p, 'Класс брони (КБ) — сложность для атак по герою', 800, 70, .2, { size: 32, weight: 600 });
+    colorLine(p, [['КБ', COL.chalk], [' = ', COL.dim], ['10', COL.chalk], [' + ', COL.dim], ['Ловкость', ATTR], [' + ', COL.dim], ['умение в броне', PROF], [' + ', COL.dim], ['бонус брони', ITEM]], 800, 145, m('f', -2.4), { size: 34 });
+    colorLine(p, [['Ловкость', ATTR], [' — не больше предела брони', ITEM]], 800, 195, m('cap'), { size: 26 });
+    const armour = [['Кожаный доспех', '+1 к КБ · предел Ловкости +4', 4, 'lea'], ['Кольчуга', '+4 к КБ · предел Ловкости +1', 1, 'ch']];
+    armour.forEach(([name, spec, cap, mark], a) => {
+      const cx = cxs[a], t0 = m(mark);
+      say(p, name, cx, 270, t0, { size: 30, weight: 700 });
+      say(p, spec, cx, 310, t0 + .4, { size: 24, fill: ITEM });
+      for (let k = 1; k <= 4; k++) {
+        const r = mk('rect', { x: cx - 40, y: base - k * step, width: 80, height: bh, rx: 6, fill: 'none', stroke: COL.faint, 'stroke-width': 2, 'stroke-dasharray': '6 5' }, p);
+        put(r, { o: 0 }); show(r, t0 + .2 + k * .06);
+      }
+      const ly = base - cap * step - 3;
+      draw(path(p, `M${cx - 70} ${ly}H${cx + 70}`, { stroke: ITEM, 'stroke-width': 5 }, { d: 0 }), t0 + .9, .5);
+      say(p, 'предел +' + cap, cx + 84, ly + 8, t0 + 1.1, { size: 24, fill: ITEM, weight: 700, anchor: 'start' });
+    });
+    who(p, 'Следопыт', HERO, 800, 420, m('rg'));
+    say(p, 'Ловкость +3', 800, 560, m('rg', .6), { size: 26, fill: ATTR, weight: 700 });
+    say(p, 'обучен носить броню', 800, 596, m('rg', 1.2), { size: 24, fill: PROF });
+    // three points of Dexterity fly into each armour's slots
+    const blocks = (cx, t0) => [1, 2, 3].map(k => {
+      const b = G(p, { x: 800, y: 420, o: 0, s: .5 });
+      mk('rect', { x: -40, y: -bh / 2, width: 80, height: bh, rx: 6, fill: ATTR, 'fill-opacity': .55, stroke: ATTR, 'stroke-width': 2 }, b);
+      tw(b, { o: 1 }, t0 + k * .15, .2);
+      tw(b, { x: cx, y: base - k * step + bh / 2, s: 1 }, t0 + k * .15, .8);
+      return b;
+    });
+    blocks(cxs[0], m('r1', .2));
+    sumRow(p, cxs[0], 690, [['10', 'база', COL.chalk, m('s1')], ['3', 'Ловкость', ATTR, m('s1', .5)], ['3', 'изучен', PROF, m('s1', .9)], ['1', 'доспех', ITEM, m('s1', 1.3)]], ['17', 'КБ', COL.chalk, m('t1', .3)], 40);
+    const over = blocks(cxs[1], m('r2', .1)).slice(1);
+    over.forEach(b => { tw(b, { o: .35 }, m('r2', 1.4), .4); tw(b.firstChild, { c_fill: NO, c_stroke: NO }, m('r2', 1.4), .4); });
+    strike(p, cxs[1] - 50, base - 3 * step - 4, cxs[1] + 50, base - 2 * step + bh + 4, m('r2', 1.7));
+    say(p, 'сверх предела', cxs[1] - 60, base - 2 * step + 4, m('r2', 1.7), { size: 22, fill: NO, weight: 700, anchor: 'end' });
+    sumRow(p, cxs[1], 690, [['10', 'база', COL.chalk, m('r3', -1.4)], ['1', 'Ловкость', ATTR, m('r3', -1)], ['3', 'изучен', PROF, m('r3', -.6)], ['4', 'кольчуга', ITEM, m('r3', -.2)]], ['18', 'КБ', COL.chalk, m('r3', .4)], 40);
+    say(p, 'кольчуга: всего на 1 больше, зато шумит и тяжела для слабого героя', 800, 800, m('noise'), { size: 26, fill: COL.dim });
+    say(p, 'без брони: умение «защита без брони», бонуса брони нет', 800, 850, m('none'), { size: 26, fill: COL.dim });
+  }],
+  ['q3', 'Быстрая проверка', () => { panel(0); }, { ask: done => quiz(WIDE, [{
+    id: 'c-ac', prompt: ['Герой 1-го уровня обучен носить броню (ранг «изучен»). Кожаный доспех: +1, предел Ловкости +4. Кольчуга: +4, предел Ловкости +1. Посчитайте КБ.'],
+    build: blanks(Q_AC),
+  }], done) }],
+  ['attack', 'Проверка атаки', (m) => {
+    const p = panel(0), L = 420, R = 1180;
+    say(p, 'Проверка атаки: итог против КБ цели', 800, 80, .2, { size: 34, weight: 600 });
+    say(p, 'Ближний бой', L, 190, m('mel'), { size: 32, weight: 700 });
+    colorLine(p, [['Сила', ATTR], [' + ', COL.dim], ['умение с оружием', PROF]], L, 240, m('mel', .4), { size: 30 });
+    say(p, 'Дальний бой', R, 190, m('rng'), { size: 32, weight: 700 });
+    colorLine(p, [['Ловкость', ATTR], [' + ', COL.dim], ['умение с оружием', PROF]], R, 240, m('rng', .4), { size: 30 });
+    who(p, 'Дварф-воин', HERO, 800, 400, .5);
+    say(p, 'эксперт в оружии: 1 + 4 = 5', 800, 540, m('dw', 1.2), { size: 24, fill: PROF });
+    say(p, 'длинный меч', L, 340, m('dw', 2.4), { size: 26, fill: COL.dim });
+    sumRow(p, L, 420, [['4', 'Сила', ATTR, m('sw')], ['5', 'эксперт', PROF, m('sw', 1.1)]], ['+9', 'удар', COL.chalk, m('sw', 1.8)]);
+    say(p, 'длинный лук', R, 340, m('bow'), { size: 26, fill: COL.dim });
+    sumRow(p, R, 420, [['1', 'Ловкость', ATTR, m('bow', .4)], ['5', 'эксперт', PROF, m('bow', .8)]], ['+6', 'выстрел', COL.chalk, m('bow', 1.2)]);
+    hr(p, 600, m('fin', -.4));
+    colorLine(p, [['кинжал, рапира: можно ', COL.chalk], ['Ловкость', ATTR], [' вместо ', COL.chalk], ['Силы', ATTR]], 800, 670, m('fin'), { size: 30 });
+    say(p, 'умение с оружием класс даёт по группам', 800, 750, m('grp'), { size: 26, fill: COL.dim });
+    ['простое', 'особое', 'экзотическое', 'безоружные атаки'].forEach((s, i) => pill(p, s, PROF, [380, 620, 900, 1230][i], 820, m('grp', 1 + i * .5), 26));
+  }],
+  ['classdc', 'Классовая СЛ', (m) => {
+    const p = panel(0);
+    say(p, 'Классовая СЛ', 800, 80, .2, { size: 36, weight: 600 });
+    say(p, 'против неё противник бросает испытание', 800, 130, .6, { size: 26, fill: COL.dim });
+    colorLine(p, [['классовая СЛ', COL.chalk], [' = ', COL.dim], ['10', COL.chalk], [' + ', COL.dim], ['бонус умения', PROF], [' + ', COL.dim], ['ключевая характеристика', ATTR]], 800, 220, m('f'), { size: 34 });
+    colorLine(p, [['воин: ', COL.chalk], ['Сила или Ловкость', ATTR], ['   ·   волшебник: ', COL.chalk], ['Интеллект', ATTR]], 800, 300, m('key', 1.5), { size: 28 });
+    who(p, 'Дварф-воин', HERO, 220, 500, m('dw'));
+    colorLine(p, [['изучен', PROF], [' в классовой СЛ, ', COL.chalk], ['Сила +4', ATTR]], 320, 510, m('dw', .6), { size: 26, anchor: 'start' });
+    const [, , , tot] = sumRow(p, 760, 680, [['10', 'база', COL.chalk, m('sum')], ['3', 'изучен', PROF, m('sum', .5)], ['4', 'Сила', ATTR, m('sum', 1)]], ['17', 'классовая СЛ', COL.chalk, m('sum', 1.6)]);
+    who(p, 'Противник', FOE, 1340, 500, m('sum', 2.2));
+    say(p, 'испытание против 17', 1340, 650, m('sum', 2.6), { size: 26, fill: FOE, weight: 600 });
+    pulse(tot, m('sum', 2.6), 1.2);
+    say(p, 'заклинатели: СЛ заклинаний — по той же формуле', 800, 830, m('spell'), { size: 26, fill: COL.dim });
+  }],
+  ['hp', 'Пункты здоровья и Скорость', (m) => {
+    const p = panel(0), x0 = 200, u = 22, by = 250, bh = 56;
+    say(p, 'Пункты здоровья (ПЗ)', 800, 70, .2, { size: 34, weight: 600 });
+    colorLine(p, [['ПЗ 1-го уровня', COL.chalk], [' = ', COL.dim], ['народ', ANC], [' + ', COL.dim], ['класс', CLS], [' + ', COL.dim], ['Выносливость', ATTR]], 800, 140, m('f'), { size: 32 });
+    const outline = mk('rect', { x: x0, y: by, width: 46 * u, height: bh, rx: 8, fill: 'none', stroke: COL.faint, 'stroke-width': 2, 'stroke-dasharray': '8 6' }, p);
+    put(outline, { o: 0 }); show(outline, .5);
+    let at = 0;
+    const seg = (n, colr, lab, t0, labT = t0 + .3) => {
+      const r = mk('rect', { x: x0 + at * u, y: by, width: 0, height: bh, rx: 6, fill: colr, 'fill-opacity': .55, stroke: colr, 'stroke-width': 2 }, p);
+      tw(r, { a_width: n * u - 2 }, t0, .6);
+      if (lab) say(p, lab, x0 + (at + n / 2) * u, by + bh + 34, labT, { size: 22, fill: colr, weight: 600 });
+      at += n;
+      return r;
+    };
+    seg(10, ANC, 'дварф 10', m('anc'), m('dw'));
+    seg(10, CLS, 'воин 10', m('cls'), m('dw', 1));
+    seg(2, ATTR, '2', m('con'), m('dw', 1.8));
+    const tot = say(p, '22', x0 + 22 * u + 24, by + 42, m('l1'), { size: 44, weight: 700, anchor: 'start' });
+    const lvl = (a, b, str, t0) => {
+      draw(path(p, `M${x0 + a * u + 3} ${by - 14}V${by - 24}H${x0 + b * u - 3}V${by - 14}`, { stroke: COL.dim, 'stroke-width': 3 }, { d: 0 }), t0, .5);
+      say(p, str, x0 + (a + b) / 2 * u, by - 36, t0 + .2, { size: 22, fill: COL.dim, weight: 600 });
+    };
+    lvl(0, 22, '1-й уровень', m('l1', .3));
+    colorLine(p, [['каждый следующий уровень: + ', COL.chalk], ['класс', CLS], [' + ', COL.chalk], ['Выносливость', ATTR], ['  (10 + 2 = 12)', COL.dim]], 800, 420, m('next'), { size: 28 });
+    const grow = (from, t0, n) => {
+      seg(10, CLS, '+10', t0, t0 + .2); seg(2, ATTR, '+2', t0 + .5, t0 + .6);
+      tw(tot, { x: x0 + (from + 12) * u + 24 }, t0, 1.1);
+      prog(q => { tot.textContent = String(Math.round(from + 12 * q)); }, t0, 1.1);
+      lvl(from, from + 12, n + '-й', t0 + .8);
+    };
+    grow(22, m('l2', -.3), 2);
+    grow(34, m('l3', -.3), 3);
+    say(p, 'урон отнимает ПЗ, лечение возвращает — не выше максимума', 800, 480, m('dmg'), { size: 26, fill: COL.dim });
+    hr(p, 540, m('spd', -.4));
+    say(p, 'Скорость: футов за одно действие Перемещения', 800, 600, m('spd'), { size: 30, weight: 600 });
+    for (let i = 0; i < 6; i++) {
+      const r = mk('rect', { x: 300 + i * 80, y: 660, width: 70, height: 70, rx: 6, fill: 'none', stroke: COL.faint, 'stroke-width': 2 }, p);
+      put(r, { o: 0 }); show(r, m('spd', 2 + i * .06));
+    }
+    say(p, '1 клетка = 5 футов', 530, 780, m('spd', 2.4), { size: 22, fill: COL.dim });
+    const hl = mk('rect', { x: 296, y: 656, width: 5 * 80 - 2, height: 78, rx: 8, fill: HERO, 'fill-opacity': .25, stroke: HERO, 'stroke-width': 3 }, p);
+    put(hl, { o: 0 }); show(hl, m('spd', 3.4));
+    const lab = (str, t0, t1) => { const e = say(p, str, 820, 708, t0, { size: 30, fill: HERO, weight: 700, anchor: 'start' }); if (t1) hide(e, t1, .3); };
+    lab('25 футов — у большинства народов', m('spd', 3.6), m('dws', -.2));
+    tw(hl, { a_width: 4 * 80 - 2 }, m('dws'), .6);
+    lab('20 футов — дварф', m('dws', .3), m('elf', -.2));
+    tw(hl, { a_width: 6 * 80 - 2 }, m('elf'), .6);
+    lab('30 футов — эльф', m('elf', .3));
+  }],
+  ['q4', 'Быстрая проверка', () => { panel(0); }, { ask: done => quiz(WIDE, [{
+    id: 'c-calc', prompt: ['Посчитайте. Герои 1-го уровня, если не сказано иное.'], build: blanks(Q_CALC),
+  }], done) }],
+  ['sheet', 'Лист целиком', (m) => {
+    const p = panel(0);
+    const head = say(p, 'Дварф-воин, 1-й уровень', 800, 70, .2, { size: 34, weight: 600 });
+    const head2 = say(p, 'Дварф-воин, 2-й уровень', 800, 70, m('lv2'), { size: 34, weight: 600, fill: OK });
+    hide(head, m('lv2'), .3);
+    const box = mk('rect', { x: 90, y: 140, width: 360, height: 430, rx: 16, fill: '#22322d', stroke: ATTR, 'stroke-width': 2 }, p);
+    put(box, { o: 0 }); show(box, .3);
+    DW_ATTRS.forEach(([n, v], i) => {
+      say(p, n, 120, 205 + i * 64, .4 + i * .06, { size: 28, anchor: 'start' });
+      say(p, v, 420, 205 + i * 64, m('attrs', .5 + i * 1.15), { size: 32, fill: ATTR, weight: 700, anchor: 'end' });
+    });
+    say(p, 'строка', 520, 130, .5, { size: 22, fill: COL.dim, anchor: 'start' });
+    say(p, 'расчёт', 900, 130, .5, { size: 22, fill: COL.dim, anchor: 'start' });
+    say(p, 'итог', 1400, 130, .5, { size: 22, fill: COL.dim, anchor: 'end' });
+    DW_ROWS.forEach(([lab, s1, t1, s2, t2], i) => {
+      const y = 182 + i * 66, t0 = m('rows', .2 + i * .3);
+      say(p, lab, 520, y, .5 + i * .05, { size: 26, anchor: 'start' });
+      const c1 = colorLine(p, s1, 900, y, t0, { size: 28, anchor: 'start' });
+      const v1 = say(p, t1, 1400, y, t0 + .15, { size: 30, weight: 700, anchor: 'end' });
+      if (!s2) { pulse(v1, i === 5 ? m('dip') : m('spd'), 1.3); return; }
+      const ti = i === 8 ? m('hp') : m('up', .3 + Math.min(i, 7) * .25);
+      hide(c1, ti, .3); hide(v1, ti, .3);
+      colorLine(p, s2, 900, y, ti + .3, { size: 28, anchor: 'start' });
+      const v2 = say(p, t2, 1400, y, ti + .3, { size: 30, weight: 700, anchor: 'end', fill: OK });
+      pulse(v2, ti + .5, 1.25);
+    });
+    say(p, 'на 2-м уровне: всё, где герой обучен, +1 · Дипломатия −1 → −1 · ПЗ +12 · Скорость та же', 800, 860, m('dip', 1.4), { size: 24, fill: COL.dim });
+  }],
+  ['wrap', 'Итоги', (m) => {
+    const p = panel(0);
+    numbered(p, [['Почти любое число = модификатор характеристики + бонус умения.', 'w1'], ['Изучен — уровень + 2, каждый ранг выше ещё +2, неизучен — 0.', 'w2'],
+      ['КБ и классовая СЛ начинаются с 10; Ловкость в броне — не больше предела.', 'w3'], ['ПЗ = народ + класс + Выносливость; каждый уровень: + класс + Выносливость.', 'w4']], m, 230, 130, 31);
+  }],
+  ['final1', 'Практика главы', () => { panel(0); }, { ask: done => quiz(SCREEN, [{
+    id: 'p-tf', prompt: ['Верно или неверно?'], build: grid(P_TF, TF, { multi: false, text: true }),
+  }], done, 'Практика главы   1 из 3') }],
+  ['final2', 'Практика главы', () => {}, { ask: done => quiz(SCREEN, [{
+    id: 'p-sheet', prompt: ['Эльфийка-волшебница 1-го уровня: Ловкость +2, Выносливость +1, Интеллект +4, Мудрость +1. Посчитайте строки её листа.'], build: blanks(P_SHEET),
+  }], done, 'Практика главы   2 из 3') }],
+  ['final3', 'Практика главы', () => {}, { ask: done => quiz(SCREEN, [{
+    id: 'p-calc', prompt: ['Посчитайте.'], build: blanks(P_CALC),
+  }], done, 'Практика главы   3 из 3') }],
+  ['finish', 'Готово', () => {}, { ask: finishCard }],
+].map(([id, title, run, extra]) => ({ id, title, run, ...extra }));
+
+/* ---------- question data ---------- */
+const Q_PROF = [
+  { parts: ['Изучен, 1-й уровень. Бонус умения: +', { box: '3' }], why: '1 + 2 = 3.', hint: 'Изучен — это уровень + 2.' },
+  { parts: ['Эксперт, 3-й уровень. Бонус умения: +', { box: '7' }], why: '3 + 4 = 7.', hint: 'Эксперт — это уровень + 4.' },
+  { parts: ['Неизучен, 5-й уровень. Бонус умения: ', { box: '0' }], why: 'В ранг «неизучен» уровень не входит: 0.', hint: 'Уровень входит во все ранги, кроме одного.' },
+  { parts: ['Внимание: Мудрость +2, изучен, 1-й уровень. Всего: +', { box: '5' }], why: '2 + (1 + 2) = 5.', hint: 'Внимание = Мудрость + бонус умения.' },
+];
+const ATTR_COLS = [['str', 'Сила', ATTR], ['dex', 'Ловкость', ATTR], ['con', 'Выносливость', ATTR], ['int', 'Интеллект', ATTR], ['wis', 'Мудрость', ATTR], ['cha', 'Харизма', ATTR]];
+const Q_ATTR = [
+  { parts: ['Стойкость'], ans: ['con'], why: 'Стойкость — от Выносливости.' },
+  { parts: ['Воля'], ans: ['wis'], why: 'Воля — от Мудрости.' },
+  { parts: ['Скрытность'], ans: ['dex'], why: 'Скрытность — навык Ловкости.' },
+  { parts: ['Медицина'], ans: ['wis'], why: 'Медицина — навык Мудрости.' },
+  { parts: ['Обман'], ans: ['cha'], why: 'Обман — навык Харизмы.' },
+  { parts: ['Ремесло'], ans: ['int'], why: 'Ремесло — навык Интеллекта.' },
+];
+const Q_AC = [
+  { parts: ['Ловкость +2, кожаный доспех. КБ: ', { box: '16' }], why: '10 + 2 + 3 + 1 = 16.', hint: 'КБ = 10 + Ловкость + 3 за «изучен» + бонус брони.' },
+  { parts: ['Ловкость +4, кольчуга. КБ: ', { box: '18' }], why: 'Предел кольчуги +1: 10 + 1 + 3 + 4 = 18.', hint: 'Ловкость в кольчуге — не больше +1.' },
+  { parts: ['Ловкость +4, кожаный доспех. КБ: ', { box: '18' }], why: 'Предел +4 пропускает всю Ловкость: 10 + 4 + 3 + 1 = 18.', hint: 'Предел кожаного доспеха +4.' },
+];
+const Q_CALC = [
+  { parts: ['Ловкость +3, лук — ранг «изучен». Модификатор атаки из лука: +', { box: '6' }], why: '3 + 3 = 6: в дальнем бою — Ловкость.', hint: 'Дальний бой: Ловкость + бонус умения.' },
+  { parts: ['Ключевая характеристика +3, изучен. Классовая СЛ: ', { box: '16' }], why: '10 + 3 + 3 = 16.', hint: 'Классовая СЛ = 10 + бонус умения + ключевая характеристика.' },
+  { parts: ['Человек (8 ПЗ), бард (8 ПЗ), Выносливость +1. ПЗ: ', { box: '17' }], why: '8 + 8 + 1 = 17.', hint: 'ПЗ = народ + класс + Выносливость.' },
+  { parts: ['Тот же бард на 2-м уровне. ПЗ: ', { box: '26' }], why: '17 + 8 + 1 = 26.', hint: 'Каждый уровень: + ПЗ класса + Выносливость.' },
+];
+const P_TF = [
+  { parts: ['Неизученный навык нельзя даже попробовать.'], ans: ['f'], why: 'Пробовать можно с бонусом умения 0; только часть действий требует обучения.' },
+  { parts: ['Бонус умения «эксперт» на 1-м уровне равен +5.'], ans: ['t'], why: '1 + 4 = 5.' },
+  { parts: ['С новым уровнем растёт и неизученный навык.'], ans: ['f'], why: 'В «неизучен» уровень не входит: бонус остаётся 0.' },
+  { parts: ['Воля считается от Мудрости.'], ans: ['t'], why: 'Стойкость — Выносливость, Реакция — Ловкость, Воля — Мудрость.' },
+  { parts: ['В кольчуге Ловкость +4 даёт к КБ +4.'], ans: ['f'], why: 'Предел кольчуги +1: от Ловкости остаётся +1.' },
+  { parts: ['Удар мечом в ближнем бою считают от Силы.'], ans: ['t'], why: 'Ближний бой: Сила + умение с оружием.' },
+  { parts: ['Ситуативные бонусы записывают на лист.'], ans: ['f'], why: 'На лист идут только постоянные бонусы, ситуативные прибавляют при броске.' },
+  { parts: ['На каждом новом уровне ПЗ растут на ПЗ класса плюс Выносливость.'], ans: ['t'], why: 'Дварф-воин: +10 + 2 = +12 за уровень.' },
+];
+const P_SHEET = [
+  { parts: ['Внимание (изучен): +', { box: '4' }], why: 'Мудрость 1 + изучен 3 = 4.', hint: 'Внимание — от Мудрости; изучен на 1-м уровне — +3.' },
+  { parts: ['Реакция (изучен): +', { box: '5' }], why: 'Ловкость 2 + 3 = 5.', hint: 'Реакция — от Ловкости.' },
+  { parts: ['Воля (эксперт): +', { box: '6' }], why: 'Мудрость 1 + эксперт 5 = 6.', hint: 'Эксперт на 1-м уровне — +5.' },
+  { parts: ['Мистицизм (изучен): +', { box: '7' }], why: 'Интеллект 4 + 3 = 7.', hint: 'Мистицизм — навык Интеллекта.' },
+  { parts: ['КБ без брони, защита без брони — изучен: ', { box: '15' }], why: '10 + 2 + 3 = 15, бонуса брони нет.', hint: 'Без брони: 10 + Ловкость + умение «защита без брони».' },
+  { parts: ['ПЗ (эльф 6, волшебник 6): ', { box: '13' }], why: '6 + 6 + 1 = 13.', hint: 'ПЗ = народ + класс + Выносливость.' },
+];
+const P_CALC = [
+  { parts: ['Дварф-воин (Сила +4) на 3-м уровне, Атлетика всё ещё «изучен»: +', { box: '9' }], why: '4 + (3 + 2) = 9.', hint: 'Изучен на 3-м уровне — это 3 + 2.' },
+  { parts: ['Он же на 3-м уровне, Дипломатия (Харизма −1, неизучен): ', { box: '-1' }], why: '−1 + 0 = −1: в «неизучен» уровень не входит.', hint: 'Бонус «неизучен» с уровнем не растёт.' },
+  { parts: ['Он же (22 ПЗ на 1-м уровне, воин 10, Выносливость +2). ПЗ на 4-м уровне: ', { box: '58' }], why: '22 + 3 × (10 + 2) = 58.', hint: 'С 1-го до 4-го уровня — три новых уровня по 10 + 2.' },
+  { parts: ['Волшебница: Интеллект +4, СЛ заклинаний — ранг «изучен», 1-й уровень. СЛ заклинаний: ', { box: '17' }], why: '10 + 3 + 4 = 17.', hint: 'Считается как классовая СЛ: 10 + умение + ключевая характеристика.' },
+];
+boot();
+</script>
+</body>
+</html>

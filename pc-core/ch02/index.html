@@ -1,0 +1,522 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Проверка: к20 против сложности — Первый герой</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%231d2b27'/%3E%3Ctext x='32' y='45' text-anchor='middle' font-size='48' fill='%23f0b45a'%3E∞%3C/text%3E%3C/svg%3E">
+<link rel="stylesheet" href="../lib/engine.css">
+<link rel="expect" href="#bar" blocking="render"><!-- hold the first frame until the player exists, so the page transition can run -->
+</head>
+<body>
+<script src="../lib/engine.js"></script>
+<script src="../lib/pf.js"></script>
+<script src="audio/ru/timings.js"></script>
+<script>
+'use strict';
+const CHAPTER = { number: 2, title: 'Проверка: к20 против сложности', minutes: 10, language: 'ru', next: '../ch03/' };
+
+/* ---------- chapter drawing helpers (shared ones: lib/pf.js) ---------- */
+// Degrees of success, best first: key, label, colour, fill opacity.
+const DEG = [['cs', 'крит. успех', OK, .5], ['s', 'успех', OK, .2], ['f', 'провал', NO, .2], ['cf', 'крит. провал', NO, .5]];
+const degOf = (total, dc) => DEG[total >= dc + 10 ? 0 : total >= dc ? 1 : total > dc - 10 ? 2 : 3];
+const DEGREES = [['cs', 'Крит. успех', OK], ['s', 'Успех', OK], ['f', 'Провал', NO], ['cf', 'Крит. провал', NO]];
+// A d20 outline with the rolled number inside.
+function numDie(p, n, x, y, t0, size = 50, color = RULE) {
+  const d = dieShape(p, 20, x, y, color, t0, size, null, false);
+  T(d, String(n), { y: size * .22, size: size * .62, fill: color, weight: 700, anchor: 'middle' });
+  return d;
+}
+// Bracket under (dir 1) or over (dir −1) a span.
+const bracket = (p, x1, x2, y, color, t0, dir = 1) =>
+  draw(path(p, `M${x1} ${y - dir * 14}V${y}H${x2}V${y - dir * 14}`, { stroke: color, 'stroke-width': 4 }, { d: 0 }), t0, .6);
+// A filled box, hidden until t0 (fade to opacity o).
+function box(p, x, y, w, h, color, op, t0, o = 1, rx = 10) {
+  const r = mk('rect', { x, y, width: w, height: h, rx, fill: color, 'fill-opacity': op, stroke: color, 'stroke-width': 2.5 }, p);
+  put(r, { o: 0 });
+  if (t0 != null) tw(r, { o }, t0, .5);
+  return r;
+}
+// A shield with a short label inside.
+function shield(p, label, color, x, y, t0) {
+  const g = G(p, { x, y, o: 0 });
+  path(g, 'M0 -62L54 -42V6Q54 46 0 68Q-54 46 -54 6V-42Z', { stroke: color, 'stroke-width': 4, fill: '#22322d', 'stroke-linejoin': 'round' });
+  T(g, label, { y: 12, size: 30, fill: color, weight: 700, anchor: 'middle' });
+  show(g, t0);
+  return g;
+}
+// A strike-through line drawn on.
+const strike = (p, x1, y1, x2, y2, t0) => draw(path(p, `M${x1} ${y1}L${x2} ${y2}`, { stroke: NO, 'stroke-width': 6, 'stroke-linecap': 'round' }, { d: 0 }), t0, .4);
+
+/* ---------- beats: [id, title, run(m, D), { ask }?] ---------- */
+const BEATS = [
+  ['intro', 'Проверка: к20 против сложности', (m, D) => {
+    const g = G(scene, { o: 0, y: 24 });
+    T(g, 'Раздел 1 «Основы» · Глава 2', { x: 800, y: 330, size: 28, fill: COL.dim, anchor: 'middle' });
+    T(g, 'Проверка: к20 против сложности', { x: 800, y: 440, size: 76, weight: 600, anchor: 'middle' });
+    tw(g, { o: 1, y: 0 }, .2, 1.1, out);
+    const r = say(scene, 'четыре шага, степени успеха, бонусы и штрафы, испытания', 800, 560, m('sub'), { size: 34, fill: COL.dim });
+    tw(g, { o: 0, y: -24 }, D - .9, .8); hide(r, D - .9, .8);
+  }],
+  ['steps', 'Четыре шага', (m) => {
+    const p = panel(0);
+    say(p, 'Проверка в четыре шага', 90, 120, .2, { size: 36, weight: 600, anchor: 'start' });
+    [['Бросьте к20, найдите модификаторы', 's1'], ['Сложите: получится итог', 's2'], ['Сравните итог со сложностью (СЛ)', 's3'], ['Определите степень успеха', 's4']].forEach(([str, mark], i) => {
+      const g = G(p, { x: -16, y: 240 + i * 120, o: 0 });
+      mk('circle', { cx: 116, cy: -10, r: 26, fill: RULE }, g);
+      T(g, String(i + 1), { x: 116, y: 1, size: 30, fill: COL.board, weight: 700, anchor: 'middle' });
+      T(g, str, { x: 162, size: 30, weight: 600 });
+      tw(g, { o: 1, x: 0 }, m(mark), .6);
+    });
+    draw(path(p, 'M740 160V820', { stroke: COL.faint, 'stroke-width': 2 }, { d: 0 }), m('ex', -.4), .5);
+    say(p, 'Река: проверка Атлетики', 1150, 140, m('ex'), { size: 30, fill: COL.dim, weight: 600 });
+    numDie(p, 12, 900, 300, m('die'), 58);
+    say(p, '+5', 1040, 318, m('mod'), { size: 52, fill: RULE, weight: 700 });
+    say(p, 'Атлетика', 1040, 380, m('mod', .2), { size: 22, fill: COL.dim });
+    say(p, '=', 1150, 318, m('sum'), { size: 52, fill: RULE, weight: 700 });
+    const tot = G(p, { x: 1250, y: 318, o: 0 });
+    T(tot, '17', { size: 56, fill: RULE, weight: 700, anchor: 'middle' });
+    pop(tot, m('sum', .2));
+    const lx = v => 820 + (v - 10) * 66, ly = 580;
+    draw(path(p, `M${lx(10)} ${ly}H${lx(20)}`, { stroke: COL.dim, 'stroke-width': 3 }, { d: 0 }), m('dc'), .5);
+    for (let v = 10; v <= 20; v++) {
+      draw(path(p, `M${lx(v)} ${ly - 9}V${ly + 9}`, { stroke: COL.dim, 'stroke-width': 2 }, { d: 0 }), m('dc', .2), .3);
+      if (v % 5 === 0) say(p, String(v), lx(v), ly + 42, m('dc', .3), { size: 22, fill: COL.dim });
+    }
+    draw(path(p, `M${lx(15)} ${ly - 110}V${ly + 12}`, { stroke: RULE, 'stroke-width': 5 }, { d: 0 }), m('dc', .2), .5);
+    say(p, 'СЛ 15', lx(15), ly - 124, m('dc', .4), { size: 28, fill: RULE, weight: 700 });
+    box(p, lx(15), ly - 70, lx(20) - lx(15), 56, OK, .25, m('ok'));
+    box(p, lx(10), ly - 70, lx(15) - lx(10), 56, NO, .2, m('ok'));
+    say(p, 'успех', (lx(15) + lx(20)) / 2 + 60, ly - 33, m('ok', .2), { size: 24, fill: COL.chalk, weight: 700 });
+    say(p, 'провал', (lx(10) + lx(15)) / 2, ly - 33, m('ok', .2), { size: 24, fill: COL.chalk, weight: 700 });
+    tw(tot, { x: lx(17), y: ly + 100, s: .7 }, m('ok', -.3), .8);
+    const dt = G(p, { x: lx(17), y: ly, o: 0 });
+    mk('circle', { r: 12, fill: COL.chalk, stroke: COL.board, 'stroke-width': 3 }, dt);
+    show(dt, m('ok', .3));
+    say(p, '17 ≥ 15 → успех', 1150, 760, m('ok', .5), { size: 34, fill: OK, weight: 700 });
+    const eq = G(p, { x: lx(15), y: ly, o: 0 });
+    mk('circle', { r: 12, fill: COL.board, stroke: OK, 'stroke-width': 4 }, eq);
+    show(eq, m('eq'));
+    say(p, 'итог 15 = СЛ 15 — тоже успех', 1150, 820, m('eq', .2), { size: 28, fill: COL.dim, weight: 600 });
+  }],
+  ['sheet', 'Число на листе', (m) => {
+    const p = panel(0);
+    say(p, 'лист персонажа', 800, 78, .2, { size: 22, fill: COL.dim });
+    const sh = G(p, { x: 800, y: 150, o: 0 });
+    mk('rect', { x: -230, y: -52, width: 460, height: 104, rx: 16, fill: '#22322d', stroke: HERO, 'stroke-width': 2.5 }, sh);
+    T(sh, 'Атлетика', { x: -196, y: 16, size: 44, weight: 600 });
+    const five = T(sh, '+5', { x: 160, y: 18, size: 52, fill: RULE, weight: 700, anchor: 'middle' });
+    show(sh, .2);
+    say(p, 'модификатор = характеристика + бонус умения', 800, 250, m('two'), { size: 28, fill: COL.dim, weight: 600 });
+    infoCard(p, 130, 300, 580, 'Модификатор характеристики', ['природные данные героя', 'плавание: Сила'], RULE, m('attr'), .9);
+    infoCard(p, 890, 300, 580, 'Бонус умения', ['изучен: уровень + 2 = 1 + 2', ['неизучен: +0', COL.dim]], RULE, m('prof'), m('none') - m('prof') - .3);
+    const part = (str, x, y) => { const g = G(p, { x: 960, y: 168, o: 0 }); T(g, str, { size: 52, fill: RULE, weight: 700, anchor: 'middle' }); return [g, x, y]; };
+    const parts = [part('+2', 640, 360), part('+3', 1400, 360)];
+    tw(five, { o: .3 }, m('two', .3), .4);
+    parts.forEach(([g, x, y], i) => { show(g, m('two', .3), .3); tw(g, { x, y }, m(i ? 'prof' : 'attr', -.2), .9); });
+    say(p, 'подробно — в главе 3', 800, 560, m('later'), { size: 28, fill: COL.dim });
+    parts.forEach(([g]) => tw(g, { x: 960, y: 168 }, m('later', 2.2), .8));
+    parts.forEach(([g]) => hide(g, m('later', 3), .3));
+    tw(five, { o: 1 }, m('later', 3), .3);
+    pulse(sh, m('later', 3.1), 1.08);
+    say(p, 'на листе уже сложено: 2 + 3 = 5', 800, 620, m('later', 2.6), { size: 30, fill: RULE, weight: 700 });
+    pill(p, 'к20 + число с листа + ситуация', RULE, 800, 760, m('sit'), 32);
+  }],
+  ['dc', 'Кто знает СЛ', (m) => {
+    const p = panel(0);
+    say(p, 'Кто знает СЛ?', 800, 100, .2, { size: 40, weight: 600 });
+    shield(p, 'КБ', FOE, 240, 260, m('ac'));
+    say(p, 'Класс брони врага = СЛ удара по нему', 330, 250, m('ac', .3), { size: 30, anchor: 'start', weight: 600 });
+    say(p, 'после пары атак его можно прикинуть', 330, 296, m('ac', 3), { size: 26, fill: COL.dim, anchor: 'start' });
+    const gm = who(p, 'Ведущий', GMC, 1200, 600, m('gm'));
+    const scr = G(p, { x: 1050, y: 610, o: 0 });
+    path(scr, 'M-46 -62H46V62H-46Z', { stroke: GMC, 'stroke-width': 3, fill: '#22322d' });
+    T(scr, 'СЛ ?', { y: 10, size: 28, fill: GMC, weight: 700, anchor: 'middle' });
+    show(scr, m('gm', .3));
+    say(p, 'СЛ 15 знает только ведущий', 1150, 740, m('gm', .6), { size: 24, fill: GMC });
+    who(p, 'Игрок', HERO, 400, 600, m('gm', .2));
+    bubble(p, 'Итог 17!', 400, 470, HERO, m('say'));
+    bubble(p, 'Успех: вы на том берегу', 1200, 460, GMC, m('ans'));
+    pulse(gm, m('ans'), 1.1);
+    say(p, 'обстановка меняется — спрашивайте ведущего', 800, 840, m('ask'), { size: 28, fill: COL.dim });
+  }],
+  ['q1', 'Быстрая проверка', () => { panel(0); }, { ask: done => quiz(WIDE, [{
+    id: 'c-pass', prompt: ['Успех или провал?'],
+    build: grid(Q_PASS, [['s', 'Успех', OK], ['f', 'Провал', NO]], { multi: false, text: true }),
+  }], done) }],
+  ['degrees', 'Четыре степени успеха', (m) => {
+    const p = panel(0), ly = 560, dx = v => 170 + v * 42;
+    say(p, 'Река: Атлетика +5 против СЛ 15', 800, 100, .2, { size: 32, fill: COL.dim, weight: 600 });
+    draw(path(p, `M${dx(0)} ${ly}H${dx(30)}`, { stroke: COL.dim, 'stroke-width': 3 }, { d: 0 }), .3, .6);
+    for (let v = 0; v <= 30; v++) {
+      draw(path(p, `M${dx(v)} ${ly - (v % 5 ? 7 : 11)}V${ly + (v % 5 ? 7 : 11)}`, { stroke: COL.dim, 'stroke-width': 2 }, { d: 0 }), .5, .3);
+      if (v % 5 === 0) say(p, String(v), dx(v), ly + 42, .6, { size: 22, fill: COL.dim });
+    }
+    draw(path(p, `M${dx(15)} ${ly - 240}V${ly + 14}`, { stroke: RULE, 'stroke-width': 5 }, { d: 0 }), .6, .5);
+    say(p, 'СЛ 15', dx(15) + 14, ly - 216, .8, { size: 28, fill: RULE, weight: 700, anchor: 'start' });
+    const band = (a, b, [, name, colr, op], range, t0) => {
+      const r = box(p, dx(a), ly - 130, dx(b) - dx(a), 116, colr, op, t0, 1, 6);
+      say(p, name, (dx(a) + dx(b)) / 2, ly - 80, t0 + .2, { size: 24, weight: 700 });
+      say(p, range, (dx(a) + dx(b)) / 2, ly - 44, t0 + .2, { size: 22, fill: COL.chalk });
+      return r;
+    };
+    band(14.5, 24.5, DEG[1], '15–24', m('s'));
+    band(24.5, 30.4, DEG[0], '25 и выше', m('cs'));
+    bracket(p, dx(15), dx(25), ly + 78, OK, m('cs', .5));
+    say(p, 'СЛ + 10', dx(20), ly + 114, m('cs', .7), { size: 26, fill: OK, weight: 700 });
+    band(5.5, 14.5, DEG[2], '6–14', m('f'));
+    const cfBand = band(-.4, 5.5, DEG[3], '5 и ниже', m('cf'));
+    bracket(p, dx(5), dx(15), ly + 78, NO, m('cf', .5));
+    say(p, 'СЛ − 10', dx(10), ly + 114, m('cf', .7), { size: 26, fill: NO, weight: 700 });
+    const mkr = G(p, { x: dx(2), y: ly, o: 0 });
+    mk('circle', { r: 13, fill: COL.chalk, stroke: COL.board, 'stroke-width': 3 }, mkr);
+    show(mkr, m('run'), .3);
+    const rd = say(p, '', 800, 770, m('run'), { size: 34, weight: 700 });
+    const setV = v => {
+      const r = Math.round(v), d = degOf(r, 15);
+      put(mkr, { x: dx(v) });
+      rd.textContent = `итог ${r} → ${d[1]}`;
+      rd.setAttribute('fill', d[2]);
+    };
+    prog(q => setV(2 + 26 * q), m('run', .2), 3.6, lin);
+    prog(q => setV(28 - 11 * q), m('run', 4), 1);
+    bracket(p, dx(6), dx(25), ly - 160, HERO, m('hero'), -1);
+    say(p, 'с +5 итог: от 6 до 25', dx(6), ly - 186, m('hero', .3), { size: 26, fill: HERO, weight: 600, anchor: 'start' });
+    tw(cfBand, { o: .35 }, m('hero', 1.5), .6);
+    say(p, 'удар: крит. успех → двойной урон', 800, 826, m('desc', 2), { size: 26, fill: COL.chalk });
+    say(p, 'ничего особого не сказано → как обычный успех или провал', 800, 866, m('plain'), { size: 26, fill: COL.dim });
+  }],
+  ['nat', 'Натуральные 20 и 1', (m) => {
+    const p = panel(0), x0 = 280, cw = 60, cy = 340, cx = i => x0 + (i - 1) * cw;
+    say(p, 'Атлетика +5 против СЛ 15', 800, 100, .2, { size: 32, fill: COL.dim, weight: 600 });
+    pill(p, '20 на кубике: на степень лучше', OK, 470, 200, m('n20'), 28);
+    pill(p, '1 на кубике: на степень хуже', NO, 1130, 200, m('n1'), 28);
+    say(p, 'кубик', x0 - 20, cy + 44, m('strip'), { size: 22, fill: COL.dim, anchor: 'end' });
+    say(p, 'итог', x0 - 20, cy + 116, m('strip'), { size: 22, fill: COL.dim, anchor: 'end' });
+    const over = [];
+    for (let i = 1; i <= 20; i++) {
+      const t0 = m('strip', .2 + i * .04);
+      box(p, cx(i), cy, cw - 6, 70, COL.chalk, 0, t0, 1, 8).setAttribute('stroke', COL.faint);
+      say(p, String(i), cx(i) + (cw - 6) / 2, cy + 46, t0, { size: 28, fill: RULE, weight: 700 });
+      say(p, String(i + 5), cx(i) + (cw - 6) / 2, cy + 116, t0 + .1, { size: 24, fill: COL.chalk });
+      over[i] = box(p, cx(i), cy, cw - 6, 70, i >= 10 ? OK : NO, i === 20 ? .55 : .3, null, 1, 8);
+    }
+    for (let i = 2; i <= 19; i++) tw(over[i], { o: 1 }, m('mid', i < 10 ? .1 + (i - 2) * .05 : 2 + (i - 10) * .05), .4);
+    bracket(p, cx(2), cx(9) + cw - 6, cy + 150, NO, m('mid', .6));
+    say(p, 'провал', (cx(2) + cx(9) + cw) / 2, cy + 192, m('mid', .8), { size: 26, fill: NO, weight: 700 });
+    bracket(p, cx(10), cx(19) + cw - 6, cy + 150, OK, m('mid', 2.5));
+    say(p, 'успех', (cx(10) + cx(19) + cw) / 2, cy + 192, m('mid', 2.7), { size: 26, fill: OK, weight: 700 });
+    tw(over[20], { o: 1 }, m('top'), .4);
+    say(p, 'крит. успех', cx(20) + 27, cy + 192, m('top', .4), { size: 24, fill: OK, weight: 700 });
+    say(p, 'выше некуда', cx(20) + 27, cy + 226, m('top', 2.5), { size: 22, fill: COL.dim });
+    tw(over[1], { o: 1 }, m('low', 1), .4);
+    const fl = say(p, 'провал', cx(1) + 27, cy + 192, m('low', 1.2), { size: 24, fill: NO, weight: 700 });
+    tw(over[1], { 'a_fill-opacity': .65 }, m('drop'), .5);
+    pulse(over[1], m('drop'), 1);
+    hide(fl, m('drop'), .3);
+    arrowTo(p, cx(1) + 27, cy + 170, cx(1) + 27, cy + 250, NO, m('drop', .3));
+    say(p, 'крит. провал', cx(1) + 27, cy + 290, m('drop', .5), { size: 26, fill: NO, weight: 700 });
+    say(p, 'итог 6 — провал, натуральная 1 → на степень ниже', 800, 760, m('drop', 1), { size: 28, fill: COL.chalk, weight: 600 });
+  }],
+  ['extremes', 'Не всегда крит', (m) => {
+    const p = panel(0);
+    draw(path(p, 'M800 140V700', { stroke: COL.faint, 'stroke-width': 2 }, { d: 0 }), .2, .5);
+    const ys = [300, 378, 456, 534];
+    const ladder = (cx) => DEG.forEach(([, name, colr, op], i) => {
+      box(p, cx - 160, ys[i] - 32, 320, 64, colr, op, .3 + i * .08);
+      say(p, name, cx, ys[i] + 9, .4 + i * .08, { size: 26, weight: 700 });
+    });
+    ladder(420); ladder(1180);
+    const frame = (cx, i, t0) => {
+      const g = G(p, { x: cx, y: ys[i], o: 0 });
+      mk('rect', { x: -176, y: -40, width: 352, height: 80, rx: 14, fill: 'none', stroke: RULE, 'stroke-width': 5 }, g);
+      show(g, t0);
+      return g;
+    };
+    say(p, '+2 против СЛ 30', 420, 140, m('hi'), { size: 32, weight: 600 });
+    numDie(p, 20, 290, 205, m('hi', 2), 34);
+    say(p, '→ итог 22', 340, 216, m('hi', 2.4), { size: 30, fill: RULE, weight: 700, anchor: 'start' });
+    const f1 = frame(420, 2, m('hi', 3.6));
+    tw(f1, { y: ys[1] }, m('up'), .7, back);
+    say(p, 'натуральная 20: +1 степень', 420, 630, m('up', .5), { size: 28, fill: OK, weight: 700 });
+    say(p, '+20 против СЛ 10', 1180, 140, m('lo'), { size: 32, weight: 600 });
+    numDie(p, 1, 1050, 205, m('lo', 2.6), 34);
+    say(p, '→ итог 21', 1100, 216, m('lo', 3), { size: 30, fill: RULE, weight: 700, anchor: 'start' });
+    const f2 = frame(1180, 0, m('lo', 4));
+    tw(f2, { y: ys[1] }, m('down'), .7, back);
+    say(p, 'натуральная 1: −1 степень', 1180, 630, m('down', .5), { size: 28, fill: NO, weight: 700 });
+    say(p, '20 и 1 сдвигают результат ровно на одну степень', 800, 780, m('down', 2), { size: 30, fill: COL.chalk, weight: 600 });
+  }],
+  ['q2', 'Быстрая проверка', () => { panel(0); }, { ask: done => quiz(WIDE, [{
+    id: 'c-degree', prompt: ['Определите степень успеха. Не забудьте про 20 и 1 на кубике.'],
+    build: grid(Q_DEGREE, DEGREES, { multi: false, text: true }),
+  }], done) }],
+  ['bonus', 'Три вида бонусов', (m) => {
+    const p = panel(0);
+    say(p, 'Бонусы: кроме бонуса умения — три вида', 800, 74, .2, { size: 32, weight: 600 });
+    infoCard(p, 60, 110, 460, 'Ситуативный', ['от положения дел', 'укрытие: +2 к КБ', 'помощь союзника'], RULE, m('circ'), .5);
+    infoCard(p, 570, 110, 460, 'Предмета', ['от снаряжения', 'броня: к КБ', 'инструменты: к навыку'], RULE, m('item'), .5);
+    infoCard(p, 1080, 110, 460, 'Состояния', ['от магии', '«Героизм»: +1 к атакам,', 'испытаниям, навыкам'], RULE, m('stat'), .7);
+    say(p, 'разные виды складываются · из одного вида — только самый большой', 800, 400, m('rule'), { size: 28, fill: RULE, weight: 700 });
+    say(p, 'Скрытность за укрытием', 200, 480, m('ex'), { size: 28, fill: COL.dim, weight: 600, anchor: 'start' });
+    const row = (y, n, kind, src, t0) => {
+      const g = G(p, { y, o: 0 });
+      T(g, n, { x: 330, y: 16, size: 44, fill: RULE, weight: 700, anchor: 'end' });
+      put(pill(g, kind, RULE, 470, 0, null, 26), { o: 1 });
+      T(g, src, { x: 610, y: 10, size: 28 });
+      show(g, t0);
+      return g;
+    };
+    const r1 = row(560, '+2', 'ситуативный', 'укрытие', m('ex', .3));
+    const r2 = row(640, '+1', 'ситуативный', 'помощь союзника', m('aid'));
+    tw(r2, { o: .4 }, m('cut', .5), .4);
+    strike(p, 240, 640, 880, 640, m('cut'));
+    say(p, 'один вид → только +2', 920, 650, m('cut', .6), { size: 28, fill: NO, weight: 700, anchor: 'start' });
+    const r3 = row(720, '+1', 'состояния', '«Героизм»', m('hero'));
+    pulse(r1, m('total'), 1.06); pulse(r3, m('total'), 1.06);
+    say(p, 'всего: +2 + 1 = +3', 800, 840, m('total', .3), { size: 40, fill: RULE, weight: 700 });
+  }],
+  ['penalty', 'Штрафы', (m) => {
+    const p = panel(0);
+    say(p, 'Штрафы: те же три вида', 800, 84, .2, { size: 34, weight: 600 });
+    say(p, 'из штрафов одного вида действует самый большой', 800, 132, m('same'), { size: 26, fill: COL.dim });
+    const row = (y, n, colr, src, t0) => {
+      const g = G(p, { y, o: 0 });
+      T(g, n, { x: 330, y: 16, size: 44, fill: colr, weight: 700, anchor: 'end' });
+      put(pill(g, 'состояния', colr, 460, 0, null, 26), { o: 1 });
+      T(g, src, { x: 580, y: 10, size: 28 });
+      show(g, t0);
+      return g;
+    };
+    row(220, '+1', RULE, '«Героизм»', m('both', 1.5));
+    row(300, '−2', NO, '«Тошнота»', m('both', 3));
+    const fly = [['+1', 220, RULE], ['−2', 300, NO]].map(([n, y, colr]) => {
+      const g = G(p, { x: 300, y: y + 16, o: 0 });
+      T(g, n, { size: 44, fill: colr, weight: 700, anchor: 'middle' });
+      show(g, m('sum'), .2);
+      tw(g, { x: 1100, y: 290 }, m('sum', .1), .8);
+      hide(g, m('sum', .8), .2);
+      return g;
+    });
+    const res = G(p, { x: 1100, y: 290, o: 0, s: .6 });
+    T(res, '−1', { size: 64, fill: NO, weight: 700, anchor: 'middle' });
+    pop(res, m('sum', .9));
+    say(p, 'один вид, но бонус и штраф — оба', 1100, 200, m('sum', 1.2), { size: 26, fill: COL.dim });
+    draw(path(p, 'M120 410H1480', { stroke: COL.faint, 'stroke-width': 2 }, { d: 0 }), m('untyped', -.3), .5);
+    say(p, 'Штрафы без вида складываются все', 800, 520, m('untyped'), { size: 36, weight: 600 });
+    say(p, 'а не только самый большой', 800, 575, m('untyped', 1.5), { size: 28, fill: COL.dim });
+  }],
+  ['map', 'Несколько атак за ход', (m) => {
+    const p = panel(0);
+    say(p, 'Штраф за последовательные атаки', 800, 84, .2, { size: 36, weight: 600 });
+    who(p, 'Воин', HERO, 200, 300, .3, 44);
+    who(p, 'Гоблин', FOE, 1400, 300, .4, 44);
+    say(p, 'ход: три действия, каждый удар — одно действие', 800, 160, m('turn'), { size: 26, fill: COL.dim });
+    say(p, 'чем больше атак за ход, тем менее точна каждая следующая', 800, 215, m('name'), { size: 26, fill: RULE, weight: 600 });
+    say(p, 'удар воина +7:', 330, 512, m('ex'), { size: 24, fill: COL.dim });
+    const pens = [['1-й удар', '0', '+7', 's1', 'ex', COL.chalk], ['2-й удар', '−5', '7 − 5 = +2', 's2', 'ex2', NO], ['3-й и далее', '−10', '7 − 10 = −3', 's3', 'ex3', NO]]
+      .map(([lab, pen, tot, m1, m2, colr], i) => {
+        const x = 560 + i * 280;
+        actGlyph(p, 1, x, 300, COL.chalk, m('turn', .8 + i * .3));
+        say(p, lab, x, 380, m(m1), { size: 26 });
+        const pe = say(p, pen, x, 432, m(m1, .2), { size: 40, fill: colr, weight: 700 });
+        say(p, tot, x, 512, m(m2, .2), { size: 34, fill: RULE, weight: 700 });
+        return pe;
+      });
+    pens.forEach(pe => tw(pe, { o: .3 }, m('reset', .4), .5));
+    say(p, 'конец хода — штраф сброшен, следующий ход снова с нуля', 800, 590, m('reset'), { size: 28, fill: OK, weight: 600 });
+    draw(path(p, 'M120 640H1480', { stroke: COL.faint, 'stroke-width': 2 }, { d: 0 }), m('far', -.3), .5);
+    say(p, 'цель далеко: штраф за дистанцию', 420, 710, m('far'), { size: 26, fill: COL.dim, weight: 600 });
+    say(p, '−2', 420, 770, m('far', .3), { size: 40, fill: NO, weight: 700 });
+    say(p, '2-й выстрел по далёкой цели:', 1080, 710, m('two'), { size: 26 });
+    say(p, '−5 − 2 = −7', 1080, 770, m('two', 1.2), { size: 42, fill: NO, weight: 700 });
+    say(p, 'оба без вида → складываются', 1080, 820, m('two', 1.6), { size: 24, fill: COL.dim });
+  }],
+  ['q3', 'Быстрая проверка', () => { panel(0); }, { ask: done => quiz(WIDE, [{
+    id: 'c-stack', prompt: ['Сложите бонусы и штрафы.'],
+    build: blanks(Q_STACK),
+  }], done) }],
+  ['saves', 'Испытания', (m) => {
+    const p = panel(0);
+    say(p, 'Испытание: бросает цель', 800, 90, .2, { size: 38, weight: 600 });
+    who(p, 'Колдун', FOE, 300, 240, .3);
+    who(p, 'Героиня', HERO, 1000, 240, .4);
+    arrowTo(p, 362, 240, 934, 240, FOE, m('foe', .3), true);
+    dieShape(p, 20, 1180, 240, HERO, m('roll'), 46, null);
+    say(p, 'кубик бросает она', 1180, 344, m('roll', .3), { size: 24, fill: HERO, weight: 600 });
+    say(p, 'задаёт СЛ: СЛ заклинаний', 300, 384, m('dc'), { size: 24, fill: FOE, weight: 600 });
+    say(p, 'без действия · даже без сознания', 800, 440, m('free'), { size: 28, fill: COL.dim, weight: 600 });
+    infoCard(p, 60, 510, 460, 'Стойкость', ['яды, болезни', 'всё, что бьёт по телу'], HERO, m('fort'), .6);
+    infoCard(p, 570, 510, 460, 'Реакция', ['увернуться', 'особенно от площади'], HERO, m('ref'), .6);
+    infoCard(p, 1080, 510, 460, 'Воля', ['всё, что действует', 'на разум'], HERO, m('will'), .6);
+  }],
+  ['basic', 'Базовое испытание', (m) => {
+    const p = panel(0), x0 = 470, u = 60, ys = [270, 390, 510, 630];
+    say(p, 'Базовое испытание', 800, 90, .2, { size: 38, weight: 600 });
+    say(p, 'ловушка: 7 урона', 800, 150, m('trap'), { size: 30, fill: RULE, weight: 700 });
+    const fmt = v => String(Math.round(v * 2) / 2).replace('.', ',');
+    const rowAt = (i, mark, note, steps) => {
+      const [, name, colr] = DEG[i], y = ys[i], t0 = m(mark);
+      say(p, name, x0 - 40, y + 10, t0, { size: 30, fill: colr, weight: 700, anchor: 'end' });
+      const ghost = mk('rect', { x: x0, y: y - 24, width: 7 * u, height: 48, rx: 8, fill: 'none', stroke: COL.faint, 'stroke-width': 2, 'stroke-dasharray': '8 6' }, p);
+      put(ghost, { o: 0 }); show(ghost, t0);
+      const bar = mk('rect', { x: x0, y: y - 24, width: 7 * u, height: 48, rx: 8, fill: RULE, 'fill-opacity': .5 }, p);
+      put(bar, { o: 0 }); show(bar, t0);
+      const val = say(p, '7', x0 + 7 * u + 20, y + 12, t0, { size: 32, fill: RULE, weight: 700, anchor: 'start' });
+      const setW = v => { bar.setAttribute('width', Math.max(0, v * u)); put(val, { x: x0 + v * u + 20 }); val.textContent = fmt(v); };
+      let from = 7;
+      steps.forEach(([v, at]) => { const a = from; prog(q => setW(a + (v - a) * q), at, .8); from = v; });
+      if (note) say(p, note[0], 1000, y + 10, note[1], { size: 26, fill: COL.dim, anchor: 'start' });
+    };
+    rowAt(0, 'cs', ['урона нет', m('cs', 1.2)], [[0, m('cs', .4)]]);
+    rowAt(1, 's', ['половина: 3,5 → 3, вниз', m('floor')], [[3.5, m('s', .5)], [3, m('floor')]]);
+    rowAt(2, 'f', ['полный урон', m('f', .6)], []);
+    rowAt(3, 'cf', null, [[14, m('cf', .5)]]);
+    say(p, 'двойной урон: 7 × 2', x0, ys[3] + 70, m('cf', 1.2), { size: 26, fill: COL.dim, anchor: 'start' });
+  }],
+  ['q4', 'Быстрая проверка', () => { panel(0); }, { ask: done => quiz(WIDE, [{
+    id: 'c-save', prompt: ['Какое испытание бросает герой?'],
+    build: grid(Q_SAVE, [['fo', 'Стойкость', HERO], ['re', 'Реакция', HERO], ['wi', 'Воля', HERO]], { multi: false, text: true }),
+  }, {
+    id: 'c-basic', prompt: ['Ловушка наносит 9 урона, базовое испытание Реакции. Сколько урона получит герой?'],
+    build: blanks(Q_BASIC),
+  }], done) }],
+  ['dcmod', 'СЛ из модификатора', (m) => {
+    const p = panel(0);
+    say(p, 'Когда вы не бросаете в ответ', 800, 90, .2, { size: 36, weight: 600 });
+    pill(p, 'СЛ = 10 + модификатор', RULE, 800, 170, m('form'), 32);
+    say(p, 'Реакция', 330, 318, m('ex'), { size: 40, weight: 600, anchor: 'start' });
+    say(p, '+4', 560, 318, m('ex', .2), { size: 48, fill: RULE, weight: 700 });
+    say(p, '10 +', 800, 318, m('res'), { size: 48, fill: RULE, weight: 700, anchor: 'end' });
+    const four = G(p, { x: 560, y: 318, o: 0 });
+    T(four, '4', { size: 48, fill: RULE, weight: 700, anchor: 'middle' });
+    show(four, m('res'), .2);
+    tw(four, { x: 840 }, m('res', .2), .7);
+    say(p, '=', 900, 318, m('res', .9), { size: 48, fill: RULE, weight: 700 });
+    const r = G(p, { x: 980, y: 318, o: 0, s: .6 });
+    T(r, '14', { size: 56, fill: RULE, weight: 700, anchor: 'middle' });
+    pop(r, m('res', 1.1));
+    say(p, 'СЛ Реакции', 980, 368, m('res', 1.3), { size: 24, fill: RULE, weight: 600 });
+    who(p, 'Гоблин', FOE, 240, 580, m('trip'), 42);
+    const her = who(p, 'Героиня', HERO, 720, 580, m('trip', .2), 42);
+    T(her, '14', { y: -58, size: 26, fill: RULE, weight: 700, anchor: 'middle' });
+    arrowTo(p, 296, 580, 664, 580, FOE, m('trip', .6));
+    say(p, 'сбить с ног: бросок гоблина против СЛ 14', 480, 710, m('trip', 1), { size: 24 });
+    draw(path(p, 'M980 460V800', { stroke: COL.faint, 'stroke-width': 2 }, { d: 0 }), m('ac', -.3), .4);
+    shield(p, 'КБ', HERO, 1260, 560, m('ac'));
+    say(p, 'Класс брони', 1260, 670, m('ac', .3), { size: 28, fill: HERO, weight: 600 });
+    say(p, 'удар: проверка атаки против КБ', 1260, 730, m('atk'), { size: 26 });
+    say(p, 'как считать КБ — глава 3', 1260, 780, m('ch3'), { size: 24, fill: COL.dim });
+  }],
+  ['secret', 'Тайная и чистая проверки', (m) => {
+    const p = panel(0);
+    say(p, 'Тайная проверка', 400, 100, .2, { size: 34, fill: GMC, weight: 600 });
+    who(p, 'Ведущий', GMC, 300, 250, .3, 44);
+    const scr = G(p, { x: 450, y: 260, o: 0 });
+    path(scr, 'M-50 -60H50V60H-50Z', { stroke: GMC, 'stroke-width': 3, fill: '#22322d' });
+    T(scr, '?', { y: 14, size: 40, fill: GMC, weight: 700, anchor: 'middle' });
+    show(scr, .4);
+    say(p, 'бросает ведущий, результат не показывает', 400, 390, .6, { size: 24, fill: COL.dim });
+    say(p, 'ищете ловушки — ничего не нашли', 400, 460, m('trap', 2.4), { size: 26, weight: 600 });
+    pill(p, 'ловушек нет?', COL.chalk, 270, 540, m('why'), 26);
+    pill(p, 'пропустили?', COL.chalk, 530, 540, m('why', .5), 26);
+    numDie(p, 1, 160, 650, m('why', 2.2), 38);
+    strike(p, 128, 618, 192, 682, m('why', 3));
+    say(p, 'свой бросок: 1 выдала бы ответ', 215, 662, m('why', 2.6), { size: 24, fill: COL.dim, anchor: 'start' });
+    draw(path(p, 'M800 70V700', { stroke: COL.faint, 'stroke-width': 2 }, { d: 0 }), m('flat', -.3), .4);
+    say(p, 'Чистая проверка', 1190, 100, m('flat'), { size: 34, fill: RULE, weight: 600 });
+    say(p, 'только к20, без модификаторов', 1190, 148, m('flat', .4), { size: 26, fill: COL.dim });
+    const sg = G(p);
+    for (let i = 1; i <= 20; i++) {
+      const x = 890 + ((i - 1) % 10) * 62, y = 200 + Math.floor((i - 1) / 10) * 76, t0 = m('fog', .3 + i * .03);
+      box(sg, x, y, 56, 62, i >= 5 ? OK : NO, .3, t0);
+      say(sg, String(i), x + 28, y + 41, t0, { size: 26, weight: 700 });
+    }
+    say(p, 'цель в плохой видимости: СЛ 5', 1190, 400, m('fog', .4), { size: 26, weight: 600 });
+    say(p, '1–4 мимо', 1080, 444, m('fog', 1.5), { size: 26, fill: NO, weight: 700 });
+    say(p, '5–20 попадание', 1300, 444, m('fog', 1.5), { size: 26, fill: OK, weight: 700 });
+    tw(sg, { o: .35 }, m('abil'), .4);
+    strike(p, 880, 196, 1510, 356, m('abil', .2));
+    say(p, 'способность героя: проверка не нужна', 1190, 520, m('abil', .4), { size: 26, fill: HERO, weight: 600 });
+    pill(p, 'частное важнее общего', RULE, 800, 770, m('spec'), 32);
+    say(p, 'и тогда неясно → решает ведущий', 800, 850, m('gm'), { size: 28, fill: GMC, weight: 600 });
+  }],
+  ['wrap', 'Итоги', (m) => {
+    const p = panel(0);
+    [['к20 + модификатор = итог; итог не меньше СЛ — успех.', 'w1'], ['СЛ ± 10 — критический результат; 20 и 1 на кубике сдвигают на степень.', 'w2'], ['Бонусы одного вида не складываются, разных видов — складываются.', 'w3'], ['Испытание бросает цель; СЛ из модификатора = 10 + модификатор.', 'w4']].forEach(([str, mark], i) => {
+      const g = G(p, { x: -16, y: 230 + i * 130, o: 0 });
+      mk('circle', { cx: 110, cy: -12, r: 26, fill: COL.task }, g);
+      T(g, String(i + 1), { x: 110, y: -1, size: 30, fill: COL.board, weight: 700, anchor: 'middle' });
+      T(g, str, { x: 166, size: 32, weight: 600 });
+      tw(g, { o: 1, x: 0 }, m(mark), .6);
+    });
+  }],
+  ['final1', 'Практика главы', () => { panel(0); }, { ask: done => quiz(SCREEN, [{
+    id: 'p-tf', prompt: ['Верно или неверно?'], build: grid(P_TF, TF, { multi: false, text: true }),
+  }], done, 'Практика главы   1 из 3') }],
+  ['final2', 'Практика главы', () => {}, { ask: done => quiz(SCREEN, [{
+    id: 'p-degree', prompt: ['Модификатор +7, СЛ 20. Какая степень успеха?'], build: grid(P_DEGREE, DEGREES, { multi: false, text: true }),
+  }], done, 'Практика главы   2 из 3') }],
+  ['final3', 'Практика главы', () => {}, { ask: done => quiz(SCREEN, [{
+    id: 'p-calc', prompt: ['Посчитайте.'], build: blanks(P_CALC),
+  }], done, 'Практика главы   3 из 3') }],
+  ['finish', 'Готово', () => {}, { ask: finishCard }],
+].map(([id, title, run, extra]) => ({ id, title, run, ...extra }));
+
+/* ---------- question data ---------- */
+const Q_PASS = [
+  { parts: ['Атлетика +5, на кубике 10, СЛ 15'], ans: ['s'], why: '10 + 5 = 15: итог равен СЛ, это успех.' },
+  { parts: ['Внимание +6, на кубике 7, СЛ 14'], ans: ['f'], why: '7 + 6 = 13, меньше 14.' },
+  { parts: ['Скрытность +3, на кубике 16, СЛ 18'], ans: ['s'], why: '16 + 3 = 19, не меньше 18.' },
+  { parts: ['Атлетика +2, на кубике 12, СЛ 15'], ans: ['f'], why: '12 + 2 = 14, на 1 меньше СЛ.' },
+];
+const Q_DEGREE = [
+  { parts: ['+5 против СЛ 15, на кубике 1'], ans: ['cf'], why: 'Итог 6 — провал, натуральная 1 опускает его до критического провала.' },
+  { parts: ['+5 против СЛ 15, на кубике 10'], ans: ['s'], why: 'Итог 15 равен СЛ — успех.' },
+  { parts: ['+8 против СЛ 16, на кубике 18'], ans: ['cs'], why: 'Итог 26 = СЛ + 10 — критический успех.' },
+  { parts: ['+4 против СЛ 20, на кубике 6'], ans: ['cf'], why: 'Итог 10 = СЛ − 10 — критический провал.' },
+  { parts: ['+2 против СЛ 30, на кубике 20'], ans: ['s'], why: 'Итог 22 — провал, натуральная 20 поднимает его только до успеха.' },
+];
+const Q_STACK = [
+  { parts: ['Ситуативные +2 и +1, состояния +1. Вместе: +', { box: '3' }], why: 'Из ситуативных берём больший, +2, и добавляем +1 состояния: +3.', hint: 'Из бонусов одного вида работает только самый большой.' },
+  { parts: ['«Героизм» +1 и «Тошнота» −2, оба состояния. Вместе: ', { box: '-1' }], why: 'Бонус и штраф одного вида учитываются оба: +1 − 2 = −1.', hint: 'Бонус и штраф одного вида не отменяют друг друга.' },
+  { parts: ['Удар с модификатором +7, второй удар за ход. Модификатор: +', { box: '2' }], why: '7 − 5 = 2.', hint: 'Второй удар за ход получает −5.' },
+];
+const Q_SAVE = [
+  { parts: ['Яд из укуса паука'], ans: ['fo'], why: 'Яды и болезни — Стойкость.' },
+  { parts: ['Огненный шар накрывает площадь'], ans: ['re'], why: 'Увернуться от того, что накрывает площадь, — Реакция.' },
+  { parts: ['Чужое заклинание внушает страх'], ans: ['wi'], why: 'Воздействие на разум — Воля.' },
+  { parts: ['Болезнь из болотной воды'], ans: ['fo'], why: 'Болезни бьют по телу — Стойкость.' },
+];
+const Q_BASIC = [
+  { parts: ['Успех: ', { box: '4' }], why: 'Половина от 9 — 4,5, округляем вниз: 4.', hint: 'Успех — половина урона, дробь округляют вниз.' },
+  { parts: ['Критический провал: ', { box: '18' }], why: 'Двойной урон: 9 × 2 = 18.', hint: 'Критический провал — двойной урон.' },
+  { parts: ['Критический успех: ', { box: '0' }], why: 'При критическом успехе урона нет.', hint: 'Критический успех в базовом испытании — без урона.' },
+];
+const P_TF = [
+  { parts: ['Если итог равен СЛ, это провал.'], ans: ['f'], why: 'Итог не меньше СЛ — успех.' },
+  { parts: ['Натуральная 20 всегда даёт критический успех.'], ans: ['f'], why: 'Она поднимает результат на одну степень: при +2 против СЛ 30 выйдет только успех.' },
+  { parts: ['Бонусы предмета +1 и +2 вместе дают +2.'], ans: ['t'], why: 'Один вид — работает только больший бонус.' },
+  { parts: ['Ситуативный бонус +2 и бонус состояния +1 вместе дают +3.'], ans: ['t'], why: 'Бонусы разных видов складываются.' },
+  { parts: ['Испытание бросает тот, кто сотворил заклинание.'], ans: ['f'], why: 'Испытание бросает цель, а заклинатель задаёт СЛ.' },
+  { parts: ['На испытание тратится одно действие.'], ans: ['f'], why: 'Испытание происходит само, даже без сознания.' },
+  { parts: ['Тайную проверку бросает ведущий и не показывает результат.'], ans: ['t'], why: 'Так игрок не знает, хорошо ли вышло.' },
+  { parts: ['Чистая проверка — это бросок к20 без модификаторов.'], ans: ['t'], why: 'Чистая удача: важно только число на кубике.' },
+];
+const P_DEGREE = [
+  { parts: ['На кубике 13'], ans: ['s'], why: '13 + 7 = 20, итог равен СЛ — успех.' },
+  { parts: ['На кубике 3'], ans: ['cf'], why: '3 + 7 = 10 = СЛ − 10 — критический провал.' },
+  { parts: ['На кубике 20'], ans: ['cs'], why: '20 + 7 = 27 — успех, натуральная 20 поднимает до критического успеха.' },
+  { parts: ['На кубике 12'], ans: ['f'], why: '12 + 7 = 19, на 1 меньше СЛ — провал.' },
+  { parts: ['На кубике 1'], ans: ['cf'], why: '1 + 7 = 8 — уже критический провал, ниже некуда.' },
+];
+const P_CALC = [
+  { parts: ['Реакция +4. СЛ Реакции: ', { box: '14' }], why: '10 + 4 = 14.', hint: 'СЛ из модификатора — это 10 + модификатор.' },
+  { parts: ['Удар +9, третий удар за ход. Модификатор: ', { box: '-1' }], why: '9 − 10 = −1.', hint: 'Третий и следующие удары получают −10.' },
+  { parts: ['Заклинание наносит 11 урона, успех в базовом испытании. Урон: ', { box: '5' }], why: 'Половина от 11 — 5,5, вниз: 5.', hint: 'Успех — половина урона, округление вниз.' },
+  { parts: ['Бонусы предмета +1 и +2, ситуативный +1. Всего: +', { box: '3' }], why: 'Из бонусов предмета берём +2, добавляем ситуативный +1: +3.', hint: 'Из одного вида — только самый большой бонус.' },
+];
+boot();
+</script>
+</body>
+</html>

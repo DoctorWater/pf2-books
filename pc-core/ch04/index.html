@@ -1,0 +1,471 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Народ, родословная, происхождение — Первый герой</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%231d2b27'/%3E%3Ctext x='32' y='45' text-anchor='middle' font-size='48' fill='%23f0b45a'%3E∞%3C/text%3E%3C/svg%3E">
+<link rel="stylesheet" href="../lib/engine.css">
+<link rel="expect" href="#bar" blocking="render"><!-- hold the first frame until the player exists, so the page transition can run -->
+</head>
+<body>
+<script src="../lib/engine.js"></script>
+<script src="../lib/pf.js"></script>
+<script src="audio/ru/timings.js"></script>
+<script>
+'use strict';
+const CHAPTER = { number: 4, title: 'Народ, родословная, происхождение', minutes: 12, language: 'ru', next: '../ch05/' };
+
+/* ---------- chapter drawing helpers (shared ones: lib/pf.js) ---------- */
+// Attribute modifier, boost (+1), flaw (−1); ancestry Hit Points as in ch03.
+const ATTR = HERO, BOOST = RULE, FLAW = NO, ANC = COL.dim;
+const hr = (p, y, t0, x1 = 120, x2 = 1480) => draw(path(p, `M${x1} ${y}H${x2}`, { stroke: COL.faint, 'stroke-width': 2 }, { d: 0 }), t0, .5);
+// Attribute board helpers (attrBoard, bump, give, clearBoard, boostToken, ATTRS, CH, sgn) live in lib/pf.js.
+// A body outline of height h standing on (x, base).
+function figure(p, x, base, h, colr, t0) {
+  const g = G(p, { x, y: base, o: 0 }), r = h * .13;
+  mk('circle', { cx: 0, cy: -h + r, r, fill: 'none', stroke: colr, 'stroke-width': 3 }, g);
+  mk('rect', { x: -h * .17, y: -h + 2 * r + 6, width: h * .34, height: h - 2 * r - 6, rx: h * .1, fill: 'none', stroke: colr, 'stroke-width': 3 }, g);
+  show(g, t0);
+  return g;
+}
+
+// Player Core ancestries: name, HP, size, Speed, boosts, flaw (PC1 p. 44–72).
+const PEOPLES = [
+  ['Дварф', '10', 'Средний', '20 футов', 'Выносливость, Мудрость, универсальное', 'Харизма'],
+  ['Эльф', '6', 'Средний', '30 футов', 'Ловкость, Интеллект, универсальное', 'Выносливость'],
+  ['Гном', '8', 'Небольшой', '25 футов', 'Выносливость, Харизма, универсальное', 'Сила'],
+  ['Гоблин', '6', 'Небольшой', '25 футов', 'Ловкость, Харизма, универсальное', 'Мудрость'],
+  ['Полурослик', '6', 'Небольшой', '25 футов', 'Ловкость, Мудрость, универсальное', 'Сила'],
+  ['Человек', '8', 'Средний', '25 футов', 'два универсальных', '—'],
+  ['Леший', '8', 'Небольшой', '25 футов', 'Выносливость, Мудрость, универсальное', 'Интеллект'],
+  ['Орк', '10', 'Средний', '25 футов', 'два универсальных', '—'],
+];
+const FOLK = [
+  ['Дварфы', ['невысокие, крепкие', 'и упрямые; ценят ремесло', 'и данное слово'], 'dw'],
+  ['Эльфы', ['живут очень долго', 'быстрее всех на ногах'], 'el'],
+  ['Гномы', ['маленькие, любопытные', 'в родстве с феями'], 'gn'],
+  ['Гоблины', ['шумные, неунывающие', 'их долго боялись —', 'доказывают, что они', 'не такие'], 'gb'],
+  ['Полурослики', ['любят приключения', 'и домашний уют', 'славятся везучестью'], 'hf'],
+  ['Люди', ['самые разные', 'легко собрать', 'под любой класс'], 'hu'],
+  ['Лешие', ['духи природы', 'в небольших телах', 'из растений'], 'le'],
+  ['Орки', ['сильные, выносливые', 'ценят мощь', 'и славу в бою'], 'or'],
+];
+// Backgrounds (PC1 p. 85–86): name, boost choice, skill, Lore, skill feat.
+const BGS = [
+  ['Трактирщик', 'Выносливость или Харизма', 'Дипломатия', 'Знание (выпивка)', 'Неформальное общение'],
+  ['Послушник', 'Интеллект или Мудрость', 'Религия', 'Знание (письмо)', 'Знаток канонов'],
+  ['Акробат', 'Сила или Ловкость', 'Акробатика', 'Знание (цирк)', 'Устойчивое равновесие'],
+  ['Ремесленник', 'Сила или Интеллект', 'Ремесло', 'Знание (гильдии)', 'Ремесленник-специалист'],
+];
+
+/* ---------- beats: [id, title, run(m, D), { ask }?] ---------- */
+const BEATS = [
+  ['intro', 'Народ, родословная, происхождение', (m, D) => {
+    const g = G(scene, { o: 0, y: 24 });
+    T(g, 'Раздел 2 «Создание героя» · Глава 4', { x: 800, y: 330, size: 28, fill: COL.dim, anchor: 'middle' });
+    T(g, 'Народ, родословная, происхождение', { x: 800, y: 440, size: 70, weight: 600, anchor: 'middle' });
+    tw(g, { o: 1, y: 0 }, .2, 1.1, out);
+    const r = say(scene, 'кто герой по рождению и чем жил до приключений', 800, 560, m('sub'), { size: 34, fill: COL.dim });
+    tw(g, { o: 0, y: -24 }, D - .9, .8); hide(r, D - .9, .8);
+  }],
+  ['concept', 'За кого вы хотите играть', (m) => {
+    const p = panel(0);
+    say(p, 'За кого вы хотите играть?', 800, 80, .2, { size: 40, weight: 600 });
+    bubble(p, 'храбрый воин', 420, 190, HERO, m('short'));
+    bubble(p, 'эльф, который вырос среди людей и сбежал из академии', 900, 290, HERO, m('long'), { size: 25 });
+    colorLine(p, [['или наоборот: понравился ', COL.dim], ['народ', COL.chalk], [' или ', COL.dim], ['класс', COL.chalk], [' — образ складывается вокруг', COL.dim]], 800, 400, m('rules'), { size: 28 });
+    hr(p, 450, m('group', -.4));
+    const xs = [560, 800, 1040], y = 540;
+    ['Тарн', 'Ива', 'Бор'].forEach((n, i) => who(p, n, HERO, xs[i], y, m('group', .2 + i * .2), 40));
+    [0, 1].forEach(k => draw(path(p, `M${xs[k] + 52} ${y}H${xs[k + 1] - 52}`, { stroke: HERO, 'stroke-width': 3, 'stroke-dasharray': '10 8' }, { d: 0 }), m('ties', k * .3), .5));
+    say(p, 'общее прошлое: родственники, соседи, бывали в переделках вместе', 800, 676, m('ties', .4), { size: 26, fill: COL.dim });
+    say(p, 'три выбора по правилам', 800, 752, m('three'), { size: 26, fill: COL.dim, weight: 600 });
+    const sx = [520, 800, 1080];
+    [['народ', 'anc'], ['происхождение', 'bg'], ['класс', 'cls']].forEach(([s, mark], i) => {
+      pill(p, s, COL.chalk, sx[i], 808, m(mark), 28);
+      if (i) arrowTo(p, sx[i - 1] + (i === 1 ? 68 : 132), 808, sx[i] - (i === 1 ? 132 : 68), 808, COL.dim, m(mark));
+    });
+    colorLine(p, [['каждый ', COL.dim], ['поднимает характеристики', ATTR]], 800, 872, m('attrs'), { size: 26 });
+  }],
+  ['boosts', 'Повышения и понижения', (m) => {
+    const p = panel(0);
+    say(p, 'Повышения и понижения', 800, 70, .2, { size: 36, weight: 600 });
+    const b = attrBoard(p, 800, 600, .3);
+    give(b, boostToken(p, 'повышение +1', 'fix', 300, 260, m('up')), 0, 1, m('up', .6));
+    give(b, boostToken(p, 'понижение −1', 'flaw', 1300, 260, m('down')), 5, -1, m('down', .6));
+    // three kinds of boost
+    const kg = G(p, { o: 1 });
+    say(kg, 'три вида повышений', 800, 140, m('kinds'), { size: 26, fill: COL.dim, weight: 600 });
+    [['Ловкость', 'fix', 'конкретная', 'fix'], ['Сила или Ловкость', 'fix', 'одна из двух', 'two'], ['любая', 'free', 'универсальное', 'free']]
+      .forEach(([s, k, cap, mark], i) => { boostToken(kg, s, k, 400 + i * 400, 210, m(mark)); say(kg, cap, 400 + i * 400, 272, m(mark, .3), { size: 24, fill: COL.dim }); });
+    hide(kg, m('rule1', -.2), .4);
+    // rule 1: boosts gained together go to different attributes
+    clearBoard(b, m('rule1'));
+    say(p, '1. Полученные одновременно — в разные характеристики', 800, 150, m('rule1', .3), { size: 28, weight: 600 });
+    const lx = b.cols[1].x;
+    give(b, boostToken(p, 'народ', 'fix', 360, 290, m('twice')), 1, 1, m('twice', .5));
+    const n2 = boostToken(p, 'народ', 'fix', 520, 290, m('twice', .2));
+    tw(n2, { x: lx, y: b.y0 - 1.5 * CH }, m('twice', .9), .6);
+    tw(n2.firstChild, { c_stroke: NO, c_fill: mix(COL.board, NO, .3) }, m('twice', 1.5), .3);
+    tw(n2.lastChild, { c_fill: NO }, m('twice', 1.5), .3);
+    draw(path(n2, 'M-58 -20L58 20', { stroke: NO, 'stroke-width': 5 }, { d: 0 }), m('twice', 1.7), .3);
+    const no = say(p, 'второе от народа — нельзя', lx, b.capY - 24, m('twice', 1.7), { size: 26, fill: NO, weight: 700 });
+    hide(n2, m('later', 1.2), .3); hide(no, m('later', 1.2), .3);
+    give(b, boostToken(p, 'происхождение', 'fix', 1000, 290, m('later')), 1, 1, m('later', 1.6));
+    const yes = say(p, 'следующий шаг — можно', lx, b.capY - 24, m('later', 2.4), { size: 26, fill: OK, weight: 700 });
+    hide(yes, m('cap', -.3), .3);
+    // rule 2: the +4 line
+    say(p, '2. На 1-м уровне — не выше +4', 800, 205, m('cap'), { size: 28, weight: 600 });
+    tw(b.cap, { c_stroke: BOOST, 'a_stroke-width': 4 }, m('cap', .4), .4);
+    say(p, 'предел +4', b.xR + 8, b.capY + 8, m('cap', .5), { size: 24, fill: BOOST, weight: 700, anchor: 'start' });
+    const ghost = mk('rect', { x: lx - b.cw / 2, y: b.capY - CH + 3, width: b.cw, height: CH - 6, rx: 6, fill: 'none', stroke: NO, 'stroke-width': 2, 'stroke-dasharray': '6 5' }, p);
+    put(ghost, { o: 0 }); show(ghost, m('cap', 1.4));
+    draw(path(p, `M${lx - 40} ${b.capY - CH + 6}L${lx + 40} ${b.capY - 6}`, { stroke: NO, 'stroke-width': 4 }, { d: 0 }), m('cap', 1.7), .3);
+    say(p, '+5 — нельзя', lx + 64, b.capY - CH / 2 + 8, m('cap', 1.7), { size: 22, fill: NO, weight: 700, anchor: 'start' });
+  }],
+  ['sources', 'Откуда повышения', (m) => {
+    const p = panel(0);
+    say(p, 'Откуда повышения', 800, 70, .2, { size: 36, weight: 600 });
+    const rows = [
+      ['народ', 'anc', [['повышение', 'fix'], ['повышение', 'fix'], ['любая', 'free'], ['понижение (иногда)', 'flaw']], 'глава 4', .3],
+      ['происхождение', 'bg', [['одна из двух', 'fix'], ['любая', 'free']], 'глава 4', .3],
+      ['класс', 'cls', [['ключевая', 'fix']], 'глава 5', 2.2],
+      ['в конце', 'end', [['любая', 'free'], ['любая', 'free'], ['любая', 'free'], ['любая', 'free']], 'глава 6', 3.6],
+    ];
+    rows.forEach(([name, mark, toks, ch, dt], i) => {
+      const y = 200 + i * 150;
+      say(p, name, 120, y + 10, .4 + i * .1, { size: 32, weight: 700, anchor: 'start' });
+      let x = 480;
+      toks.forEach(([s, k], j) => { const w = uiW(s, 24) + 40; boostToken(p, s, k, x + w / 2, y, m(mark, .3 + j * .35)); x += w + 24; });
+      say(p, ch, 1480, y + 10, m('now', dt), { size: 26, fill: COL.dim, anchor: 'end' });
+    });
+  }],
+  ['q1', 'Быстрая проверка', () => { panel(0); }, { ask: done => quiz(WIDE, [{
+    id: 'c-rules', prompt: ['Можно или нельзя?'], build: grid(Q_RULES, CAN, { multi: false, text: true }),
+  }], done) }],
+  ['ancestry', 'Народ', (m) => {
+    const p = panel(0);
+    say(p, 'Народ', 800, 70, .2, { size: 36, weight: 600 });
+    say(p, 'дварфы, эльфы, люди, гоблины и другие', 800, 118, .5, { size: 26, fill: COL.dim });
+    who(p, 'Дварф', HERO, 250, 250, m('dw'), 56);
+    // sizes to scale: Small is half of Medium
+    const md = figure(p, 170, 790, 300, COL.chalk, m('size'));
+    say(p, 'Средний', 170, 832, m('size'), { size: 24, weight: 600 });
+    say(p, '≈ взрослый человек', 160, 864, m('size', .4), { size: 20, fill: COL.dim });
+    figure(p, 380, 790, 150, COL.chalk, m('small'));
+    say(p, 'Небольшой', 380, 832, m('small'), { size: 24, weight: 600 });
+    say(p, '≈ вдвое меньше', 390, 864, m('small', .4), { size: 20, fill: COL.dim });
+    pulse(md, m('mid'), 1.08);
+    say(p, 'дварф', 170, 466, m('mid'), { size: 24, fill: HERO, weight: 700 });
+    // the ancestry card fills row by row
+    const box = mk('rect', { x: 530, y: 150, width: 970, height: 620, rx: 18, fill: '#22322d', stroke: HERO, 'stroke-width': 2.5 }, p);
+    put(box, { o: 0 }); show(box, .3);
+    const labels = ['ПЗ 1-го уровня', 'Размер', 'Скорость', 'Повышения', 'Понижение', 'Языки', 'Особое', 'Черта народа'];
+    const ry = i => 210 + i * 72;
+    labels.forEach((s, i) => say(p, s, 560, ry(i) + 9, .5 + i * .06, { size: 24, fill: COL.dim, anchor: 'start' }));
+    const vx = 820, v = (s, i, t0, opts = {}) => say(p, s, vx, ry(i) + 10, t0, { size: 28, weight: 600, anchor: 'start', ...opts });
+    v('10', 0, m('hp', .3), { size: 30, weight: 700 });
+    say(p, '+ ПЗ класса — позже', vx + 60, ry(0) + 10, m('hp', 2.2), { size: 24, fill: COL.dim, anchor: 'start' });
+    v('Средний', 1, m('mid'));
+    v('20 футов', 2, m('spd', .4));
+    let x = vx;
+    [['Выносливость', 'fix'], ['Мудрость', 'fix'], ['любая', 'free']].forEach(([s, k], j) => {
+      const w = uiW(s, 24) + 40; boostToken(p, s, k, x + w / 2, ry(3), m('boost', .2 + j * .55)); x += w + 18;
+    });
+    boostToken(p, 'Харизма', 'flaw', vx + (uiW('Харизма', 24) + 40) / 2, ry(4), m('flaw', .2));
+    v('всеобщий, язык дварфов', 5, m('lang', .4));
+    v('видит в темноте (ночное зрение)', 6, m('sense', .6));
+    v('1-й уровень', 7, m('feat', .4));
+    say(p, 'потом 5, 9, 13 и 17-й', vx + uiW('1-й уровень', 28) + 24, ry(7) + 10, m('more', .6), { size: 26, fill: COL.dim, anchor: 'start' });
+  }],
+  ['folk', 'Народы коротко', (m) => {
+    const p = panel(0);
+    say(p, 'Народы Player Core', 800, 70, .2, { size: 36, weight: 600 });
+    FOLK.forEach(([name, lines, mark], i) => {
+      const x = 60 + (i % 4) * 375, y = i < 4 ? 130 : 480;
+      const r = mk('rect', { x, y, width: 350, height: 310, rx: 18, fill: '#22322d', stroke: COL.faint, 'stroke-width': 2.5 }, p);
+      put(r, { o: 0 }); show(r, .3 + i * .06);
+      say(p, name, x + 26, y + 54, .4 + i * .06, { size: 32, fill: HERO, weight: 700, anchor: 'start' });
+      tw(r, { c_stroke: HERO }, m(mark), .3);
+      lines.forEach((ln, j) => say(p, ln, x + 26, y + 112 + j * 42, m(mark, .2 + j * .4), { size: 24, anchor: 'start' }));
+    });
+  }],
+  ['peoples', 'Народы в цифрах', (m) => {
+    const p = panel(0);
+    say(p, 'Народы Player Core', 800, 70, .2, { size: 36, weight: 600 });
+    const cx = [100, 360, 520, 690, 800, 1290], an = ['start', 'middle', 'middle', 'middle', 'start', 'start'];
+    ['Народ', 'ПЗ', 'Размер', 'Скорость', 'Повышения', 'Понижение'].forEach((s, j) => say(p, s, cx[j], 150, .3, { size: 22, fill: COL.dim, weight: 600, anchor: an[j] }));
+    const ry = i => 205 + i * 52;
+    const cell = PEOPLES.map((row, i) => row.map((s, j) => say(p, s, cx[j], ry(i), .4 + i * .08, { size: j ? 24 : 26, weight: j ? 500 : 700, anchor: an[j] })));
+    // a frame walks over the columns
+    const fr = mk('rect', { x: 316, y: 166, width: 88, height: 420, rx: 12, fill: 'none', stroke: BOOST, 'stroke-width': 3 }, p);
+    put(fr, { o: 0 }); show(fr, m('hp'), .3);
+    const hl = (i, j, t0, t1) => { tw(cell[i][j], { c_fill: HERO }, t0, .3); if (t1) tw(cell[i][j], { c_fill: COL.chalk }, t1, .3); };
+    [0, 7].forEach(i => hl(i, 1, m('hp', 2.2), m('sm', -.2)));
+    tw(fr, { a_x: 436, a_width: 168 }, m('sm', -.3), .5);
+    [2, 3, 4, 6].forEach((i, k) => hl(i, 2, m('sm', .2 + k * .5), m('spd', -.2)));
+    tw(fr, { a_x: 626, a_width: 128 }, m('spd', -.3), .5);
+    hl(0, 3, m('dw')); hl(1, 3, m('el'));
+    tw(fr, { a_x: 786, a_width: 700, a_y: 440, a_height: 152 }, m('free', -.3), .5);
+    hide(fr, m('pc2', -.3), .3);
+    [5, 7].forEach(i => { hl(i, 4, m('free', .4)); hl(i, 5, m('free', .4)); });
+    // Player Core 2
+    hr(p, 630, m('pc2', -.4));
+    say(p, 'Player Core 2', 800, 690, m('pc2'), { size: 26, fill: COL.dim, weight: 600 });
+    const pc2 = ['котолюд', 'хобгоблин', 'холо', 'кобольд', 'людоящер', 'крысолюд', 'тэнгу', 'трипки'];
+    const ws = pc2.map(s => uiW(s, 24) + 44), W = ws.reduce((a, b) => a + b, 0) + 16 * 7;
+    let x = 800 - W / 2;
+    pc2.forEach((s, i) => { pill(p, s, COL.chalk, x + ws[i] / 2, 754, m('pc2', 1.2 + i * .45), 24); x += ws[i] + 16; });
+    colorLine(p, [['все — ', COL.dim], ['необычные', COL.chalk], [': сначала обсудите с ', COL.dim], ['ведущим', GMC]], 800, 848, m('unc'), { size: 28 });
+  }],
+  ['swap', 'Замена повышений народа', (m) => {
+    const p = panel(0);
+    say(p, 'Замена повышений народа', 800, 70, .2, { size: 36, weight: 600 });
+    const b = attrBoard(p, 800, 560, .3);
+    const c1 = say(p, 'обычный полурослик', 800, 140, m('std'), { size: 28, fill: COL.dim, weight: 600 });
+    give(b, boostToken(p, 'Ловкость', 'fix', 560, 260, m('std', .2)), 1, 1, m('std', 1.2));
+    give(b, boostToken(p, 'Мудрость', 'fix', 760, 260, m('std', .5)), 4, 1, m('std', 1.8));
+    give(b, boostToken(p, 'любая', 'free', 960, 260, m('sfree')), 2, 1, m('sfree', 1.5));
+    give(b, boostToken(p, 'Сила', 'flaw', 1140, 260, m('sflaw')), 0, -1, m('sflaw', .6));
+    clearBoard(b, m('swap'));
+    hide(c1, m('swap'), .3);
+    say(p, 'вместо этого: два универсальных, без понижения', 800, 140, m('swap', .3), { size: 28, weight: 600 });
+    give(b, boostToken(p, 'любая', 'free', 680, 260, m('swap', .8)), 0, 1, m('strong', .3));
+    give(b, boostToken(p, 'любая', 'free', 920, 260, m('swap', 1)), 2, 1, m('strong', 1));
+    say(p, 'сильный полурослик', 800, 200, m('strong', 2), { size: 28, fill: OK, weight: 700 });
+    say(p, 'по желанию — лишние понижения: только ради образа, предупредите группу', 800, 800, m('vol'), { size: 26, fill: COL.dim });
+    say(p, 'не больше одного понижения на характеристику', 800, 852, m('one'), { size: 26, fill: COL.dim });
+  }],
+  ['q2', 'Быстрая проверка', () => { panel(0); }, { ask: done => quiz(WIDE, [{
+    id: 'c-elf', prompt: ['Эльф: повышения Ловкости и Интеллекта, универсальное — в Силу, понижение Выносливости. Посчитайте модификаторы.'], build: blanks(Q_ELF),
+  }, {
+    id: 'c-elf2', prompt: ['Тот же эльф берёт вместо этого два универсальных повышения: в Ловкость и в Интеллект.'], build: blanks(Q_ELF2),
+  }], done) }],
+  ['heritage', 'Родословная', (m) => {
+    const p = panel(0);
+    say(p, 'Родословная', 800, 70, .2, { size: 36, weight: 600 });
+    say(p, 'ветвь внутри народа: врождённые свойства', 800, 118, .5, { size: 26, fill: COL.dim });
+    pill(p, 'Дварф', HERO, 200, 420, .4, 32);
+    const H = [['Скальный дварф', 'трудно толкнуть, сбить с ног, сдвинуть'], ['Дварф кузни', 'легче переносит жару и огонь'], ['Полнокровный дварф', 'устойчив к ядам'],
+      ['Дварф древних кровей', 'на миг усиливает сопротивление магии'], ['Дварф — страж мёртвых', 'лучше защищён от нежити']];
+    const leaves = H.map(([name, eff], i) => {
+      const y = 200 + i * 110, g = G(p, { o: 1 });
+      draw(path(g, `M272 420C400 420 400 ${y} 520 ${y}`, { stroke: COL.dim, 'stroke-width': 3 }, { d: 0 }), .6 + i * .12, .5);
+      say(g, name, 540, y + 10, m('dw', .6 + i * .15), { size: 28, fill: HERO, weight: 700, anchor: 'start' });
+      say(g, eff, 900, y + 9, m('r' + (i + 1), .3), { size: 24, anchor: 'start' });
+      return g;
+    });
+    leaves.slice(1).forEach(g => tw(g, { o: .25 }, m('one'), .5));
+    say(p, 'выбирают одну, на 1-м уровне, и потом не меняют', 800, 740, m('one', .4), { size: 28, weight: 600 });
+    colorLine(p, [['описывает ', COL.dim], ['тело и наследственность', HERO]], 800, 800, m('body'), { size: 28 });
+    say(p, 'а не то, где герой вырос', 800, 852, m('not'), { size: 28, fill: NO });
+  }],
+  ['versatile', 'Родословные для любого народа', (m) => {
+    const p = panel(0);
+    say(p, 'Родословные для любого народа', 800, 70, .2, { size: 36, weight: 600 });
+    const box = mk('rect', { x: 80, y: 140, width: 700, height: 500, rx: 18, fill: '#22322d', stroke: HERO, 'stroke-width': 2.5 }, p);
+    put(box, { o: 0 }); show(box, .3);
+    say(p, 'Гном', 110, 196, m('gn'), { size: 34, fill: HERO, weight: 700, anchor: 'start' });
+    say(p, 'от народа', 110, 250, m('keep'), { size: 22, fill: COL.dim, weight: 600, anchor: 'start' });
+    ['ПЗ 8 · Небольшой · 25 футов', 'повышения: Выносливость, Харизма, универсальное', 'понижение: Сила']
+      .forEach((s, j) => say(p, s, 110, 298 + j * 46, m('keep', .4 + j * .5), { size: 24, anchor: 'start' }));
+    hr(p, 440, m('gn', .3), 100, 760);
+    say(p, 'родословная', 110, 490, m('gn', .4), { size: 22, fill: COL.dim, weight: 600, anchor: 'start' });
+    const old = pill(p, 'одна из родословных гномов', COL.dim, 330, 550, m('gn', .6), 24);
+    tw(old, { o: .35 }, m('swap'), .4);
+    draw(path(p, 'M150 560L510 540', { stroke: NO, 'stroke-width': 4 }, { d: 0 }), m('swap', .2), .3);
+    pill(p, 'нефилим', HERO, 640, 550, m('swap', 2.4), 26);
+    colorLine(p, [['черты: из списка ', COL.dim], ['гномов', HERO], [' и из списка ', COL.dim], ['нефилимов', HERO]], 430, 700, m('feats'), { size: 26 });
+    // the lists
+    const item = (name, rest, y, t0) => colorLine(p, [[name, HERO], [rest, COL.chalk]], 860, y, t0, { size: 25, anchor: 'start' });
+    say(p, 'Player Core', 860, 180, m('pc1'), { size: 26, fill: COL.dim, weight: 600, anchor: 'start' });
+    item('Подменыш', ' — ребёнок ведьмы-карги', 236, m('ch'));
+    item('Нефилим', ' — потомок небесных или адских сил', 286, m('ne'));
+    say(p, 'родители из разных народов:', 860, 336, m('mix'), { size: 24, fill: COL.dim, anchor: 'start' });
+    item('Аюварин', ' — человек + эльф', 384, m('mix', 1.4));
+    item('Дромаар', ' — человек + орк', 432, m('mix', 2.8));
+    say(p, 'Player Core 2', 860, 520, m('pc2'), { size: 26, fill: COL.dim, weight: 600, anchor: 'start' });
+    item('Дампир', ' — дитя вампира', 576, m('dh'));
+    item('Драконородный', ' — драконьи черты', 626, m('dr'));
+    item('Сумеречный', ' — душа, вернувшаяся в тело', 676, m('du'));
+  }],
+  ['q3', 'Быстрая проверка', () => { panel(0); }, { ask: done => quiz(WIDE, [{
+    id: 'c-her', prompt: ['Верно или неверно?'], build: grid(Q_HER, TF, { multi: false, text: true }),
+  }], done) }],
+  ['langs', 'Языки', (m) => {
+    const p = panel(0);
+    say(p, 'Языки', 800, 70, .2, { size: 36, weight: 600 });
+    who(p, 'Дварф', HERO, 260, 220, .3, 50);
+    pill(p, 'всеобщий', COL.chalk, 520, 220, .6, 28);
+    pill(p, 'язык дварфов', COL.chalk, 780, 220, .9, 28);
+    say(p, 'от народа', 650, 290, 1.2, { size: 22, fill: COL.dim });
+    hr(p, 350, m('int', -.4));
+    colorLine(p, [['дополнительных языков = ', COL.chalk], ['Интеллект', ATTR], [', если он больше нуля', COL.dim]], 800, 420, m('int'), { size: 30 });
+    [['Интеллект +2', 'two'], ['Интеллект 0', 'zero'], ['Интеллект −1', 'zero']].forEach(([s, mark], i) => {
+      const y = 520 + i * 90;
+      say(p, s, 470, y + 10, m('int', 1 + i * .2), { size: 30, fill: ATTR, weight: 700, anchor: 'end' });
+      if (!i) [0, 1].forEach(k => {
+        const g = G(p, { x: 620 + k * 230, y, o: 0 });
+        mk('rect', { x: -100, y: -28, width: 200, height: 56, rx: 28, fill: 'none', stroke: COL.chalk, 'stroke-width': 2.5, 'stroke-dasharray': '8 6' }, g);
+        T(g, '+ язык', { y: 9, size: 26, weight: 600, anchor: 'middle' });
+        show(g, m(mark, .3 + k * .4));
+      });
+      else say(p, 'ни одного', 540, y + 10, m(mark, .3 + (i - 1) * .4), { size: 28, fill: COL.dim, anchor: 'start' });
+    });
+    colorLine(p, [['выбирают из списка народа; особый язык — спросить ', COL.dim], ['ведущего', GMC]], 800, 830, m('pick'), { size: 28 });
+  }],
+  ['background', 'Происхождение', (m) => {
+    const p = panel(0);
+    say(p, 'Происхождение', 800, 70, .2, { size: 36, weight: 600 });
+    say(p, 'чем герой жил до приключений', 790, 118, .5, { size: 26, fill: COL.dim, anchor: 'end' });
+    say(p, '· выбирают один раз и не меняют', 810, 118, m('once'), { size: 26, fill: COL.dim, anchor: 'start' });
+    const cx = [80, 470, 770, 1030, 1330];
+    const heads = [['два повышения', 'b', BOOST], ['навык: изучен', 'sk', COL.chalk], ['Знание: изучен', 'lore', COL.chalk], ['черта навыка', 'feat', COL.chalk]];
+    heads.forEach(([s, mark, c], j) => { const e = say(p, s, cx[j + 1], 200, .4 + j * .1, { size: 26, fill: COL.dim, weight: 700 }); tw(e, { c_fill: c }, m(mark), .3); pulse(e, m(mark), 1.15); });
+    say(p, 'одно из двух + универсальное', cx[1], 232, m('b', 1), { size: 20, fill: COL.dim });
+    say(p, 'узкая область знаний', cx[3], 232, m('lore', 1), { size: 20, fill: COL.dim });
+    hr(p, 252, .5, 70, 1500);
+    BGS.forEach((row, r) => {
+      const y = 310 + r * 92, tr = !r;
+      const tc = j => tr ? m('bk' + j, .2) : m('tab', .3 + r * .5 + j * .1);
+      say(p, row[0], cx[0], y + 10, tr ? m('bk') : tc(0), { size: 28, weight: 700, anchor: 'start' });
+      say(p, row[1], cx[1], y, tc(1), { size: 23, fill: BOOST, weight: 600 });
+      say(p, '+ универсальное', cx[1], y + 30, tc(1), { size: 20, fill: BOOST });
+      [2, 3, 4].forEach(j => say(p, row[j], cx[j], y + 10, tc(j), { size: 24 }));
+    });
+    say(p, 'класс дал навык, который уже есть от происхождения, — выберите любой другой', 800, 712, m('dup'), { size: 26, fill: COL.dim });
+    colorLine(p, [['редкие происхождения (например, наследник трона) — ', COL.dim], ['только по договорённости с группой', COL.chalk]], 800, 790, m('rare'), { size: 26 });
+  }],
+  ['q4', 'Быстрая проверка', () => { panel(0); }, { ask: done => quiz(WIDE, [{
+    id: 'c-acro', prompt: ['Акробат: повышение Силы или Ловкости и универсальное повышение. Можно или нельзя?'], build: grid(Q_ACRO, CAN, { multi: false, text: true }),
+  }], done) }],
+  ['shippa1', 'Шиппа: народ и родословная', (m) => {
+    const p = panel(0);
+    say(p, 'Пример: гоблинка Шиппа', 800, 70, .2, { size: 36, weight: 600 });
+    who(p, 'Шиппа', HERO, 200, 200, .4, 52);
+    say(p, 'поёт и заговаривает зубы', 200, 320, .8, { size: 22, fill: COL.dim });
+    const b = S.sh = attrBoard(p, 1010, 420, .5, { dx: 165, cw: 92, nameSize: 22 });
+    b.cols.forEach((c, i) => pulse(c.val, m('zero', .2 + i * .12), 1.3));
+    say(p, '1. Народ: гоблин', 70, 420, m('gob'), { size: 23, weight: 600, anchor: 'start' });
+    give(b, boostToken(p, 'Ловкость', 'fix', b.cols[1].x, 170, m('dex')), 1, 1, m('dex', .6));
+    give(b, boostToken(p, 'Харизма', 'fix', b.cols[5].x, 170, m('cha')), 5, 1, m('cha', .6));
+    give(b, boostToken(p, 'Мудрость', 'flaw', b.cols[4].x, 170, m('wis')), 4, -1, m('wis', .7));
+    give(b, boostToken(p, 'любая', 'free', 1010, 170, m('free')), 2, 1, m('free', 1.8));
+    say(p, '2. Родословная: небьющийся гоблин', 70, 470, m('her'), { size: 23, weight: 600, anchor: 'start' });
+    // what stays below the board until the background
+    const low = S.shLow = G(p, { o: 1 });
+    say(low, 'ПЗ от народа', 530, 638, m('her', .6), { size: 24, fill: COL.dim, anchor: 'end' });
+    const cells = [];
+    for (let k = 0; k < 10; k++) {
+      const r = mk('rect', { x: 560 + k * 38, y: 610, width: 34, height: 40, rx: 5, fill: k < 6 ? ANC : HERO, 'fill-opacity': .5, stroke: k < 6 ? ANC : HERO, 'stroke-width': 2 }, low);
+      put(r, { o: 0 }); show(r, k < 6 ? m('her', .7 + k * .05) : m('hp', 1.5 + (k - 6) * .15), .25);
+      cells.push(r);
+    }
+    const hpT = say(low, '6', 560 + 6 * 38 + 14, 642, m('her', 1.1), { size: 32, weight: 700, anchor: 'start' });
+    tw(hpT, { x: 560 + 10 * 38 + 14 }, m('hp', 1.5), .6);
+    prog(() => { hpT.textContent = '10'; }, m('hp', 2.1), 0);
+    say(low, 'падение: урон как с половины высоты', 1010, 642, m('fall'), { size: 24, anchor: 'start' });
+    say(low, 'от народа: ночное зрение · Скорость 25 футов · Небольшой · всеобщий и гоблинский', 800, 720, m('rest'), { size: 24 });
+    colorLine(low, [['черта народа: ', COL.dim], ['Гоблинская песня', HERO]], 800, 790, m('feat'), { size: 28 });
+    say(low, 'успешная проверка Исполнения против СЛ Воли врага → −1 к Вниманию и испытаниям Воли', 800, 840, m('song'), { size: 22, fill: COL.dim });
+  }],
+  ['shippa2', 'Шиппа: происхождение', (m) => {
+    const b = S.sh, p = b.p;
+    hide(S.shLow, .1, .4);
+    say(p, '3. Происхождение: трактирщик', 70, 520, .4, { size: 23, weight: 600, anchor: 'start' });
+    give(b, boostToken(p, 'Выносливость или Харизма', 'fix', 1010, 170, m('b1', .2)), 5, 1, m('b1', 3.4));
+    give(b, boostToken(p, 'любая', 'free', 1010, 170, m('b2')), 1, 1, m('b2', 1.6));
+    say(p, 'Ловкость и Харизма уже росли от народа: это другой шаг, так можно', 800, 640, m('why'), { size: 25, fill: OK, weight: 600 });
+    colorLine(p, [['изучена: ', COL.dim], ['Дипломатия', HERO], [', ', COL.dim], ['Знание (выпивка)', HERO]], 800, 704, m('sk'), { size: 28 });
+    colorLine(p, [['черта навыка: ', COL.dim], ['Неформальное общение', HERO]], 800, 760, m('feat'), { size: 28 });
+    const fr = mk('rect', { x: b.xL, y: b.y0 + CH + 46, width: b.xR - b.xL, height: 56, rx: 12, fill: 'none', stroke: OK, 'stroke-width': 3 }, p);
+    put(fr, { o: 0 }); show(fr, m('res'), .4);
+    b.cols.forEach((c, i) => pulse(c.val, m('res', 1.3 + i * 1.1), 1.35));
+    say(p, 'класс — в главе 5', 800, 850, m('next'), { size: 26, fill: COL.dim });
+  }],
+  ['wrap', 'Итоги', (m) => {
+    const p = panel(0);
+    numbered(p, [['Повышение +1, понижение −1; одновременные — в разные характеристики; максимум +4.', 'w1'],
+      ['Народ: ПЗ, размер, Скорость, повышения, языки, способности, черта народа.', 'w2'],
+      ['Родословная — ветвь народа: выбирают на 1-м уровне и не меняют.', 'w3'],
+      ['Происхождение: два повышения, изученные навык и Знание, черта навыка.', 'w4']], m, 230, 130, 29);
+  }],
+  ['final1', 'Практика главы', () => { panel(0); }, { ask: done => quiz(SCREEN, [{
+    id: 'p-tf', prompt: ['Верно или неверно?'], build: grid(P_TF, TF, { multi: false, text: true }),
+  }], done, 'Практика главы   1 из 3') }],
+  ['final2', 'Практика главы', () => {}, { ask: done => quiz(SCREEN, [{
+    id: 'p-build', prompt: ['Дварф. Народ: повышения Выносливости и Мудрости, универсальное — в Силу, понижение Харизмы. Происхождение — послушник: Мудрость (из «Интеллект или Мудрость») и универсальное — в Выносливость. Посчитайте модификаторы.'],
+    build: blanks(P_BUILD),
+  }], done, 'Практика главы   2 из 3') }],
+  ['final3', 'Практика главы', () => {}, { ask: done => quiz(SCREEN, [{
+    id: 'p-calc', prompt: ['Посчитайте.'], build: blanks(P_CALC),
+  }, {
+    id: 'p-half', prompt: ['Полурослик. Народ: Ловкость, Мудрость, универсальное — в Харизму, понижение Силы. Происхождение — акробат: Ловкость (из «Сила или Ловкость») и универсальное — в Харизму. Посчитайте модификаторы.'], build: blanks(P_HALF),
+  }], done, 'Практика главы   3 из 3   ·') }],
+  ['finish', 'Готово', () => {}, { ask: finishCard }],
+].map(([id, title, run, extra]) => ({ id, title, run, ...extra }));
+
+/* ---------- question data ---------- */
+const CAN = [['y', 'Можно', OK, '1'], ['n', 'Нельзя', NO, '2']];
+const Q_RULES = [
+  { parts: ['Оба повышения от народа — в Ловкость.'], ans: ['n'], why: 'Полученные одновременно повышения уходят в разные характеристики.' },
+  { parts: ['Повышение Ловкости от народа, потом повышение от происхождения — тоже в Ловкость.'], ans: ['y'], why: 'Это разные шаги: Ловкость станет +2.' },
+  { parts: ['Универсальное повышение — в Интеллект.'], ans: ['y'], why: 'Универсальное можно отдать любой характеристике.' },
+  { parts: ['Поднять Ловкость до +5 на 1-м уровне.'], ans: ['n'], why: 'На 1-м уровне ни одна характеристика не выше +4.' },
+  { parts: ['Повышение «Сила или Ловкость» — в Харизму.'], ans: ['n'], why: 'Оно идёт только в одну из двух названных характеристик.' },
+];
+const Q_ELF = [
+  { parts: ['Сила: +', { box: '1' }], why: 'Универсальное повышение ушло в Силу: 0 + 1.', hint: 'Куда отдано универсальное повышение?' },
+  { parts: ['Ловкость: +', { box: '1' }], why: 'Повышение Ловкости от народа: 0 + 1.', hint: 'Все характеристики начинаются с 0.' },
+  { parts: ['Выносливость: ', { box: '-1' }], why: 'Понижение: 0 − 1 = −1.', hint: 'Понижение отнимает 1.' },
+  { parts: ['Интеллект: +', { box: '1' }], why: 'Повышение Интеллекта от народа: 0 + 1.', hint: 'Повышение добавляет 1.' },
+];
+const Q_ELF2 = [
+  { parts: ['Выносливость: ', { box: '0' }], why: 'При замене понижений нет: Выносливость остаётся 0.', hint: 'Замена — два универсальных и никаких понижений.' },
+  { parts: ['Ловкость: +', { box: '1' }], why: 'Одно из двух универсальных ушло в Ловкость.', hint: 'Повышение добавляет 1.' },
+];
+const Q_HER = [
+  { parts: ['Родословную выбирают на 1-м уровне и потом не меняют.'], ans: ['t'], why: 'Одна родословная, на 1-м уровне, навсегда.' },
+  { parts: ['Родословная описывает, где герой вырос.'], ans: ['f'], why: 'Она описывает тело и наследственность.' },
+  { parts: ['Гном-нефилим получает ПЗ, Скорость и повышения гнома.'], ans: ['t'], why: 'Всё это по-прежнему даёт народ.' },
+  { parts: ['Гном-нефилим может брать черты только нефилимов.'], ans: ['f'], why: 'Из обоих списков: гномов и нефилимов.' },
+  { parts: ['Полурослик может взять два универсальных повышения вместо повышений и понижения своего народа.'], ans: ['t'], why: 'Такая замена доступна всегда.' },
+];
+const Q_ACRO = [
+  { parts: ['Первое повышение акробата — в Харизму.'], ans: ['n'], why: 'Первое — только Сила или Ловкость.' },
+  { parts: ['Универсальное повышение акробата — в Харизму.'], ans: ['y'], why: 'Универсальное — в любую характеристику.' },
+  { parts: ['Оба повышения акробата — в Ловкость.'], ans: ['n'], why: 'Они получены одновременно: в разные характеристики.' },
+  { parts: ['Ловкость уже +1 от народа; первое повышение акробата — тоже в Ловкость.'], ans: ['y'], why: 'Это другой шаг: Ловкость станет +2.' },
+];
+const P_TF = [
+  { parts: ['Все характеристики нового героя начинаются с 0.'], ans: ['t'], why: 'Дальше их меняют повышения и понижения.' },
+  { parts: ['Универсальное повышение можно отдать любой характеристике.'], ans: ['t'], why: 'Потому оно и универсальное.' },
+  { parts: ['Оба повышения от народа можно отдать одной характеристике.'], ans: ['f'], why: 'Полученные одновременно — в разные характеристики.' },
+  { parts: ['На 1-м уровне характеристика может быть +5.'], ans: ['f'], why: 'На 1-м уровне — не выше +4.' },
+  { parts: ['Повышения народа всегда можно заменить двумя универсальными.'], ans: ['t'], why: 'И тогда никаких понижений.' },
+  { parts: ['Родословную можно сменить на 5-м уровне.'], ans: ['f'], why: 'Родословную выбирают на 1-м уровне и не меняют.' },
+  { parts: ['Происхождение даёт ранг «изучен» в одном навыке и в одном Знании.'], ans: ['t'], why: 'Плюс два повышения и черта навыка.' },
+  { parts: ['Небьющийся гоблин получает от народа 10 ПЗ вместо 6.'], ans: ['t'], why: 'Так у Шиппы: 10 ПЗ от народа.' },
+];
+const P_BUILD = [
+  { parts: ['Сила: +', { box: '1' }], why: 'Универсальное повышение народа.', hint: 'Куда ушло универсальное повышение народа?' },
+  { parts: ['Ловкость: ', { box: '0' }], why: 'Ловкость никто не поднимал.', hint: 'Все характеристики начинаются с 0.' },
+  { parts: ['Выносливость: +', { box: '2' }], why: 'Народ +1 и универсальное послушника +1.', hint: 'Выносливость поднимают и народ, и происхождение.' },
+  { parts: ['Мудрость: +', { box: '2' }], why: 'Народ +1 и послушник +1.', hint: 'Мудрость поднимают и народ, и происхождение.' },
+  { parts: ['Харизма: ', { box: '-1' }], why: 'Понижение народа: −1.', hint: 'Понижение отнимает 1.' },
+];
+const P_CALC = [
+  { parts: ['Эльф с Интеллектом +2. Дополнительных языков: ', { box: '2' }], why: 'Сколько плюсов Интеллекта, столько языков.', hint: 'Дополнительных языков = Интеллект.' },
+  { parts: ['Гоблин (не небьющийся). ПЗ от народа: ', { box: '6' }], why: 'У гоблина 6 ПЗ от народа; 10 — только у небьющегося.', hint: 'Вспомните Шиппу: «вместо … получает 10».' },
+  { parts: ['Человек. Универсальных повышений от народа: ', { box: '2' }], why: 'Люди получают два универсальных и без понижения.', hint: 'Люди и орки — без понижения.' },
+];
+const P_HALF = [
+  { parts: ['Ловкость: +', { box: '2' }], why: 'Народ +1, акробат +1.', hint: 'Разные шаги можно складывать.' },
+  { parts: ['Харизма: +', { box: '2' }], why: 'Универсальное народа +1 и универсальное акробата +1.', hint: 'Харизму поднимали дважды.' },
+  { parts: ['Сила: ', { box: '-1' }], why: 'Понижение народа: −1.', hint: 'Понижение отнимает 1.' },
+];
+boot();
+</script>
+</body>
+</html>

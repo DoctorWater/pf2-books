@@ -1,0 +1,369 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Как устроена игра — Первый герой</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%231d2b27'/%3E%3Ctext x='32' y='45' text-anchor='middle' font-size='48' fill='%23f0b45a'%3E∞%3C/text%3E%3C/svg%3E">
+<link rel="stylesheet" href="../lib/engine.css">
+<link rel="expect" href="#bar" blocking="render"><!-- hold the first frame until the player exists, so the page transition can run -->
+</head>
+<body>
+<script src="../lib/engine.js"></script>
+<script src="../lib/pf.js"></script>
+<script src="audio/ru/timings.js"></script>
+<script>
+'use strict';
+const CHAPTER = { number: 1, title: 'Как устроена игра', minutes: 8, language: 'ru', next: '../ch02/' };
+
+/* ---------- chapter drawing helpers (shared ones: lib/pf.js) ---------- */
+// A small hero token: ring with a letter, no caption.
+function token(p, letter, color, x, y, t0, r = 28) {
+  const g = G(p, { x, y, o: 0 });
+  mk('circle', { r, fill: COL.board, stroke: color, 'stroke-width': 4 }, g);
+  T(g, letter, { y: r * .36, size: r, fill: color, weight: 700, anchor: 'middle' });
+  if (t0 != null) show(g, t0);
+  return g;
+}
+// A filled bar segment with a label above it.
+function seg(p, x1, x2, y, color, label, t0, h = 50) {
+  const r = mk('rect', { x: x1, y: y - h / 2, width: x2 - x1, height: h, rx: 8, fill: color, 'fill-opacity': .35, stroke: color, 'stroke-width': 2.5 }, p);
+  put(r, { o: 0 }); show(r, t0);
+  if (label) say(p, label, (x1 + x2) / 2, y - h / 2 - 16, t0 + .2, { size: 22, fill: color, weight: 600 });
+  return r;
+}
+// Bracket under (dir 1) or over (dir −1) a span.
+const bracket = (p, x1, x2, y, color, t0, dir = 1) =>
+  draw(path(p, `M${x1} ${y - dir * 14}V${y}H${x2}V${y - dir * 14}`, { stroke: color, 'stroke-width': 4 }, { d: 0 }), t0, .6);
+
+/* ---------- beats: [id, title, run(m, D), { ask }?] ---------- */
+const BEATS = [
+  ['intro', 'Как устроена игра', (m, D) => {
+    const g = G(scene, { o: 0, y: 24 });
+    T(g, 'Раздел 1 «Основы» · Глава 1', { x: 800, y: 330, size: 28, fill: COL.dim, anchor: 'middle' });
+    T(g, 'Как устроена игра', { x: 800, y: 440, size: 96, weight: 600, anchor: 'middle' });
+    tw(g, { o: 1, y: 0 }, .2, 1.1, out);
+    const r = say(scene, 'ведущий и игроки, кубики, три режима игры', 800, 560, m('sub'), { size: 34, fill: COL.dim });
+    tw(g, { o: 0, y: -24 }, D - .9, .8); hide(r, D - .9, .8);
+  }],
+  ['table', 'Кто за столом', (m) => {
+    const p = panel(0);
+    const tbl = mk('ellipse', { cx: 600, cy: 480, rx: 290, ry: 150, fill: '#22322d', stroke: COL.faint, 'stroke-width': 3 }, p);
+    put(tbl, { o: 0 }); show(tbl, .2);
+    say(p, 'за столом — от 4 до 7 человек', 600, 130, m('sit'), { size: 34, weight: 600 });
+    const gm = who(p, 'Ведущий', GMC, 960, 480, m('gm'), 44);
+    const seats = [[440, 240], [760, 240], [440, 720], [760, 720]];
+    seats.forEach(([x, y], i) => who(p, 'Игрок', HERO, x, y, m('pl', i * .15), 40));
+    const tokens = [[440, 420, 'Л'], [760, 420, 'Б'], [440, 545, 'Т'], [760, 545, 'Ш']];
+    tokens.forEach(([x, y, l], i) => {
+      const [sx, sy] = seats[i];
+      const ln = path(p, `M${sx} ${sy + (sy < 480 ? 80 : -48)}L${x} ${y + (sy < 480 ? -30 : 30)}`, { stroke: HERO, 'stroke-width': 3, 'stroke-dasharray': '8 8' }, { d: 0 });
+      draw(ln, m('pc', .2 + i * .15), .4);
+      token(p, l, HERO, x, y, m('pc', .4 + i * .15));
+    });
+    say(p, 'у каждого игрока — свой герой', 600, 860, m('pc', 1.2), { size: 28, fill: HERO, weight: 600 });
+    [['описывает мир', 'world'], ['говорит за встречных', 'npc'], ['управляет чудовищами', 'mon'], ['решает спорные правила', 'rules']].forEach(([str, mark], i) => {
+      const y = 330 + i * 100;
+      arrowTo(p, 1010, 480 + (i - 1.5) * 18, 1100, y - 10, GMC, m(mark));
+      say(p, str, 1120, y, m(mark, .2), { size: 30, fill: i === 2 ? FOE : COL.chalk, anchor: 'start', weight: 600 });
+    });
+    pulse(gm, m('world'), 1.15);
+  }],
+  ['story', 'Сессия, приключение, кампания', (m) => {
+    const p = panel(0), y = 380, x0 = 160, w = 120, step = 140;
+    const bx = i => x0 + i * step;
+    for (let i = 0; i < 9; i++) {
+      const r = mk('rect', { x: bx(i), y: y - 30, width: w, height: 60, rx: 10, fill: HERO, 'fill-opacity': .2, stroke: HERO, 'stroke-width': 2.5 }, p);
+      put(r, { o: 0 }); show(r, .2 + i * .08);
+    }
+    say(p, 'сессия', bx(0) + w / 2, y + 8, .3, { size: 24, fill: HERO, weight: 600 });
+    say(p, 'несколько часов', bx(0) + w / 2, y + 74, m('hours'), { size: 24, fill: COL.dim });
+    [[0, 2], [3, 4], [5, 8]].forEach(([a, b], i) => {
+      bracket(p, bx(a), bx(b) + w, y + 110, RULE, m('adv', .3 + i * .5));
+      say(p, 'приключение', (bx(a) + bx(b) + w) / 2, y + 150, m('adv', .5 + i * .5), { size: 26, fill: RULE, weight: 600 });
+    });
+    const one = mk('rect', { x: 740, y: 650, width: w, height: 60, rx: 10, fill: RULE, 'fill-opacity': .25, stroke: RULE, 'stroke-width': 2.5 }, p);
+    put(one, { o: 0 }); show(one, m('one'));
+    say(p, 'ваншот: приключение за одну сессию', 800, 760, m('one', .3), { size: 26, fill: RULE, weight: 600 });
+    bracket(p, bx(0), bx(8) + w, y - 60, COL.chalk, m('camp'), -1);
+    say(p, 'кампания', 800, y - 90, m('camp', .3), { size: 34, weight: 700 });
+    say(p, 'месяцы и даже годы', 800, y - 140, m('long'), { size: 26, fill: COL.dim });
+  }],
+  ['talk', 'Разговор и броски', (m) => {
+    const p = panel(0), cx = 420, cy = 460, R = 200;
+    say(p, 'игра — это разговор', cx, 110, .2, { size: 36, weight: 600 });
+    const nodes = [['Ведущий описывает сцену', GMC, cx, cy - R, 'desc'], ['«Что вы делаете?»', GMC, cx + R, cy, 'ask'],
+      ['Игрок отвечает', HERO, cx, cy + R, 'ans'], ['Ведущий: что вышло', GMC, cx - R, cy, 'res']];
+    nodes.forEach(([str, colr, x, y, mark]) => say(p, str, x, y + 10, mark === 'desc' ? .3 : m(mark), { size: 28, fill: colr, weight: 600 }));
+    arrowTo(p, cx + 90, cy - R + 30, cx + R - 20, cy - 40, COL.dim, m('ask', -.3));
+    arrowTo(p, cx + R - 20, cy + 40, cx + 90, cy + R - 40, COL.dim, m('ans', -.3));
+    arrowTo(p, cx - 90, cy + R - 40, cx - R + 20, cy + 40, COL.dim, m('res', -.3));
+    arrowTo(p, cx - R + 20, cy - 40, cx - 90, cy - R + 30, COL.dim, m('res', 1.2));
+    draw(path(p, 'M860 160V820', { stroke: COL.faint, 'stroke-width': 2 }, { d: 0 }), m('fork', -.4), .5);
+    draw(path(p, 'M1180 400V330L1100 250M1180 330L1260 250', { stroke: COL.chalk, 'stroke-width': 6, 'stroke-linecap': 'round' }, { d: 0 }), m('fork'), .8);
+    say(p, 'развилка: выбрали тропу', 1180, 200, m('fork', .2), { size: 28, weight: 600 });
+    say(p, 'без броска', 1180, 450, m('fork', 1.4), { size: 28, fill: COL.dim, weight: 600 });
+    for (let i = 0; i < 3; i++) draw(path(p, `M1020 ${560 + i * 30}q40 -20 80 0t80 0t80 0t80 0`, { stroke: COL.whole, 'stroke-width': 4 }, { d: 0 }), m('river', i * .15), .8);
+    say(p, 'бурная река: исход неясен,', 1180, 680, m('river', .6), { size: 28, weight: 600 });
+    say(p, 'а неудача грозит', 1180, 720, m('river', .9), { size: 28, weight: 600 });
+    pill(p, 'к20 + число с листа', RULE, 1180, 800, m('check'));
+  }],
+  ['q1', 'Быстрая проверка', () => { panel(0); }, { ask: done => quiz(WIDE, [{
+    id: 'c-roll', prompt: ['Нужен ли здесь бросок кубика?'],
+    build: grid(Q_ROLL, [['y', 'Нужен бросок', RULE], ['n', 'Без броска']], { multi: false, text: true }),
+  }], done) }],
+  ['dice', 'Кубики', (m) => {
+    const p = panel(0);
+    [4, 6, 8, 10, 12, 20].forEach((n, i) => {
+      const d = dieShape(p, n, 200 + i * 240, 200, n === 20 ? RULE : COL.chalk, m('d' + n), 60);
+      if (n === 20) pulse(d, m('d20', .6), 1.2);
+    });
+    say(p, 'запись: «к» + число граней', 800, 400, m('note'), { size: 28, fill: COL.dim, weight: 600 });
+    say(p, '4к6', 230, 590, m('many'), { size: 64, fill: RULE, weight: 700 });
+    [3, 5, 1, 6].forEach((v, i) => { const d = die(p, v, 410 + i * 120, 570, 90); pop(d, m('many', .8 + i * .2)); });
+    say(p, '3 + 5 + 1 + 6 = 15', 590, 700, m('sum', .3), { size: 36, fill: RULE, weight: 700 });
+    draw(path(p, 'M960 470V800', { stroke: COL.faint, 'stroke-width': 2 }, { d: 0 }), m('pct'), .4);
+    say(p, 'к%: от 1 до 100', 1270, 490, m('pct'), { size: 32, weight: 600 });
+    [[1160, '7', 'десятки'], [1380, '3', 'единицы']].forEach(([x, v, lab], i) => {
+      dieShape(p, 10, x, 580, COL.chalk, m('tens', i * .6), 46, null);
+      say(p, v, x, 680, m('tens', .3 + i * .6), { size: 44, fill: RULE, weight: 700 });
+      say(p, lab, x, 720, m('tens', .3 + i * .6), { size: 24, fill: COL.dim });
+    });
+    say(p, '= 73', 1270, 800, m('tens', 1.8), { size: 44, fill: RULE, weight: 700 });
+    say(p, 'в английских книгах: d20 = к20', 800, 860, m('eng'), { size: 26, fill: COL.dim });
+  }],
+  ['q2', 'Быстрая проверка', () => { panel(0); }, { ask: done => quiz(WIDE, [{
+    id: 'c-dice', prompt: ['Посчитайте, что выпало.'],
+    build: blanks(Q_DICE),
+  }], done) }],
+  ['kit', 'Что нужно для игры', (m) => {
+    const p = panel(0);
+    const card = (x, title, t0, icon) => {
+      const r = mk('rect', { x, y: 90, width: 330, height: 170, rx: 18, fill: '#22322d', stroke: COL.faint, 'stroke-width': 2.5 }, p);
+      put(r, { o: 0 }); show(r, .2 + (x - 80) / 4000);
+      const g = G(p, { x: x + 165, y: 150, o: 0 }); icon(g); show(g, t0);
+      say(p, title, x + 165, 236, t0 + .3, { size: 26, weight: 600 });
+    };
+    card(80, 'Лист персонажа', m('sheet'), g => { mk('rect', { x: -30, y: -40, width: 60, height: 76, rx: 4, fill: 'none', stroke: HERO, 'stroke-width': 3 }, g); path(g, 'M-18 -22H18M-18 -6H18M-18 10H8', { stroke: HERO, 'stroke-width': 3 }); });
+    card(450, 'Кубики', m('dice'), g => dieShape(g, 20, 0, 0, RULE, 0, 38, null));
+    card(820, 'Приключение', m('adv'), g => { path(g, 'M-44 30Q0 14 0 30V-30Q-20 -46 -44 -30ZM44 30Q0 14 0 30V-30Q20 -46 44 -30Z', { stroke: GMC, 'stroke-width': 3, fill: 'none' }); });
+    card(1190, 'Поле и фишки', m('map'), g => { path(g, 'M-40 -36H40V36H-40ZM-13 -36V36M13 -36V36M-40 -12H40M-40 12H40', { stroke: COL.chalk, 'stroke-width': 2.5 }); mk('circle', { r: 9, fill: HERO }, g); });
+    const u = 100, x0 = 260, y0 = 380;
+    for (let i = 0; i <= 8; i++) draw(path(p, `M${x0 + i * u} ${y0}V${y0 + 3 * u}`, { stroke: COL.faint, 'stroke-width': 2 }, { d: 0 }), m('map', .4), .5);
+    for (let j = 0; j <= 3; j++) draw(path(p, `M${x0} ${y0 + j * u}H${x0 + 8 * u}`, { stroke: COL.faint, 'stroke-width': 2 }, { d: 0 }), m('map', .4), .5);
+    const cell = mk('rect', { x: x0 + 2, y: y0 + 2, width: u - 4, height: u - 4, fill: RULE, 'fill-opacity': .3 }, p);
+    put(cell, { o: 0 }); show(cell, m('cell'));
+    say(p, '1 клетка = 5 футов ≈ 1,5 м', x0, y0 - 24, m('cell', .3), { size: 26, fill: RULE, anchor: 'start', weight: 600 });
+    const tok = G(p, { x: x0 + u / 2, y: y0 + 1.5 * u, o: 0 });
+    mk('circle', { r: 30, fill: HERO }, tok); show(tok, m('walk', -.3));
+    for (let k = 1; k <= 5; k++) {
+      tw(tok, { x: x0 + (k + .5) * u }, m('walk', .3 + k * .45), .4);
+      say(p, String(k * 5), x0 + (k + .5) * u, y0 + 2.5 * u + 10, m('walk', .5 + k * .45), { size: 26, fill: RULE, weight: 700 });
+    }
+    say(p, 'Скорость 25 футов = 5 клеток за одно действие', x0 + 4 * u, y0 + 3 * u + 60, m('walk', 3), { size: 28, fill: COL.chalk, weight: 600 });
+    say(p, 'по сети —', 1300, 500, m('vtt'), { size: 26, fill: COL.dim });
+    say(p, 'виртуальный стол', 1300, 540, m('vtt'), { size: 26, fill: COL.dim });
+  }],
+  ['hero', 'История и числа', (m) => {
+    const p = panel(0);
+    who(p, 'Герой', HERO, 800, 210, .2, 54);
+    infoCard(p, 80, 100, 520, 'История', ['имя', 'характер', 'прошлое'], HERO, m('story'));
+    infoCard(p, 1000, 100, 520, 'Числа', ['уровень', 'характеристики', 'навыки'], RULE, m('nums'));
+    const lx = v => 200 + (v - 1) * 1200 / 19, ly = 500;
+    draw(path(p, `M${lx(1)} ${ly}H${lx(20)}`, { stroke: COL.dim, 'stroke-width': 3 }, { d: 0 }), m('lvl'), .6);
+    for (let v = 1; v <= 20; v++) {
+      draw(path(p, `M${lx(v)} ${ly - 10}V${ly + 10}`, { stroke: COL.dim, 'stroke-width': 2 }, { d: 0 }), m('lvl', .3), .3);
+      if (v === 1 || v % 5 === 0) say(p, String(v), lx(v), ly + 44, m('lvl', .4), { size: 24, fill: COL.dim });
+    }
+    say(p, 'уровень: от 1 до 20', 800, ly - 40, m('lvl', .2), { size: 28, weight: 600 });
+    const mark = G(p, { x: lx(1), y: ly, o: 0 });
+    mk('circle', { r: 16, fill: RULE }, mark); show(mark, m('lvl', .6));
+    const bx = 500, bw = 600, by = 640;
+    const frame = mk('rect', { x: bx, y: by - 22, width: bw, height: 44, rx: 10, fill: 'none', stroke: RULE, 'stroke-width': 2.5 }, p);
+    put(frame, { o: 0 }); show(frame, m('xp'));
+    const fill = mk('rect', { x: bx, y: by - 22, width: 0, height: 44, rx: 10, fill: RULE, 'fill-opacity': .45 }, p);
+    const cnt = say(p, '0 ПО', bx + bw + 30, by + 10, m('xp'), { size: 28, fill: RULE, anchor: 'start', weight: 700 });
+    prog(q => { fill.setAttribute('width', q * bw); cnt.textContent = Math.round(q * 1000) + ' ПО'; }, m('xp', .5), 2.2);
+    say(p, 'пункты опыта', bx - 30, by + 10, m('xp'), { size: 26, fill: COL.dim, anchor: 'end' });
+    tw(mark, { x: lx(2) }, m('up'), .6);
+    pulse(mark, m('up', .6), 1.5);
+    say(p, '1000 ПО = новый уровень', lx(2) + 30, ly - 90, m('up', .5), { size: 26, fill: RULE, anchor: 'start', weight: 700 });
+    [['народ', 'anc', 450], ['происхождение', 'bg', 800], ['класс', 'cls', 1150]].forEach(([str, mark2, x]) => {
+      pill(p, str, HERO, x, 790, m(mark2));
+    });
+  }],
+  ['q3', 'Быстрая проверка', () => { panel(0); }, { ask: done => quiz(WIDE, [{
+    id: 'c-what', prompt: ['Что это: народ, происхождение или класс?'],
+    build: grid(Q_WHAT, [['a', 'Народ'], ['b', 'Происхождение'], ['c', 'Класс']], { multi: false, text: true }),
+  }], done) }],
+  ['modes', 'Три режима', (m) => {
+    const p = panel(0);
+    infoCard(p, 60, 80, 460, 'Исследование', ['путь, поиски, разговоры', 'игроки говорят, что делают', ['время: минуты и часы', COL.dim]], EXP, m('exp'), .8);
+    infoCard(p, 570, 80, 460, 'Бой', ['«Бросайте инициативу!»', 'раунды по 6 секунд', ['каждый ходит по очереди', COL.dim]], ENC, m('enc'), 1.2);
+    infoCard(p, 1080, 80, 460, 'Свободное время', ['между приключениями', 'лечение, заработок, учёба', ['время: дни и недели', COL.dim]], DOWN, m('down'), .9);
+    const y = 480;
+    seg(p, 160, 640, y, EXP, 'исследование', m('exp', 2.4));
+    seg(p, 640, 780, y, ENC, 'бой', m('enc', 1.5));
+    seg(p, 780, 1100, y, EXP, 'исследование', m('enc', 2.1));
+    seg(p, 1100, 1440, y, DOWN, 'свободное время', m('down', 1.5));
+    const t0 = m('rounds', .4);
+    draw(path(p, `M640 ${y + 25}L300 640M780 ${y + 25}L1300 640`, { stroke: ENC, 'stroke-width': 2, 'stroke-dasharray': '8 8' }, { d: 0 }), t0, .6);
+    for (let i = 0; i < 6; i++) {
+      seg(p, 300 + i * 1000 / 6 + 4, 300 + (i + 1) * 1000 / 6 - 4, 680, ENC, null, t0 + .5 + i * .15, 70);
+      say(p, `раунд ${i + 1}`, 300 + (i + .5) * 1000 / 6, 676, t0 + .6 + i * .15, { size: 22, fill: COL.chalk, weight: 600 });
+      say(p, '≈ 6 с', 300 + (i + .5) * 1000 / 6, 706, t0 + .6 + i * .15, { size: 20, fill: COL.dim });
+    }
+    say(p, 'режимы переключает ведущий', 800, 840, m('switch'), { size: 28, fill: GMC, weight: 600 });
+  }],
+  ['turn', 'Ход в бою', (m) => {
+    const p = panel(0);
+    say(p, 'раунд: каждый делает один ход по очереди', 800, 100, .2, { size: 32, weight: 600 });
+    const order = [['Ласка', HERO, 23], ['Гоблин', FOE, 19], ['Бронна', HERO, 15], ['Тиль', HERO, 11]];
+    const xs = order.map((_, i) => 380 + i * 280);
+    order.forEach(([n, c, v], i) => {
+      const g = who(p, n, c, xs[i], 230, .3 + i * .1, 38);
+      T(g, String(v), { y: -56, size: 26, fill: RULE, weight: 700, anchor: 'middle' });
+    });
+    const ring = G(p, { x: xs[0], y: 230, o: 0 });
+    mk('circle', { r: 54, fill: 'none', stroke: RULE, 'stroke-width': 5 }, ring);
+    show(ring, m('round'));
+    xs.forEach((x, i) => i && tw(ring, { x }, m('round', i * .7), .5));
+    tw(ring, { x: xs[2] }, m('acts', -.4), .5);
+    say(p, 'в свой ход — до трёх действий', 600, 430, m('acts'), { size: 30, weight: 600 });
+    [['переместиться', 'a1'], ['ударить', 'a2'], ['достать зелье', 'a3']].forEach(([str, mark], i) => {
+      actGlyph(p, 1, 400 + i * 200, 540, COL.chalk, m(mark));
+      say(p, str, 400 + i * 200, 620, m(mark, .2), { size: 26, fill: COL.chalk, weight: 600 });
+    });
+    actGlyph(p, 'r', 1200, 540, RULE, m('react'));
+    say(p, 'ответное действие', 1200, 430, m('react'), { size: 30, fill: RULE, weight: 600 });
+    say(p, 'раз в раунд, даже в чужой ход', 1200, 620, m('react', .6), { size: 26, fill: COL.chalk });
+    say(p, 'если есть подходящая способность', 1200, 666, m('need'), { size: 26, fill: COL.dim });
+  }],
+  ['q4', 'Быстрая проверка', () => { panel(0); }, { ask: done => quiz(WIDE, [{
+    id: 'c-mode', prompt: ['Какой это режим игры?'],
+    build: grid(Q_MODE, [['e', 'Исследование', EXP], ['b', 'Бой', ENC], ['d', 'Свободное время', DOWN]], { multi: false, text: true }),
+  }], done) }],
+  ['scene', 'Пример игры', (m) => {
+    const p = panel(0);
+    const plaque = (str, colr, t0) => {
+      const g = G(p, { x: 70, y: 50, o: 0 });
+      mk('rect', { width: 340, height: 56, rx: 28, fill: colr, 'fill-opacity': .25, stroke: colr, 'stroke-width': 2.5 }, g);
+      T(g, str, { x: 170, y: 37, size: 26, fill: colr, weight: 700, anchor: 'middle' });
+      show(g, t0);
+      return g;
+    };
+    const pe = plaque('режим: исследование', EXP, .2);
+    hide(pe, m('mode'), .4);
+    const pb = plaque('режим: бой', ENC, m('mode', .3));
+    pulse(pb, m('mode', .8), 1.08);
+    const shaft = mk('rect', { x: 1100, y: 150, width: 380, height: 690, fill: '#121c19' }, p);
+    put(shaft, { o: 0 }); show(shaft, .2);
+    draw(path(p, 'M1210 130V800M1300 130V800' + Array.from({ length: 11 }, (_, i) => `M1210 ${170 + i * 60}H1300`).join(''), { stroke: '#b08a5a', 'stroke-width': 5 }, { d: 0 }), .3, 1);
+    const cart = G(p, { x: 1400, y: 790, o: 0 });
+    path(cart, 'M-60 -50H60L45 0H-45Z', { stroke: COL.dim, 'stroke-width': 4, fill: '#22322d' });
+    mk('circle', { cx: -28, cy: 8, r: 9, fill: COL.dim }, cart); mk('circle', { cx: 28, cy: 8, r: 9, fill: COL.dim }, cart);
+    show(cart, .4);
+    const eyes = G(p, { x: 1400, y: 728, o: 0 });
+    mk('circle', { cx: -12, r: 6, fill: FOE }, eyes); mk('circle', { cx: 12, r: 6, fill: FOE }, eyes);
+    show(eyes, m('eyes'));
+    const lasca = token(p, 'Л', HERO, 1255, 110, .4);
+    tw(lasca, { y: 700 }, m('l1', 2), 3);
+    const bronna = token(p, 'Б', HERO, 1170, 110, .5);
+    tw(bronna, { x: 1255, y: 330 }, m('b1', .8), 1.5);
+    say(p, 'скрип!', 1420, 250, m('creak'), { size: 30, fill: RULE, weight: 700 });
+    bubble(p, 'Лестница уходит в темноту, снизу что-то скрипит.', 540, 170, GMC, m('gm1'));
+    bubble(p, 'Ласка: спускаюсь первой, тихо, ищу ловушки', 540, 270, HERO, m('l1'), { side: 'right' });
+    const d = dieShape(p, 20, 250, 380, RULE, m('roll'), 38, null, false);
+    T(d, '14', { y: 9, size: 26, fill: RULE, weight: 700, anchor: 'middle' });
+    say(p, 'Скрытность: 14 + 7 = 21', 320, 392, m('roll', .6), { size: 30, fill: RULE, anchor: 'start', weight: 700 });
+    const scr = G(p, { x: 250, y: 500, o: 0 });
+    path(scr, 'M-50 -36H50V36H-50Z', { stroke: GMC, 'stroke-width': 3, fill: '#22322d' });
+    T(scr, '?', { y: 12, size: 34, fill: GMC, weight: 700, anchor: 'middle' });
+    show(scr, m('secret'));
+    say(p, 'тайный бросок ведущего: ловушек нет', 320, 512, m('secret', .5), { size: 28, fill: GMC, anchor: 'start', weight: 600 });
+    bubble(p, 'Бронна: спускаюсь следом', 540, 620, HERO, m('b1'), { side: 'right' });
+    const ini = bubble(p, 'Бросайте инициативу!', 540, 730, GMC, m('init'), { size: 34 });
+    pulse(ini, m('init', .5), 1.1);
+  }],
+  ['rules', 'Договорённости', (m) => {
+    const p = panel(0);
+    say(p, 'Игра принадлежит вам', 800, 140, m('own'), { size: 48, fill: RULE, weight: 700 });
+    say(p, 'правило мешает и все согласны → его можно изменить', 800, 200, m('own', 1.2), { size: 28, fill: COL.dim });
+    infoCard(p, 60, 290, 460, 'До первой игры', ['какую игру хотим?', 'каких тем не касаться?', ['пауки? подробные раны?', COL.dim]], HERO, m('talk'), .8);
+    infoCard(p, 570, 290, 460, 'Герои игроков не', ['пытают', 'держат рабов', 'вредят детям'], NO, m('base', 1.5), .5);
+    infoCard(p, 1080, 290, 460, 'Спорное правило', ['выслушать всех', ['решает ведущий', GMC]], GMC, m('gm'), .9);
+  }],
+  ['wrap', 'Итоги', (m) => {
+    const p = panel(0);
+    [['Ведущий ведёт мир, каждый игрок — своего героя.', 'w1'], ['Бросок нужен, когда исход неясен и у неудачи есть цена.', 'w2'], ['Главный кубик — к20; клетка поля — 5 футов.', 'w3'], ['Три режима: исследование, бой, свободное время.', 'w4']].forEach(([str, mark], i) => {
+      const g = G(p, { x: -16, y: 230 + i * 130, o: 0 });
+      mk('circle', { cx: 140, cy: -12, r: 26, fill: COL.task }, g);
+      T(g, String(i + 1), { x: 140, y: -1, size: 30, fill: COL.board, weight: 700, anchor: 'middle' });
+      T(g, str, { x: 196, size: 32, weight: 600 });
+      tw(g, { o: 1, x: 0 }, m(mark), .6);
+    });
+  }],
+  ['final1', 'Практика главы', () => { panel(0); }, { ask: done => quiz(SCREEN, [{
+    id: 'p-tf', prompt: ['Верно или неверно?'], build: grid(P_TF, TF, { multi: false, text: true }),
+  }], done, 'Практика главы   1 из 3') }],
+  ['final2', 'Практика главы', () => {}, { ask: done => quiz(SCREEN, [{
+    id: 'p-who', prompt: ['Кто это решает?'], build: grid(P_WHO, [['p', 'Игрок', HERO], ['g', 'Ведущий', GMC]], { multi: false, text: true }),
+  }], done, 'Практика главы   2 из 3') }],
+  ['final3', 'Практика главы', () => {}, { ask: done => quiz(SCREEN, [{
+    id: 'p-calc', prompt: ['Посчитайте.'], build: blanks(P_CALC),
+  }], done, 'Практика главы   3 из 3') }],
+  ['finish', 'Готово', () => {}, { ask: finishCard }],
+].map(([id, title, run, extra]) => ({ id, title, run, ...extra }));
+
+/* ---------- question data ---------- */
+const Q_ROLL = [
+  { parts: ['Герои решают, по какой тропе идти на развилке.'], ans: ['n'], why: 'Риска нет: ведущий просто рассказывает, что на выбранной тропе.' },
+  { parts: ['Плут переплывает бурную реку.'], ans: ['y'], why: 'Исход неясен, а неудача грозит: может унести течением.' },
+  { parts: ['Герой покупает хлеб у пекаря по обычной цене.'], ans: ['n'], why: 'На кону ничего нет.' },
+  { parts: ['Воин лезет по скользкой стене, а за ним гонится стража.'], ans: ['y'], why: 'Может сорваться, а погоня близко.' },
+  { parts: ['Бард уговаривает стражника пропустить группу без пропуска.'], ans: ['y'], why: 'Стражник может отказать: исход неясен.' },
+];
+const Q_DICE = [
+  { parts: ['3к6, выпали 2, 5 и 6. Всего: ', { box: '13' }], why: '2 + 5 + 6 = 13.', hint: 'Числа на кубиках складываются.' },
+  { parts: ['к%: на кубике десятков 4, на кубике единиц 9. Итог: ', { box: '49' }], why: 'Четыре десятка и девять единиц — 49.', hint: 'Первый кубик даёт десятки, второй — единицы.' },
+];
+const Q_WHAT = [
+  { parts: ['Эльф'], ans: ['a'], why: 'Эльф — народ.' },
+  { parts: ['Трактирщик'], ans: ['b'], why: 'Кем герой был до приключений — происхождение.' },
+  { parts: ['Волшебник'], ans: ['c'], why: 'Чем герой занимается в приключениях — класс.' },
+  { parts: ['Дварф'], ans: ['a'], why: 'Дварф — народ.' },
+  { parts: ['Послушник'], ans: ['b'], why: 'Служба в храме до приключений — происхождение.' },
+  { parts: ['Плут'], ans: ['c'], why: 'Плут — класс.' },
+];
+const Q_MODE = [
+  { parts: ['Ведущий говорит: «Бросайте инициативу!»'], ans: ['b'], why: 'С этих слов начинается бой.' },
+  { parts: ['Группа неделю чинит повозку и подрабатывает в городе.'], ans: ['d'], why: 'Дни и недели между приключениями — свободное время.' },
+  { parts: ['Герои идут по следу через лес.'], ans: ['e'], why: 'Путь и поиски — исследование.' },
+  { parts: ['Погоня по крышам, где важна каждая секунда.'], ans: ['b'], why: 'Погони тоже разыгрывают по раундам, как бой.' },
+  { parts: ['Расспросы трактирщика о слухах.'], ans: ['e'], why: 'Разговоры в пути — исследование.' },
+];
+const P_TF = [
+  { parts: ['Ведущий — тоже участник игры, но ведёт весь мир, а не одного героя.'], ans: ['t'], why: 'Он описывает мир и говорит за всех встречных.' },
+  { parts: ['Кубик бросают на каждое действие героя.'], ans: ['f'], why: 'Только когда исход неясен и у неудачи есть цена.' },
+  { parts: ['«4к6» — это один кубик с четырьмя гранями.'], ans: ['f'], why: 'Это четыре шестигранных кубика, числа складываются.' },
+  { parts: ['Одна клетка поля — это 5 футов.'], ans: ['t'], why: 'Около полутора метров.' },
+  { parts: ['В свой ход в бою можно совершить до трёх действий.'], ans: ['t'], why: 'И ещё одно ответное действие за раунд, если есть способность.' },
+  { parts: ['Ответное действие можно совершить только в свой ход.'], ans: ['f'], why: 'Оно срабатывает и в чужой ход.' },
+  { parts: ['1000 пунктов опыта дают новый уровень.'], ans: ['t'], why: 'Каждая тысяча — следующий уровень.' },
+];
+const P_WHO = [
+  { parts: ['Что пытается сделать герой'], ans: ['p'], why: 'Решения героя принимает его игрок.' },
+  { parts: ['Что герои видят, войдя в комнату'], ans: ['g'], why: 'Мир описывает ведущий.' },
+  { parts: ['Что отвечает трактирщик'], ans: ['g'], why: 'За всех встречных говорит ведущий.' },
+  { parts: ['Бросок за своего героя'], ans: ['p'], why: 'Игрок сам бросает кубики за героя.' },
+  { parts: ['Как применить неясное правило'], ans: ['g'], why: 'Решает ведущий, выслушав стол.' },
+];
+const P_CALC = [
+  { parts: ['Скорость 30 футов. Клеток за одно действие: ', { box: '6' }], why: '30 : 5 = 6.', hint: 'Одна клетка — 5 футов.' },
+  { parts: ['Бросили 2к10: выпали 4 и 8. Всего: ', { box: '12' }], why: '4 + 8 = 12.', hint: 'Числа на кубиках складываются.' },
+  { parts: ['Бой длился 5 раундов. Примерно секунд: ', { box: '30' }], why: '5 × 6 = 30.', hint: 'Раунд — около 6 секунд.' },
+];
+boot();
+</script>
+</body>
+</html>

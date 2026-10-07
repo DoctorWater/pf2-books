@@ -1,0 +1,519 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Класс — Первый герой</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%231d2b27'/%3E%3Ctext x='32' y='45' text-anchor='middle' font-size='48' fill='%23f0b45a'%3E∞%3C/text%3E%3C/svg%3E">
+<link rel="stylesheet" href="../lib/engine.css">
+<link rel="expect" href="#bar" blocking="render"><!-- hold the first frame until the player exists, so the page transition can run -->
+</head>
+<body>
+<script src="../lib/engine.js"></script>
+<script src="../lib/pf.js"></script>
+<script src="audio/ru/timings.js"></script>
+<script>
+'use strict';
+const CHAPTER = { number: 5, title: 'Класс', minutes: 12, language: 'ru', next: null };
+
+/* ---------- chapter drawing helpers (shared ones: lib/pf.js) ---------- */
+// Attribute modifier, proficiency rank, magic; HP parts: ancestry, class (as in ch03).
+const ATTR = HERO, PROF = RULE, MAGIC = COL.real, ANC = COL.dim, CLS = COL.int;
+const hr = (p, y, t0, x1 = 120, x2 = 1480) => draw(path(p, `M${x1} ${y}H${x2}`, { stroke: COL.faint, 'stroke-width': 2 }, { d: 0 }), t0, .5);
+const box = (p, x, y, w, h, colr, t0) => { const r = mk('rect', { x, y, width: w, height: h, rx: 18, fill: '#22322d', stroke: colr, 'stroke-width': 2.5 }, p); put(r, { o: 0 }); show(r, t0); return r; };
+// A horizontal HP segment of n points (u px each) growing from x at t0.
+function hpSeg(p, x, y, n, u, colr, t0, h = 50) {
+  const r = mk('rect', { x, y, width: 0, height: h, rx: 6, fill: colr, 'fill-opacity': .55, stroke: colr, 'stroke-width': 2 }, p);
+  tw(r, { a_width: n * u - 2 }, t0, .6);
+  return r;
+}
+// A class card: name, book, key attribute, class HP as a bar to scale; its short lines appear from tLines.
+function classCard(p, x, y, w, h, c, t0, tLines, ls = 21) {
+  const g = G(p, { o: 0 });
+  mk('rect', { x, y, width: w, height: h, rx: 18, fill: '#22322d', stroke: COL.faint, 'stroke-width': 2.5 }, g);
+  T(g, c.name, { x: x + 22, y: y + 46, size: 32, weight: 700 });
+  T(g, c.book, { x: x + w - 18, y: y + 40, size: 18, fill: COL.dim, anchor: 'end' });
+  T(g, 'ключевая', { x: x + 22, y: y + 84, size: 19, fill: COL.dim });
+  const key = T(g, c.key, { x: x + 22, y: y + 114, size: 23, fill: ATTR, weight: 600 });
+  const u = 14;
+  mk('rect', { x: x + 22, y: y + 132, width: c.hp * u, height: 24, rx: 5, fill: CLS, 'fill-opacity': .55, stroke: CLS, 'stroke-width': 2 }, g);
+  T(g, 'ПЗ ' + c.hp, { x: x + 32 + c.hp * u, y: y + 152, size: 22, fill: CLS, weight: 700 });
+  show(g, t0);
+  // a line too long for the card shrinks to fit
+  c.lines.forEach((ln, i) => say(p, ln, x + 22, y + 196 + i * ls * 1.5, tLines + i * .35, { size: Math.min(ls, ls * (w - 44) / uiW(ln, ls)), anchor: 'start' }));
+  return { g, key };
+}
+const CLASS_W = n => (1600 - 2 * 48 - (n - 1) * 20) / n;
+
+// Class data (PC1 p. 96–194, PC2 p. 58–160): name, key attribute, HP per level, book, lines.
+const FIGHTERS = [
+  { name: 'Воин', key: 'Сила или Ловкость', hp: 10, book: 'PC1', lines: ['эксперт в оружии', 'внеочередная атака:', 'бьёт того, кто', 'идёт мимо'], mark: 'ftr' },
+  { name: 'Варвар', key: 'Сила', hp: 12, book: 'PC2', lines: ['ярость:', 'бьёт сильнее,', 'временные ПЗ,', 'хуже защищается'], mark: 'bar' },
+  { name: 'Поборник', key: 'Сила или Ловкость', hp: 10, book: 'PC2', lines: ['служит божеству', 'тяжёлая броня', 'бережёт союзников', 'возложение рук'], mark: 'cha' },
+  { name: 'Монах', key: 'Сила или Ловкость', hp: 10, book: 'PC2', lines: ['без брони и оружия', 'эксперт во всех', 'испытаниях'], mark: 'mon' },
+  { name: 'Следопыт', key: 'Сила или Ловкость', hp: 10, book: 'PC1', lines: ['охота на добычу:', 'одну цель лучше', 'выслеживает и бьёт'], mark: 'ran' },
+];
+const TRICKSTERS = [
+  { name: 'Плут', key: 'Ловкость или другая', hp: 8, book: 'PC1', lines: ['больше всех навыков', 'атака исподтишка —', 'по застигнутому', 'врасплох'], mark: 'rog' },
+  { name: 'Сорвиголова', key: 'Ловкость', hp: 10, book: 'PC2', lines: ['эффектные трюки', 'копят кураж', '→ решающий удар'], mark: 'swa' },
+  { name: 'Следователь', key: 'Интеллект', hp: 8, book: 'PC2', lines: ['к20 бросает заранее', 'бьёт по расчёту:', 'Интеллект вместо', 'Силы или Ловкости'], mark: 'inv' },
+  { name: 'Алхимик', key: 'Интеллект', hp: 8, book: 'PC2', lines: ['не заклинатель', 'пробирки → бомбы,', 'эликсиры, мутагены'], mark: 'alc' },
+];
+const CASTERS = [
+  { name: 'Бард', key: 'Харизма', hp: 8, book: 'PC1', lines: ['оккультная, спонтанные', 'песнь отваги'], mark: 'bard', grp: 'grp' },
+  { name: 'Жрец', key: 'Мудрость', hp: 8, book: 'PC1', lines: ['сакральная,', 'подготовленные', 'капеллан или затворник'], mark: 'cle', grp: 'grp2' },
+  { name: 'Друид', key: 'Мудрость', hp: 8, book: 'PC1', lines: ['первобытная,', 'подготовленные', 'орден: зверь, бури…'], mark: 'dru', grp: 'grp2' },
+  { name: 'Ведьма', key: 'Интеллект', hp: 6, book: 'PC1', lines: ['традиция покровителя', 'подготовленные', 'фамильяр'], mark: 'wit', grp: 'grp3' },
+  { name: 'Волшебник', key: 'Интеллект', hp: 6, book: 'PC1', lines: ['мистическая,', 'подготовленные', 'больше всех заклинаний'], mark: 'wiz', grp: 'grp3' },
+  { name: 'Оракул', key: 'Харизма', hp: 8, book: 'PC2', lines: ['сакральная, спонтанные', 'тайна и проклятие'], mark: 'ora', grp: 'grp' },
+  { name: 'Чародей', key: 'Харизма', hp: 6, book: 'PC2', lines: ['традиция наследия', 'спонтанные', 'магия в крови'], mark: 'sor', grp: 'grp' },
+];
+
+/* ---------- beats: [id, title, run(m, D), { ask }?] ---------- */
+const BEATS = [
+  ['intro', 'Класс', (m, D) => {
+    const g = G(scene, { o: 0, y: 24 });
+    T(g, 'Раздел 2 «Создание героя» · Глава 5', { x: 800, y: 330, size: 28, fill: COL.dim, anchor: 'middle' });
+    T(g, 'Класс', { x: 800, y: 440, size: 70, weight: 600, anchor: 'middle' });
+    tw(g, { o: 1, y: 0 }, .2, 1.1, out);
+    const r = say(scene, 'кем стал ваш герой', 800, 560, m('sub'), { size: 34, fill: COL.dim });
+    tw(g, { o: 0, y: -24 }, D - .9, .8); hide(r, D - .9, .8);
+  }],
+  ['what', 'Что даёт класс', (m) => {
+    const p = panel(0);
+    const sx = [400, 800, 1200];
+    [['народ', 'кем родился', .3], ['происхождение', 'кем был', m('bg')], ['класс', 'кем стал', m('cls')]].forEach(([s, cap, t0], i) => {
+      pill(p, s, i === 2 ? HERO : COL.chalk, sx[i], 110, t0, 32);
+      say(p, cap, sx[i], 180, t0 + .3, { size: 26, fill: i === 2 ? HERO : COL.dim });
+      if (i) arrowTo(p, sx[i - 1] + (i === 1 ? 92 : 152), 110, sx[i] - (i === 1 ? 152 : 76), 110, COL.dim, t0);
+    });
+    say(p, 'самое важное решение при создании героя', 800, 262, m('most'), { size: 30, weight: 700 });
+    [['как сражается', 'fight', 260], ['сколько ударов выдержит', 'hp', 620], ['в чём обучен', 'prof', 980], ['что получит с уровнями', 'lvl', 1340]]
+      .forEach(([s, mark, x]) => say(p, s, x, 338, m(mark), { size: 25, fill: COL.dim }));
+    box(p, 420, 400, 760, 440, COL.faint, m('card', -.2));
+    say(p, 'начало описания каждого класса', 800, 452, m('card'), { size: 24, fill: COL.dim, weight: 600 });
+    [['ключевая характеристика', ATTR], ['пункты здоровья за уровень', CLS], ['начальные умения', PROF], ['классовые особенности', COL.chalk], ['таблица развития', COL.chalk]]
+      .forEach(([s, c], i) => {
+        const y = 520 + i * 64, t0 = m('r' + (i + 1));
+        if (i === 3) hr(p, y - 38, t0 - .2, 470, 1130);
+        say(p, String(i + 1), 480, y + 10, t0, { size: 28, fill: COL.dim, weight: 700 });
+        say(p, s, 520, y + 10, t0, { size: 30, fill: c, weight: 600, anchor: 'start' });
+      });
+  }],
+  ['keyattr', 'Ключевая характеристика', (m) => {
+    const p = panel(0);
+    pill(p, 'ключевая характеристика', ATTR, 800, 80, .2, 32);
+    const tg = [['классовая СЛ', 'у всех классов', 330, 'dc'], ['СЛ и атаки заклинаний', 'у заклинателей', 800, 'spell'], ['точность атак', 'у многих классов', 1270, 'atk']];
+    tg.forEach(([s, cap, x, mark]) => {
+      arrowTo(p, 800 + (x - 800) * .18, 112, x, 196, COL.dim, m(mark));
+      say(p, s, x, 236, m(mark, .2), { size: 28, weight: 700 });
+      say(p, cap, x, 272, m(mark, .4), { size: 22, fill: COL.dim });
+    });
+    colorLine(p, [['выбор класса → ', COL.dim], ['повышение ключевой', PROF], [' (+1)', PROF]], 800, 340, m('boost'), { size: 28 });
+    const b = attrBoard(p, 800, 640, m('boost', .4));
+    const tk1 = boostToken(p, 'Сила или Ловкость', 'fix', 800, 410, m('two'));
+    give(b, tk1, 0, 1, m('two', 2.4));
+    colorLine(p, [['Сила', ATTR], [': дерётся вплотную', COL.chalk]], 760, 830, m('str'), { size: 26, anchor: 'end' });
+    clearBoard(b, m('dex', -.1));
+    const tk2 = boostToken(p, 'Сила или Ловкость', 'fix', 800, 410, m('dex', -.1));
+    give(b, tk2, 1, 1, m('dex', .3));
+    say(p, 'или', 800, 830, m('dex', .3), { size: 26, fill: COL.dim });
+    colorLine(p, [['Ловкость', ATTR], [': стреляет или фехтует', COL.chalk]], 840, 830, m('dex', 1.1), { size: 26, anchor: 'start' });
+  }],
+  ['hp', 'ПЗ за уровень', (m) => {
+    const p = panel(0), x0 = 120, u = 36;
+    say(p, 'Пункты здоровья за уровень', 800, 70, .2, { size: 36, weight: 600 });
+    colorLine(p, [['от 6 до 12', CLS], [' + Выносливость', ATTR]], 800, 126, .5, { size: 30 });
+    [[12, 'варвар', 'b12'], [10, 'воин, поборник, монах, следопыт, сорвиголова', 'b10'],
+      [8, 'плут, следователь, алхимик, бард, жрец, друид, оракул', 'b8'], [6, 'ведьма, волшебник, чародей', 'b6']].forEach(([n, names, mark], i) => {
+      const y = 180 + i * 76;
+      hpSeg(p, x0, y, n, u, CLS, m(mark));
+      say(p, String(n), x0 + n * u - 12, y + 36, m(mark, .5), { size: 30, fill: COL.board, weight: 700, anchor: 'end' });
+      say(p, names, 600, y + 35, m(mark, .3), { size: 25, anchor: 'start' });
+    });
+    hr(p, 500, m('first', -.4));
+    colorLine(p, [['ПЗ 1-го уровня = ', COL.chalk], ['народ', ANC], [' + ', COL.dim], ['класс', CLS], [' + ', COL.dim], ['Выносливость', ATTR]], 800, 560, m('first'), { size: 30 });
+    const bx = 260, bu = 30, by = 620;
+    say(p, 'человек-воин', bx - 20, by + 34, m('ex'), { size: 24, fill: HERO, weight: 600, anchor: 'end' });
+    hpSeg(p, bx, by, 8, bu, ANC, m('ex', .8));
+    hpSeg(p, bx + 8 * bu, by, 10, bu, CLS, m('ex', 2.6));
+    hpSeg(p, bx + 18 * bu, by, 2, bu, ATTR, m('ex', 3.8));
+    say(p, 'народ 8', bx + 4 * bu, by + 84, m('ex', 1), { size: 22, fill: ANC, weight: 600 });
+    say(p, 'класс 10', bx + 13 * bu, by + 84, m('ex', 2.8), { size: 22, fill: CLS, weight: 600 });
+    say(p, '2', bx + 19 * bu, by + 84, m('ex', 4), { size: 22, fill: ATTR, weight: 600 });
+    const tot = say(p, '20', bx + 20 * bu + 20, by + 38, m('ex', 4.6), { size: 40, weight: 700, anchor: 'start' });
+    hpSeg(p, bx + 20 * bu, by, 10, bu, CLS, m('next', .6));
+    hpSeg(p, bx + 30 * bu, by, 2, bu, ATTR, m('next', 1.2));
+    tw(tot, { x: bx + 32 * bu + 20 }, m('next', .6), 1);
+    prog(q => { tot.textContent = String(Math.round(20 + 12 * q)); }, m('next', .6), 1);
+    colorLine(p, [['2-й уровень: + ', COL.dim], ['10', CLS], [' + ', COL.dim], ['2', ATTR]], bx + 26 * bu, by + 84, m('next', 1.4), { size: 22 });
+  }],
+  ['profs', 'Начальные умения', (m) => {
+    const p = panel(0);
+    say(p, 'Начальные умения: воин', 800, 70, .2, { size: 36, weight: 600 });
+    box(p, 70, 120, 760, 600, COL.faint, .3);
+    const rows = [['Внимание', 'эксперт', 'per'], ['Стойкость', 'эксперт', 'fort'], ['Реакция', 'эксперт', 'fort'], ['Воля', 'изучен', 'will'],
+      ['Простое и особое оружие', 'эксперт', 'weap'], ['Любая броня', 'изучен', 'arm'], ['Классовая СЛ', 'изучен', 'dc']];
+    rows.forEach(([s, r, mark], i) => {
+      const y = 180 + i * 76, t0 = m(mark, i === 2 ? .5 : 0);
+      say(p, s, 100, y + 9, t0, { size: 28, anchor: 'start' });
+      pill(p, r, PROF, 700, y, t0 + .2, 24);
+    });
+    say(p, 'не назван — неизучен', 1180, 170, m('none'), { size: 30, weight: 700 });
+    say(p, 'если ранг не дали народ или происхождение', 1180, 214, m('none', .6), { size: 22, fill: COL.dim });
+    pill(p, 'заклинания: неизучен', COL.dim, 1180, 280, m('none', 1.2), 24);
+    hr(p, 340, m('sk', -.4), 900, 1480);
+    say(p, 'Навыки', 1180, 396, m('sk'), { size: 30, weight: 700 });
+    say(p, 'Акробатика или Атлетика', 1180, 446, m('sk', .6), { size: 26, fill: HERO });
+    colorLine(p, [['+ 3 + ', COL.chalk], ['Интеллект', ATTR], [' на выбор', COL.dim]], 1180, 494, m('sk', 2.6), { size: 28 });
+    colorLine(p, [['Интеллект +1', ATTR], [': 3 + 1 = ', COL.chalk], ['4', COL.chalk]], 1180, 580, m('int'), { size: 30 });
+    colorLine(p, [['Интеллект 0', ATTR], [': 3 + 0 = ', COL.chalk], ['3', COL.chalk]], 1180, 640, m('zero'), { size: 30 });
+  }],
+  ['q1', 'Быстрая проверка', () => { panel(0); }, { ask: done => quiz(WIDE, [{
+    id: 'c-skills', prompt: ['Волшебник: обучен Мистицизму и ещё 2 навыкам плюс Интеллект. Интеллект +3.'], build: blanks(Q_SKILLS),
+  }, {
+    id: 'c-hp', prompt: ['Эльф (6 ПЗ от народа) становится волшебником (6 ПЗ за уровень). Выносливость +1.'], build: blanks(Q_HP),
+  }], done) }],
+  ['features', 'Особенности и развитие', (m) => {
+    const p = panel(0);
+    say(p, 'Классовые особенности', 800, 70, .2, { size: 36, weight: 600 });
+    colorLine(p, [['ярость', HERO], [' варвара · ', COL.dim], ['атака исподтишка', HERO], [' плута · ', COL.dim], ['заклинания', HERO], [' волшебника', COL.dim]], 800, 130, m('ex'), { size: 27 });
+    say(p, 'многие требуют выбора', 800, 186, m('choice'), { size: 25, fill: COL.dim, weight: 600 });
+    [['Жрец', 'божество', 330, 'cl'], ['Плут', 'плутовской стиль', 800, 'ro'], ['Чародей', 'наследие', 1270, 'so']].forEach(([c, ch, x, mark]) => {
+      say(p, c, x, 254, m(mark), { size: 30, weight: 700 });
+      arrowTo(p, x, 270, x, 316, COL.dim, m(mark, .2));
+      pill(p, ch, HERO, x, 348, m(mark, .4), 26);
+    });
+    hr(p, 400, m('tab', -.4));
+    say(p, 'Таблица развития барда (начало)', 800, 450, m('tab'), { size: 28, weight: 700 });
+    const L = ['народ, происхождение, начальные умения, заклинания, муза…', 'черта барда, черта навыка', 'общая черта, прибавка навыка…',
+      'черта барда, черта навыка', 'повышения характеристик, черта народа, прибавка навыка…'];
+    const ry = i => 510 + i * 66;
+    L.forEach((s, i) => {
+      say(p, (i + 1) + '-й', 190, ry(i) + 9, m('tab', 1 + i * .15), { size: 26, fill: PROF, weight: 700, anchor: 'end' });
+      say(p, s, 230, ry(i) + 9, m('tab', 1 + i * .15), { size: 24, anchor: 'start' });
+    });
+    const fr = mk('rect', { x: 120, y: ry(1) - 28, width: 1380, height: 56, rx: 10, fill: 'none', stroke: RULE, 'stroke-width': 3 }, p);
+    put(fr, { o: 0 }); show(fr, m('l2'), .3);
+    tw(fr, { a_y: ry(2) - 28 }, m('l3'), .5);
+    tw(fr, { a_y: ry(4) - 28 }, m('l5'), .5);
+    tw(fr, { a_y: ry(3) - 28, c_stroke: OK }, m('up'), .5);
+    say(p, 'новый уровень → его строка', 1480, ry(3) + 8, m('up', .4), { size: 22, fill: OK, weight: 700, anchor: 'end' });
+  }],
+  ['roles', 'Роли в группе', (m) => {
+    const p = panel(0);
+    say(p, 'Роли в группе', 800, 70, .2, { size: 36, weight: 600 });
+    const cols = [['держит врагов', ['воин', 'поборник'], 'tank'], ['урон', ['варвар', 'сорвиголова'], 'dmg'],
+      ['лечит, поддерживает', ['бард', 'жрец'], 'sup'], ['навыки', ['плут', 'следователь'], 'sk']];
+    const xs = [230, 610, 990, 1370];
+    const pills = cols.map(([h, cls, mark], i) => {
+      say(p, h, xs[i], 160, m(mark), { size: 28, weight: 700 });
+      return cls.map((c, j) => pill(p, c, HERO, xs[i], 230 + j * 70, m(mark, .3 + j * .25), 26));
+    });
+    say(p, 'вскрывает замки, ведёт переговоры', xs[3], 400, m('sk', 1), { size: 21, fill: COL.dim });
+    colorLine(p, [['и хорошо, если есть ', COL.dim], ['магия', MAGIC]], 800, 470, m('mag'), { size: 30 });
+    hr(p, 520, m('soft', -.3));
+    say(p, 'роли не жёсткие', 800, 580, m('soft'), { size: 30, weight: 700 });
+    const cap = pill(p, 'жрец-капеллан', HERO, xs[2], 670, m('cap'), 26);
+    tw(cap, { x: xs[0] + 40 }, m('cap', 1.2), 1);
+    say(p, 'в броне — в первом ряду', xs[0] + 40, 740, m('cap', 2.2), { size: 22, fill: OK, weight: 600 });
+    pulse(pills[3][0], m('rog'), 1.25);
+    say(p, 'разведчик', xs[3] - 90, 670, m('rog', .5), { size: 24, fill: OK, weight: 600 });
+    say(p, 'переговорщик', xs[3] + 80, 670, m('rog', 1.3), { size: 24, fill: OK, weight: 600 });
+    say(p, 'обсудите с группой: кого не хватает и что интересно вам', 800, 840, m('talk'), { size: 28, fill: COL.dim });
+  }],
+  ['q2', 'Быстрая проверка', () => { panel(0); }, { ask: done => quiz(WIDE, [{
+    id: 'c-class', prompt: ['Верно или неверно?'], build: grid(Q_CLASS, TF, { multi: false, text: true }),
+  }], done) }],
+  ['magic', 'Традиции и круги', (m) => {
+    const p = panel(0);
+    say(p, 'Заклинатели: четыре традиции', 800, 70, .2, { size: 36, weight: 600 });
+    const T4 = [['Мистическая', ['изучение', 'законов мира'], 'arc', ['волшебник'], 'cls'], ['Сакральная', ['сила богов'], 'div', ['жрец', 'оракул'], 'cls2'],
+      ['Оккультная', ['тайны разума', 'и непознанного'], 'occ', ['бард'], 'cls3'], ['Первобытная', ['сила природы'], 'pri', ['друид'], 'cls4']];
+    T4.forEach(([name, desc, mark, cls, cm], i) => {
+      const x = 60 + i * 380;
+      box(p, x, 110, 350, 310, COL.faint, .3 + i * .08);
+      say(p, name, x + 175, 160, m(mark), { size: 30, fill: MAGIC, weight: 700 });
+      desc.forEach((d, j) => say(p, d, x + 175, 202 + j * 32, m(mark, .3), { size: 23, fill: COL.dim }));
+      cls.forEach((c, j) => pill(p, c, HERO, x + 175, 320 + j * 62, m(cm, .2 + j * .5), 24));
+    });
+    say(p, 'ведьма — по покровителю, чародей — по наследию', 800, 462, m('any'), { size: 26, fill: COL.dim });
+    hr(p, 500, m('rank', -.4));
+    // ten ranks: a staircase
+    say(p, 'круги 1–10: выше круг — сильнее заклинание', 470, 552, m('rank'), { size: 26, weight: 600 });
+    for (let k = 0; k < 10; k++) {
+      const h = 24 + k * 22, x = 130 + k * 66;
+      const r = mk('rect', { x, y: 850 - h, width: 56, height: h, rx: 5, fill: MAGIC, 'fill-opacity': .25 + k * .05, stroke: MAGIC, 'stroke-width': 2 }, p);
+      put(r, { o: 0 }); show(r, m('rank', .4 + k * .1), .25);
+      say(p, String(k + 1), x + 28, 840 - h, m('rank', .4 + k * .1), { size: 20, fill: COL.dim });
+    }
+    say(p, 'в день — ограниченно', 1200, 600, m('day'), { size: 30, weight: 700 });
+    say(p, 'на каждом круге', 1200, 640, m('day', .5), { size: 24, fill: COL.dim });
+    say(p, 'бард 1-го уровня, 1-й круг:', 1200, 720, m('ex'), { size: 24, fill: HERO, weight: 600 });
+    [0, 1].forEach(k => {
+      const c = mk('circle', { cx: 1160 + k * 80, cy: 790, r: 26, fill: MAGIC, 'fill-opacity': .6, stroke: MAGIC, 'stroke-width': 3 }, p);
+      put(c, { o: 0, s: .5 }); pop(c, m('ex', 2 + k * .3));
+    });
+  }],
+  ['casting', 'Как готовят заклинания', (m) => {
+    const p = panel(0);
+    say(p, 'Как готовят заклинания', 800, 64, .2, { size: 36, weight: 600 });
+    const card = (g, s, x, y, colr = COL.chalk, dashed) => {
+      const e = G(g, { x, y, o: 0 });
+      mk('rect', { x: -38, y: -32, width: 76, height: 64, rx: 10, fill: dashed ? 'none' : '#22322d', stroke: colr, 'stroke-width': 2.5, ...(dashed ? { 'stroke-dasharray': '7 5' } : {}) }, e);
+      if (s) T(e, s, { y: 11, size: 30, fill: colr, weight: 700, anchor: 'middle' });
+      return e;
+    };
+    // prepared: the morning choice fixes the slots
+    box(p, 70, 100, 700, 470, COL.faint, .3);
+    say(p, 'подготовленные', 420, 150, m('prep'), { size: 30, fill: MAGIC, weight: 700 });
+    say(p, 'из чего выбирать', 200, 232, m('prep', .4), { size: 22, fill: COL.dim, anchor: 'start' });
+    ['А', 'Б', 'В', 'Г'].forEach((s, i) => show(card(p, s, 440 + i * 90, 224, COL.dim), m('prep', .4 + i * .1)));
+    say(p, 'утром — на день', 200, 372, m('prep', 1.4), { size: 22, fill: COL.dim, anchor: 'start' });
+    [0, 1].forEach(k => show(card(p, '', 480 + k * 110, 364, COL.faint, true), m('prep', 1.4)));
+    [['А', 0, 0], ['В', 2, 1]].forEach(([s, from, k]) => {
+      const e = card(p, s, 440 + from * 90, 224, MAGIC);
+      show(e, m('prep', 2.4 + k * .4), .2);
+      tw(e, { x: 480 + k * 110, y: 364 }, m('prep', 2.5 + k * .4), .7);
+    });
+    say(p, 'на сегодня — именно эти', 420, 460, m('prep', 3.6), { size: 24, weight: 600 });
+    say(p, 'жрец, друид, ведьма, волшебник', 420, 528, m('prep2'), { size: 26, fill: HERO, weight: 600 });
+    // spontaneous: a fixed set, any of it at casting time
+    box(p, 830, 100, 700, 470, COL.faint, .3);
+    say(p, 'спонтанные', 1180, 150, m('spon'), { size: 30, fill: MAGIC, weight: 700 });
+    say(p, 'постоянный набор', 960, 232, m('spon', .4), { size: 22, fill: COL.dim, anchor: 'start' });
+    ['А', 'Б'].forEach((s, i) => show(card(p, s, 1290 + i * 90, 224, MAGIC), m('spon', .4 + i * .1)));
+    say(p, 'на день', 960, 372, m('spon', 1.2), { size: 22, fill: COL.dim, anchor: 'start' });
+    const sl = [0, 1].map(k => { const e = card(p, '?', 1240 + k * 110, 364, COL.faint, true); show(e, m('spon', 1.2)); return e; });
+    const pick = card(p, 'Б', 1380, 224, MAGIC);
+    show(pick, m('spon', 2.6), .2);
+    tw(pick, { x: 1240, y: 364 }, m('spon', 2.7), .7);
+    hide(sl[0], m('spon', 3.2), .2);
+    say(p, 'выбор — в момент колдовства', 1180, 460, m('spon', 3.4), { size: 24, weight: 600 });
+    say(p, 'бард, оракул, чародей', 1180, 528, m('spon2'), { size: 26, fill: HERO, weight: 600 });
+    // cantrips and focus spells
+    colorLine(p, [['фокусы', MAGIC], [' — сколько угодно раз', COL.chalk]], 420, 650, m('can'), { size: 30 });
+    say(p, '∞', 420, 730, m('can', 1), { size: 60, fill: MAGIC, weight: 700 });
+    colorLine(p, [['фокальные заклинания', MAGIC], [' тратят фокальные пункты', COL.chalk]], 1180, 650, m('foc'), { size: 28 });
+    const pt = mk('circle', { cx: 1180, cy: 715, r: 22, fill: MAGIC, 'fill-opacity': 1, stroke: MAGIC, 'stroke-width': 3 }, p);
+    put(pt, { o: 0 }); show(pt, m('foc', 1.5), .3);
+    tw(pt, { 'a_fill-opacity': 0 }, m('foc', 2.6), .4);
+    say(p, '10 минут передышки → +1 пункт', 1180, 785, m('ref'), { size: 26, weight: 600 });
+    tw(pt, { 'a_fill-opacity': 1 }, m('ref', 1.4), .4);
+    say(p, 'подробно — в главе о заклинаниях', 800, 864, m('later'), { size: 24, fill: COL.dim });
+  }],
+  ['q3', 'Быстрая проверка', () => { panel(0); }, { ask: done => quiz(WIDE, [{
+    id: 'c-prep', prompt: ['Подготовленные или спонтанные заклинания?'], build: grid(Q_PREP, PREP, { multi: false, text: true }),
+  }, {
+    id: 'c-trad', prompt: ['Какая традиция?'], build: grid(Q_TRAD, TRADS, { multi: false, text: true }),
+  }], done) }],
+  ['fighters', 'Бойцы', (m) => {
+    const p = panel(0);
+    say(p, 'Бойцы', 800, 70, .2, { size: 36, weight: 600 });
+    say(p, '16 классов: 8 в Player Core, 8 в Player Core 2', 800, 120, .5, { size: 24, fill: COL.dim });
+    const w = CLASS_W(5);
+    const cards = FIGHTERS.map((c, i) => classCard(p, 48 + i * (w + 20), 220, w, 420, c, m('grp', i * .15), m(c.mark, .3), 24));
+    cards.forEach((c, i) => pulse(c.key, m('grp', 1.6 + (i ? 1.2 : 0)), 1.15));
+  }],
+  ['tricksters', 'Ловкачи', (m) => {
+    const p = panel(0);
+    say(p, 'Ловкачи', 800, 70, .2, { size: 36, weight: 600 });
+    const w = CLASS_W(4);
+    const cards = TRICKSTERS.map((c, i) => classCard(p, 48 + i * (w + 20), 200, w, 420, c, .3 + i * .15, m(c.mark, .3), 24));
+    cards.forEach((c, i) => pulse(c.key, m('grp', i < 2 ? .5 : 2.4), 1.15));
+  }],
+  ['casters', 'Заклинатели', (m) => {
+    const p = panel(0);
+    say(p, 'Заклинатели', 800, 60, .2, { size: 36, weight: 600 });
+    const w = CLASS_W(4);
+    const cards = CASTERS.map((c, i) => {
+      const row = i < 4 ? 0 : 1, col = row ? i - 4 : i, x0 = row ? 48 + (w + 20) / 2 : 48;
+      return classCard(p, x0 + col * (w + 20), 100 + row * 380, w, 350, c, .3 + i * .1, m(c.mark, .3));
+    });
+    CASTERS.forEach((c, i) => pulse(cards[i].key, m(c.grp, .2), 1.15));
+  }],
+  ['q4', 'Быстрая проверка', () => { panel(0); }, { ask: done => quiz(WIDE, [{
+    id: 'c-key', prompt: ['Какая ключевая характеристика у класса?'], build: grid(Q_KEY, ATTR_COLS, { multi: false, text: true }),
+  }], done) }],
+  ['choose', 'Как выбрать', (m) => {
+    const p = panel(0);
+    say(p, 'Как выбрать класс', 800, 64, .2, { size: 36, weight: 600 });
+    say(p, 'несколько советов', 800, 110, .5, { size: 24, fill: COL.dim });
+    const row = (s, cls, y, t0) => {
+      say(p, s, 120, y + 9, t0, { size: 27, anchor: 'start' });
+      arrowTo(p, 660, y, 740, y, COL.dim, t0 + .2);
+      let x = 780;
+      cls.forEach((c, j) => { const w = c.length * 26 * .56 + 44; pill(p, c, HERO, x + w / 2, y, t0 + .5 + j * .3, 26); x += w + 18; });
+    };
+    row('первый ряд со щитом', ['воин', 'поборник'], 180, m('story', 2));
+    row('красться, вскрывать замки', ['плут'], 250, m('sneak'));
+    row('магия по вкусу', ['волшебник', 'жрец', 'друид'], 320, m('magic'));
+    hr(p, 380, m('easy', -.4));
+    draw(path(p, 'M200 520H1400', { stroke: COL.dim, 'stroke-width': 3 }, { d: 0 }), m('easy'), .6);
+    say(p, 'проще для первой игры', 200, 470, m('easy'), { size: 26, fill: OK, weight: 700, anchor: 'start' });
+    say(p, 'больше подготовки и записей', 1400, 470, m('hard'), { size: 26, fill: RULE, weight: 700, anchor: 'end' });
+    ['воин', 'варвар', 'поборник'].forEach((c, j) => pill(p, c, HERO, 270 + j * 170, 580, m('easy', 1.5 + j * .3), 26));
+    say(p, 'в бою ясно, что делать', 440, 650, m('easy', 2.6), { size: 22, fill: COL.dim });
+    ['волшебник', 'ведьма', 'алхимик'].forEach((c, j) => pill(p, c, HERO, 1000 + j * 175, 580, m('hard', .3 + j * .3), 26));
+    say(p, 'новичку можно — просто дольше', 1175, 650, m('hard', 2.6), { size: 22, fill: COL.dim });
+    hr(p, 710, m('key', -.4));
+    colorLine(p, [['ключевая характеристика', ATTR], [': хорошо, если её уже подняли ', COL.chalk], ['народ', COL.chalk], [' и ', COL.chalk], ['происхождение', COL.chalk]], 800, 790, m('key'), { size: 28 });
+  }],
+  ['shippa1', 'Шиппа выбирает класс', (m) => {
+    const p = panel(0);
+    say(p, 'Шиппа выбирает класс', 800, 64, .2, { size: 36, weight: 600 });
+    who(p, 'Шиппа', HERO, 170, 190, .3, 52);
+    const b = attrBoard(p, 1000, 400, .3, { dx: 165, cw: 92, nameSize: 22 });
+    // after chapter 4: 0 / +2 / +1 / 0 / −1 / +2
+    [[1, 1], [1, 1], [2, 1], [4, -1], [5, 1], [5, 1]].forEach(([i, d]) => bump(b, i, d, .4));
+    b.cols.forEach((c, i) => pulse(c.val, m('board', .4 + i * .5), 1.3));
+    say(p, 'после главы 4', 1000, 160, .5, { size: 22, fill: COL.dim });
+    // a cleric would not fit
+    const tc = boostToken(p, 'жрец: Мудрость', 'fix', b.cols[4].x, 160, m('cle'));
+    const rc = give(b, tc, 4, 1, m('cle', 1.4));
+    const n1 = say(p, 'жрец: Мудрость только 0', 70, 360, m('cle', 2.2), { size: 25, fill: NO, weight: 700, anchor: 'start' });
+    const n2 = say(p, 'Ловкость и Харизма — без дела', 70, 404, m('idle'), { size: 23, fill: NO, anchor: 'start' });
+    [1, 5].forEach(i => pulse(b.cols[i].val, m('idle', .5), 1.3));
+    // back to −1, then the bard
+    const c4 = b.cols[4];
+    hide(rc, m('bard', -.2), .3); hide(n1, m('bard', -.2), .3); hide(n2, m('bard', -.2), .3);
+    prog(() => { c4.val.textContent = '−1'; }, m('bard', -.1), 0);
+    c4.up.pop(); c4.v -= 1;
+    const tb = boostToken(p, 'бард: Харизма', 'fix', b.cols[5].x, 160, m('bard'));
+    give(b, tb, 5, 1, m('up'));
+    say(p, 'бард: Харизма +3', 70, 360, m('up', 1), { size: 26, fill: OK, weight: 700, anchor: 'start' });
+    // Hit Points: ancestry + class + Constitution
+    const x0 = 340, u = 40, y = 640;
+    say(p, 'ПЗ', x0 - 24, y + 36, m('hp'), { size: 30, weight: 700, anchor: 'end' });
+    hpSeg(p, x0, y, 10, u, ANC, m('hp', .3));
+    say(p, 'небьющийся гоблин 10', x0 + 5 * u, y + 88, m('hp', .6), { size: 22, fill: ANC, weight: 600 });
+    hpSeg(p, x0 + 10 * u, y, 8, u, CLS, m('hp2'));
+    say(p, 'бард 8', x0 + 14 * u, y + 88, m('hp2', .3), { size: 22, fill: CLS, weight: 600 });
+    hpSeg(p, x0 + 18 * u, y, 1, u, ATTR, m('hp3'));
+    say(p, 'Выносливость 1', x0 + 18.5 * u + 40, y + 88, m('hp3', .3), { size: 22, fill: ATTR, weight: 600, anchor: 'start' });
+    say(p, '= 19', x0 + 19 * u + 20, y + 40, m('tot'), { size: 44, weight: 700, anchor: 'start' });
+    say(p, 'вырастет Выносливость в главе 6 — ПЗ пересчитаются', 800, 830, m('ch6'), { size: 24, fill: COL.dim });
+  }],
+  ['shippa2', 'Шиппа-бард: умения', (m) => {
+    const p = panel(0);
+    say(p, 'Шиппа-бард: умения и навыки', 800, 64, .2, { size: 36, weight: 600 });
+    box(p, 60, 100, 760, 500, COL.faint, .3);
+    const rows = [['Внимание', 'эксперт', 'per', 'Мудрость'], ['Воля', 'эксперт', 'will', 'Мудрость'], ['Стойкость', 'изучен', 'tr', 'Выносливость'], ['Реакция', 'изучен', 'tr', 'Ловкость'],
+      ['Простое и особое оружие', 'изучен', 'tr', null], ['Лёгкая броня', 'изучен', 'tr', null], ['Оккультные заклинания', 'изучен', 'tr', null]];
+    const tags = { 'Мудрость': ['saves', 0], 'Выносливость': ['fr', 0], 'Ловкость': ['fr', 1.6] };
+    rows.forEach(([s, r, mark, attr], i) => {
+      const y = 150 + i * 64, t0 = m(mark, mark === 'tr' ? (i - 2) * .7 : 0);
+      say(p, s, 90, y + 9, t0, { size: 26, anchor: 'start' });
+      pill(p, r, PROF, 520, y, t0 + .2, 22);
+      if (attr) { const [tm, dt] = i === 0 ? ['calc', 0] : tags[attr]; say(p, attr, 630, y + 8, m(tm, dt + (i === 1 ? .3 : 0)), { size: 21, fill: ATTR, anchor: 'start' }); }
+    });
+    colorLine(p, [['эксперт в Воле', PROF], [' — кстати при ', OK], ['Мудрости −1', ATTR]], 1180, 480, m('will', 1.2), { size: 24 });
+    // skills
+    say(p, 'Навыки', 1180, 150, m('sk'), { size: 30, weight: 700 });
+    pill(p, 'Оккультизм', HERO, 1060, 214, m('sk', .3), 26);
+    pill(p, 'Исполнение', HERO, 1300, 214, m('sk', .7), 26);
+    colorLine(p, [['+ 4 на выбор (4 + ', COL.chalk], ['Интеллект 0', ATTR], [')', COL.chalk]], 1180, 290, m('sk', 1.6), { size: 26 });
+    say(p, 'Дипломатия — уже от происхождения', 1180, 340, m('sk', 3), { size: 22, fill: COL.dim });
+    colorLine(p, [['Гоблинская песня', HERO], [' ← изученное Исполнение', OK]], 1180, 410, m('song'), { size: 26 });
+    // Perception
+    hr(p, 630, m('calc', -.4), 60, 1540);
+    say(p, 'Внимание', 300, 700, m('calc'), { size: 30, weight: 700, anchor: 'end' });
+    say(p, '−1', 400, 700, m('calc', 1), { size: 40, fill: ATTR, weight: 700 });
+    say(p, 'Мудрость', 400, 738, m('calc', 1), { size: 20, fill: ATTR });
+    say(p, '+', 480, 700, m('rank'), { size: 40, fill: COL.dim, weight: 700 });
+    say(p, '5', 560, 700, m('rank'), { size: 40, fill: PROF, weight: 700 });
+    say(p, 'эксперт: 1 + 4', 560, 738, m('rank', .8), { size: 20, fill: PROF });
+    say(p, '=', 650, 700, m('res'), { size: 40, fill: COL.dim, weight: 700 });
+    say(p, '+4', 740, 700, m('res'), { size: 44, weight: 700 });
+    colorLine(p, [['ранг изучен: ', COL.dim], ['−1', ATTR], [' + ', COL.dim], ['3', PROF], [' (1 + 2) = ', COL.dim], ['+2', COL.chalk]], 1180, 700, m('tr2'), { size: 28 });
+    colorLine(p, [['неизучен: ', COL.dim], ['−1', ATTR], [' + ', COL.dim], ['0', PROF], [' = ', COL.dim], ['−1', COL.chalk]], 1180, 760, m('un'), { size: 28 });
+  }],
+  ['wrap', 'Итоги', (m) => {
+    const p = panel(0);
+    numbered(p, [['Класс повышает ключевую характеристику; ПЗ за уровень: 6–12 + Выносливость.', 'w1'],
+      ['Начальные умения: где герой обучен, где эксперт; остальное — неизучен.', 'w2'],
+      ['Заклинатель: своя традиция, подготовленные или спонтанные заклинания.', 'w3'],
+      ['Выбирайте по вкусу и по ключевой характеристике.', 'w4']], m, 190, 125, 29);
+    colorLine(p, [['На лист: ', RULE], ['класс, 1-й уровень, +1 к ключевой, начальные умения', COL.chalk]], 800, 760, m('now'), { size: 30 });
+  }],
+  ['final1', 'Практика главы', () => { panel(0); }, { ask: done => quiz(SCREEN, [{
+    id: 'p-tf', prompt: ['Верно или неверно?'], build: grid(P_TF, TF, { multi: false, text: true }),
+  }], done, 'Практика главы   1 из 3') }],
+  ['final2', 'Практика главы', () => {}, { ask: done => quiz(SCREEN, [{
+    id: 'p-orc', prompt: ['Орк (10 ПЗ от народа) становится варваром: 12 ПЗ за уровень, ключевая — Сила, эксперт во Внимании, обучен Атлетике и ещё 3 навыкам плюс Интеллект. До выбора класса: Сила +3, Выносливость +2, Интеллект 0, Мудрость +1.'],
+    build: blanks(P_ORC),
+  }], done, 'Практика главы   2 из 3') }],
+  ['final3', 'Практика главы', () => {}, { ask: done => quiz(SCREEN, [{
+    id: 'p-shippa', prompt: ['Шиппа, бард 1-го уровня: Ловкость +2, Выносливость +1, Мудрость −1. Воля — эксперт, Стойкость и Реакция — ранг «изучен». На 1-м уровне у неё 19 ПЗ.'],
+    build: blanks(P_SHIPPA),
+  }], done, 'Практика главы   3 из 3') }],
+  ['finish', 'Готово', () => {}, { ask: finishCard }],
+].map(([id, title, run, extra]) => ({ id, title, run, ...extra }));
+
+/* ---------- question data ---------- */
+const Q_SKILLS = [
+  { parts: ['Навыков на выбор: ', { box: '5' }], why: '2 + Интеллект 3 = 5, и ещё Мистицизм.', hint: 'Число из описания плюс Интеллект.' },
+];
+const Q_HP = [
+  { parts: ['ПЗ на 1-м уровне: ', { box: '13' }], why: 'Народ 6 + класс 6 + Выносливость 1 = 13.', hint: 'Народ + класс + Выносливость.' },
+  { parts: ['ПЗ на 2-м уровне: ', { box: '20' }], why: '13 + класс 6 + Выносливость 1 = 20.', hint: 'Каждый новый уровень: + класс + Выносливость.' },
+];
+const Q_CLASS = [
+  { parts: ['Класс повышает свою ключевую характеристику.'], ans: ['t'], why: 'Повышение ключевой — при выборе класса.' },
+  { parts: ['Воин выбирает ключевой Силу или Ловкость.'], ans: ['t'], why: 'С Силой — вплотную, с Ловкостью — стрелять или фехтовать.' },
+  { parts: ['Всё, чего класс не назвал, получает ранг «изучен».'], ans: ['f'], why: 'Не названное остаётся неизученным, если ранг не дали народ или происхождение.' },
+  { parts: ['ПЗ класса прибавляются только на 1-м уровне.'], ans: ['f'], why: 'На каждом новом уровне: + ПЗ класса + Выносливость.' },
+  { parts: ['Плут выбирает плутовской стиль, а чародей — наследие.'], ans: ['t'], why: 'Это выборы внутри классовых особенностей.' },
+  { parts: ['Жрец-капеллан может стоять в первом ряду.'], ans: ['t'], why: 'Роли не жёсткие: капеллан в броне держит удар не хуже воина.' },
+];
+const PREP = [['p', 'Подготовленные', MAGIC, '1'], ['s', 'Спонтанные', HERO, '2']];
+const Q_PREP = [
+  { parts: ['Жрец'], ans: ['p'], why: 'Жрец, друид, ведьма и волшебник готовят заклинания утром.' },
+  { parts: ['Бард'], ans: ['s'], why: 'Бард, оракул и чародей выбирают в момент колдовства.' },
+  { parts: ['Волшебник'], ans: ['p'], why: 'Волшебник выбирает заклинания на день каждое утро.' },
+  { parts: ['Чародей'], ans: ['s'], why: 'Чародей колдует спонтанно.' },
+  { parts: ['Друид'], ans: ['p'], why: 'Друид готовит заклинания утром.' },
+  { parts: ['Оракул'], ans: ['s'], why: 'Оракул колдует спонтанно.' },
+];
+const TRADS = [['arc', 'Мистическая', MAGIC, '1'], ['div', 'Сакральная', MAGIC, '2'], ['occ', 'Оккультная', MAGIC, '3'], ['pri', 'Первобытная', MAGIC, '4']];
+const Q_TRAD = [
+  { parts: ['Бард'], ans: ['occ'], why: 'Бард колдует оккультной магией.' },
+  { parts: ['Жрец'], ans: ['div'], why: 'Жрец и оракул — сакральная магия, сила богов.' },
+  { parts: ['Друид'], ans: ['pri'], why: 'Друид — первобытная магия, сила природы.' },
+  { parts: ['Волшебник'], ans: ['arc'], why: 'Волшебник — мистическая магия.' },
+];
+const ATTR_COLS = [['str', 'Сила', ATTR], ['dex', 'Ловкость', ATTR], ['con', 'Выносливость', ATTR], ['int', 'Интеллект', ATTR], ['wis', 'Мудрость', ATTR], ['cha', 'Харизма', ATTR]];
+const Q_KEY = [
+  { parts: ['Варвар'], ans: ['str'], why: 'Варвар — Сила.' },
+  { parts: ['Сорвиголова'], ans: ['dex'], why: 'Плут и сорвиголова опираются на Ловкость.' },
+  { parts: ['Следователь'], ans: ['int'], why: 'Следователь и алхимик — Интеллект.' },
+  { parts: ['Друид'], ans: ['wis'], why: 'Жрец и друид — Мудрость.' },
+  { parts: ['Оракул'], ans: ['cha'], why: 'Бард, оракул и чародей — Харизма.' },
+  { parts: ['Волшебник'], ans: ['int'], why: 'Ведьма и волшебник — Интеллект.' },
+];
+const P_TF = [
+  { parts: ['Повышение класса добавляет +1 к ключевой характеристике.'], ans: ['t'], why: 'Как любое повышение: +1.' },
+  { parts: ['Варвар получает 12 ПЗ за уровень плюс Выносливость.'], ans: ['t'], why: 'Больше всех классов.' },
+  { parts: ['У ведьмы, волшебника и чародея 6 ПЗ за уровень.'], ans: ['t'], why: 'Меньше всех классов.' },
+  { parts: ['Спонтанный заклинатель каждое утро выбирает конкретные заклинания.'], ans: ['f'], why: 'Так делают подготовленные; спонтанный выбирает в момент колдовства.' },
+  { parts: ['Фокусы можно творить сколько угодно раз.'], ans: ['t'], why: 'Ограничены только заклинания кругов.' },
+  { parts: ['Алхимик творит заклинания.'], ans: ['f'], why: 'Алхимик не заклинатель: бомбы, эликсиры, мутагены.' },
+  { parts: ['Монах с 1-го уровня эксперт во всех испытаниях.'], ans: ['t'], why: 'И это без брони.' },
+  { parts: ['Ключевая характеристика барда — Мудрость.'], ans: ['f'], why: 'Бард опирается на Харизму.' },
+];
+const P_ORC = [
+  { parts: ['Сила после класса: +', { box: '4' }], why: 'Сила — ключевая: 3 + 1 = 4.', hint: 'Класс повышает ключевую на 1.' },
+  { parts: ['ПЗ на 1-м уровне: ', { box: '24' }], why: 'Народ 10 + класс 12 + Выносливость 2 = 24.', hint: 'Народ + класс + Выносливость.' },
+  { parts: ['Навыков на выбор: ', { box: '3' }], why: '3 + Интеллект 0 = 3 (и ещё Атлетика).', hint: 'Число из описания плюс Интеллект.' },
+  { parts: ['Внимание: +', { box: '6' }], why: 'Мудрость 1 + эксперт 5 (1 + 4) = 6.', hint: 'Мудрость + бонус умения; эксперт = уровень + 4.' },
+];
+const P_SHIPPA = [
+  { parts: ['Воля: +', { box: '4' }], why: 'Мудрость −1 + эксперт 5 = 4.', hint: 'Воля — от Мудрости; эксперт = 1 + 4.' },
+  { parts: ['Реакция: +', { box: '5' }], why: 'Ловкость 2 + изучен 3 (1 + 2) = 5.', hint: 'Реакция — от Ловкости; изучен = 1 + 2.' },
+  { parts: ['Стойкость: +', { box: '4' }], why: 'Выносливость 1 + изучен 3 = 4.', hint: 'Стойкость — от Выносливости.' },
+  { parts: ['ПЗ на 2-м уровне: ', { box: '28' }], why: '19 + бард 8 + Выносливость 1 = 28.', hint: 'Каждый новый уровень: + класс + Выносливость.' },
+];
+boot();
+</script>
+</body>
+</html>
