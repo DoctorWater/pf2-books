@@ -172,10 +172,11 @@ function clearBoard(b, t0) {
 }
 
 // The character sheet (ch04–ch06): a fixed panel with every field of a PF2e sheet; unfilled fields show a dim «—».
-// Fields: name, lvl, anc, her, bg, cls, a0…a5 (attributes in ATTRS order), hp, ac, per, fort, ref, will, sk0…sk4 (name + rank),
+// Page 1 fields: name, lvl, anc, her, bg, cls, a0…a5 (attributes in ATTRS order), hp, ac, per, fort, ref, will, sk0…sk4 (name + rank),
 // ft_anc, ft_skill, ft_cls, size, spd, sense, lang, prof.
+// Page 2 (equipment, ch06; page(2) flips to it): gold, it0…it6 (item + price), st0…st2 (Strike + bonus and damage), bulk, cdc, hero.
 const SHEET = { x: 1110, y: 16, w: 474, h: 868 };
-const SHEET_FIELDS = [   // key, kind (plain | stack: label above | inline: label left | row: list line), label, x, y, size, colour, offset, highlight width
+const SHEET_FIELDS = [   // key, kind (plain | stack: label above | inline: label left | row: list line), label, x, y, size, colour, offset, highlight width, page (1 by default)
   ['name', 'plain', '', 20, 50, 34, HERO, 0, 240], ['lvl', 'inline', 'Уровень', 300, 48, 24, COL.chalk, 84, 80],
   ['anc', 'stack', 'Народ', 20, 70, 22, COL.chalk, 0, 215], ['her', 'stack', 'Родословная', 245, 70, 22, COL.chalk, 0, 215],
   ['bg', 'stack', 'Происхождение', 20, 126, 22, COL.chalk, 0, 215], ['cls', 'stack', 'Класс', 245, 126, 22, COL.chalk, 0, 215],
@@ -184,30 +185,46 @@ const SHEET_FIELDS = [   // key, kind (plain | stack: label above | inline: labe
   ['fort', 'stack', 'Стойкость', 20, 386, 32], ['ref', 'stack', 'Реакция', 175, 386, 32], ['will', 'stack', 'Воля', 330, 386, 32],
   ...[0, 1, 2, 3, 4].map(i => ['sk' + i, 'row', '', 20, 512 + i * 26, 22, COL.chalk, 0, 434]),
   ['ft_anc', 'inline', 'Черта народа', 20, 654, 21, COL.chalk, 140, 300], ['ft_skill', 'inline', 'Черта навыка', 20, 682, 21, COL.chalk, 140, 300],
-  ['ft_cls', 'inline', 'Черта класса', 20, 710, 21, COL.chalk, 140, 300],
+  ['ft_cls', 'inline', 'Черта класса', 20, 710, 19, COL.chalk, 140, 300],
   ['size', 'inline', 'Размер', 20, 756, 21, COL.chalk, 76, 150], ['spd', 'inline', 'Скорость', 245, 756, 21, COL.chalk, 92, 150],
   ['sense', 'inline', 'Чувства', 20, 784, 21, COL.chalk, 84, 300], ['lang', 'inline', 'Языки', 20, 812, 21, COL.chalk, 70, 340],
   ['prof', 'inline', 'Оружие, броня, магия', 20, 840, 21, RULE, 218, 120],
+  ['gold', 'stack', 'Кошелёк', 20, 70, 32, COL.chalk, 0, 400, 2],
+  ...[0, 1, 2, 3, 4, 5, 6].map(i => ['it' + i, 'row', '', 20, 206 + i * 34, 22, COL.chalk, 0, 434, 2]),
+  ...[0, 1, 2].map(i => ['st' + i, 'row', '', 20, 494 + i * 34, 22, COL.chalk, 0, 434, 2]),
+  ['bulk', 'inline', 'Вес', 20, 636, 24, COL.chalk, 66, 150, 2], ['cdc', 'inline', 'Классовая СЛ', 20, 682, 24, COL.chalk, 132, 100, 2],
+  ['hero', 'inline', 'Пункты героизма', 20, 728, 24, COL.chalk, 168, 100, 2],
 ];
 function charSheet(p, t0) {
   const g = G(p, { x: SHEET.x, y: SHEET.y, o: 0 }), f = {};
   mk('rect', { width: SHEET.w, height: SHEET.h, rx: 18, fill: '#22322d', stroke: COL.faint, 'stroke-width': 2.5 }, g);
-  [62, 180, 312, 454, 636, 738].forEach(y => path(g, `M20 ${y}H${SHEET.w - 20}`, { stroke: COL.faint, 'stroke-width': 1.5 }));
-  T(g, 'Навыки', { x: 20, y: 482, size: 17, fill: COL.dim, weight: 600 });
-  const lab = (s, x, y) => T(g, s, { x, y, size: 17, fill: COL.dim, weight: 600 });
-  SHEET_FIELDS.forEach(([key, kind, label, x, y, size, col = COL.chalk, off = 0, bw = 150]) => {
+  const pg = [G(g), G(g, { o: 0 })], line = (q, y) => path(q, `M20 ${y}H${SHEET.w - 20}`, { stroke: COL.faint, 'stroke-width': 1.5 });
+  [62, 180, 312, 454, 636, 738].forEach(y => line(pg[0], y));
+  T(pg[0], 'Навыки', { x: 20, y: 482, size: 17, fill: COL.dim, weight: 600 });
+  [62, 150, 438, 594].forEach(y => line(pg[1], y));
+  [['Страница 2 · снаряжение', 40, 20], ['Куплено', 178, 17], ['Удары', 466, 17]].forEach(([s, y, size]) => T(pg[1], s, { x: 20, y, size, fill: COL.dim, weight: 600 }));
+  SHEET_FIELDS.forEach(([key, kind, label, x, y, size, col = COL.chalk, off = 0, bw = 150, n = 1]) => {
+    const q = pg[n - 1], lab = (s, x, y) => T(q, s, { x, y, size: 17, fill: COL.dim, weight: 600 });
     let vx = x, vy = y;
     if (kind === 'stack') { lab(label, x, y + 15); vy = y + 15 + size + 8; }
     else if (kind === 'inline') { lab(label, x, y); vx = x + off; }
-    const hl = put(mk('rect', { x: vx - 6, y: vy - size, width: bw, height: size + 12, rx: 8, fill: RULE, 'fill-opacity': .28 }, g), { o: 0 });
-    const v = T(g, '—', { x: vx, y: vy, size, fill: COL.faint, weight: kind === 'plain' ? 700 : 600 });
+    const hl = put(mk('rect', { x: vx - 6, y: vy - size, width: bw, height: size + 12, rx: 8, fill: RULE, 'fill-opacity': .28 }, q), { o: 0 });
+    const v = T(q, '—', { x: vx, y: vy, size, fill: COL.faint, weight: kind === 'plain' ? 700 : 600 });
     const row = kind === 'row';
-    const sub = T(g, '', { x: row ? SHEET.w - 20 : vx + 58, y: vy, size: row ? 18 : 17, fill: RULE, weight: 600, anchor: row ? 'end' : 'start' });
+    const sub = T(q, '', { x: row ? SHEET.w - 20 : vx + 58, y: vy, size: row ? 18 : 17, fill: RULE, weight: 600, anchor: row ? 'end' : 'start' });
     f[key] = { v, sub, hl, col };
   });
   show(g, t0);
+  let cur = 1;
   return {
     g,
+    // flip to page 1 or 2 at t0 (immediately if t0 is omitted)
+    page(n, t0) {
+      if (n === cur) return;
+      const [a, b] = n === 2 ? pg : [pg[1], pg[0]];
+      cur = n;
+      if (t0 == null) { put(a, { o: 0 }); put(b, { o: 1 }); } else { tw(a, { o: 0 }, t0, .35); tw(b, { o: 1 }, t0 + .2, .35); }
+    },
     // a value already on the sheet from an earlier chapter (no animation)
     fill(key, val, sub) { const q = f[key]; q.v.textContent = val; if (sub !== undefined) q.sub.textContent = sub; put(q.v, { c_fill: q.col }); },
     // the value is written at t0 and briefly lit
