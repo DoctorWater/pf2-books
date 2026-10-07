@@ -53,7 +53,7 @@ function infoCard(p, x, y, w, title, lines, color, t0, step = .5) {
     return say(p, str, x + 28, y + 100 + i * 46, t0 + .3 + i * step, { size: 25, fill, anchor: 'start' });
   });
 }
-// Die outline by number of sides (4, 6, 8, 10, 12, 20), drawn around (0,0) with a «кN» label below; label null hides it,
+// Die outline by number of sides (4, 6, 8, 10, 12, 20), drawn around (0,0) with a «dN» label below; label null hides it,
 // inner false keeps only the contour (room for a number inside).
 const DIE_SHAPES = {
   4: 'M0 -1L.95 .7H-.95Z',
@@ -61,9 +61,10 @@ const DIE_SHAPES = {
   8: 'M0 -1L.8 0L0 1L-.8 0ZM-.8 0H.8',
   10: 'M0 -1L.85 -.15L0 1L-.85 -.15ZM-.85 -.15L0 .25L.85 -.15M0 .25V1',
   12: 'M0 -1L.95 -.31L.59 .81H-.59L-.95 -.31Z',
-  20: 'M0 -1L.87 -.5V.5L0 1L-.87 .5V-.5ZM0 -.5L.5 .3H-.5Z',
+  20: 'M0 -1L.87 -.5V.5L0 1L-.87 .5V-.5ZM0 -.62L.54 .31H-.54Z' +  // icosahedron face-on: front face at 0.618 of the outline
+    'M0 -.62V-1M0 -.62L.87 -.5M0 -.62L-.87 -.5M.54 .31L.87 -.5M.54 .31L.87 .5M.54 .31L0 1M-.54 .31L-.87 -.5M-.54 .31L-.87 .5M-.54 .31L0 1',
 };
-function dieShape(p, sides, x, y, color, t0, size = 60, label = 'к' + sides, inner = true) {
+function dieShape(p, sides, x, y, color, t0, size = 60, label = 'd' + sides, inner = true) {
   const g = G(p, { x, y, o: 0 });
   const d = inner ? DIE_SHAPES[sides] : DIE_SHAPES[sides].split('Z')[0] + 'Z';
   path(g, d.replace(/-?[\d.]+/g, v => +(v * size).toFixed(1)), { stroke: color, 'stroke-width': 4, 'stroke-linejoin': 'round', fill: '#22322d' });
@@ -150,6 +151,7 @@ function bump(b, i, d, t0) {
   if (d > 0) c.up.push(r); else c.dn = r;
   const v = (c.v += d);
   prog(() => { c.val.textContent = sgn(v); }, t0, 0);
+  b.sheet?.set('a' + b.cols.indexOf(c), sgn(v), t0);
   pulse(c.val, t0, 1.35);
   return r;
 }
@@ -167,4 +169,66 @@ function clearBoard(b, t0) {
     c.up = []; c.dn = null; c.v = 0;
     prog(() => { c.val.textContent = '0'; }, t0 + .2, 0);
   });
+}
+
+// The character sheet (ch04–ch06): a fixed panel with every field of a PF2e sheet; unfilled fields show a dim «—».
+// Fields: name, lvl, anc, her, bg, cls, a0…a5 (attributes in ATTRS order), hp, ac, per, fort, ref, will, sk0…sk4 (name + rank),
+// ft_anc, ft_skill, ft_cls, size, spd, sense, lang, prof.
+const SHEET = { x: 1110, y: 16, w: 474, h: 868 };
+const SHEET_FIELDS = [   // key, kind (plain | stack: label above | inline: label left | row: list line), label, x, y, size, colour, offset, highlight width
+  ['name', 'plain', '', 20, 50, 34, HERO, 0, 240], ['lvl', 'inline', 'Уровень', 300, 48, 24, COL.chalk, 84, 80],
+  ['anc', 'stack', 'Народ', 20, 70, 22, COL.chalk, 0, 215], ['her', 'stack', 'Родословная', 245, 70, 22, COL.chalk, 0, 215],
+  ['bg', 'stack', 'Происхождение', 20, 126, 22, COL.chalk, 0, 215], ['cls', 'stack', 'Класс', 245, 126, 22, COL.chalk, 0, 215],
+  ...ATTRS.map((n, i) => ['a' + i, 'stack', n, 20 + (i % 3) * 155, 188 + (i > 2) * 62, 32, HERO, 0, 140]),
+  ['hp', 'stack', 'ПЗ', 20, 322, 32], ['ac', 'stack', 'КБ', 175, 322, 32], ['per', 'stack', 'Внимание', 330, 322, 32],
+  ['fort', 'stack', 'Стойкость', 20, 386, 32], ['ref', 'stack', 'Реакция', 175, 386, 32], ['will', 'stack', 'Воля', 330, 386, 32],
+  ...[0, 1, 2, 3, 4].map(i => ['sk' + i, 'row', '', 20, 512 + i * 26, 22, COL.chalk, 0, 434]),
+  ['ft_anc', 'inline', 'Черта народа', 20, 654, 21, COL.chalk, 140, 300], ['ft_skill', 'inline', 'Черта навыка', 20, 682, 21, COL.chalk, 140, 300],
+  ['ft_cls', 'inline', 'Черта класса', 20, 710, 21, COL.chalk, 140, 300],
+  ['size', 'inline', 'Размер', 20, 756, 21, COL.chalk, 76, 150], ['spd', 'inline', 'Скорость', 245, 756, 21, COL.chalk, 92, 150],
+  ['sense', 'inline', 'Чувства', 20, 784, 21, COL.chalk, 84, 300], ['lang', 'inline', 'Языки', 20, 812, 21, COL.chalk, 70, 340],
+  ['prof', 'inline', 'Оружие, броня, магия', 20, 840, 21, RULE, 218, 120],
+];
+function charSheet(p, t0) {
+  const g = G(p, { x: SHEET.x, y: SHEET.y, o: 0 }), f = {};
+  mk('rect', { width: SHEET.w, height: SHEET.h, rx: 18, fill: '#22322d', stroke: COL.faint, 'stroke-width': 2.5 }, g);
+  [62, 180, 312, 454, 636, 738].forEach(y => path(g, `M20 ${y}H${SHEET.w - 20}`, { stroke: COL.faint, 'stroke-width': 1.5 }));
+  T(g, 'Навыки', { x: 20, y: 482, size: 17, fill: COL.dim, weight: 600 });
+  const lab = (s, x, y) => T(g, s, { x, y, size: 17, fill: COL.dim, weight: 600 });
+  SHEET_FIELDS.forEach(([key, kind, label, x, y, size, col = COL.chalk, off = 0, bw = 150]) => {
+    let vx = x, vy = y;
+    if (kind === 'stack') { lab(label, x, y + 15); vy = y + 15 + size + 8; }
+    else if (kind === 'inline') { lab(label, x, y); vx = x + off; }
+    const hl = put(mk('rect', { x: vx - 6, y: vy - size, width: bw, height: size + 12, rx: 8, fill: RULE, 'fill-opacity': .28 }, g), { o: 0 });
+    const v = T(g, '—', { x: vx, y: vy, size, fill: COL.faint, weight: kind === 'plain' ? 700 : 600 });
+    const row = kind === 'row';
+    const sub = T(g, '', { x: row ? SHEET.w - 20 : vx + 58, y: vy, size: row ? 18 : 17, fill: RULE, weight: 600, anchor: row ? 'end' : 'start' });
+    f[key] = { v, sub, hl, col };
+  });
+  show(g, t0);
+  return {
+    g,
+    // a value already on the sheet from an earlier chapter (no animation)
+    fill(key, val, sub) { const q = f[key]; q.v.textContent = val; if (sub !== undefined) q.sub.textContent = sub; put(q.v, { c_fill: q.col }); },
+    // the value is written at t0 and briefly lit
+    set(key, val, t0, sub) {
+      const q = f[key];
+      prog(() => { q.v.textContent = val; if (sub !== undefined) q.sub.textContent = sub; put(q.v, { c_fill: RULE }); }, t0, 0);
+      this.flash(key, t0, true);
+    },
+    // only the small tag next to the value (a rank) changes at t0
+    tag(key, sub, t0) {
+      const q = f[key];
+      prog(() => { q.sub.textContent = sub; }, t0, 0);
+      tw(q.hl, { o: 1 }, t0, .15); tw(q.hl, { o: 0 }, t0 + .3, 1.3);
+      pulse(q.sub, t0, 1.2);
+    },
+    flash(key, t0, withText) {
+      const q = f[key];
+      if (!withText) tw(q.v, { c_fill: RULE }, t0, .15);
+      tw(q.v, { c_fill: q.col }, t0 + .5, 1);
+      tw(q.hl, { o: 1 }, t0, .15); tw(q.hl, { o: 0 }, t0 + .3, 1.3);
+      pulse(q.v, t0, 1.2);
+    },
+  };
 }

@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Проверка: к20 против сложности — Первый герой</title>
+<title>Проверка: d20 против сложности — Первый герой</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%231d2b27'/%3E%3Ctext x='32' y='45' text-anchor='middle' font-size='48' fill='%23f0b45a'%3E∞%3C/text%3E%3C/svg%3E">
 <link rel="stylesheet" href="../lib/engine.css">
 <link rel="expect" href="#bar" blocking="render"><!-- hold the first frame until the player exists, so the page transition can run -->
@@ -14,7 +14,7 @@
 <script src="audio/ru/timings.js"></script>
 <script>
 'use strict';
-const CHAPTER = { number: 2, title: 'Проверка: к20 против сложности', minutes: 10, language: 'ru', next: '../ch03/' };
+const CHAPTER = { number: 2, title: 'Проверка: d20 против сложности', minutes: 10, language: 'ru', next: '../ch03/' };
 
 /* ---------- chapter drawing helpers (shared ones: lib/pf.js) ---------- */
 // Degrees of success, best first: key, label, colour, fill opacity.
@@ -50,10 +50,10 @@ const strike = (p, x1, y1, x2, y2, t0) => draw(path(p, `M${x1} ${y1}L${x2} ${y2}
 
 /* ---------- beats: [id, title, run(m, D), { ask }?] ---------- */
 const BEATS = [
-  ['intro', 'Проверка: к20 против сложности', (m, D) => {
+  ['intro', 'Проверка: d20 против сложности', (m, D) => {
     const g = G(scene, { o: 0, y: 24 });
     T(g, 'Раздел 1 «Основы» · Глава 2', { x: 800, y: 330, size: 28, fill: COL.dim, anchor: 'middle' });
-    T(g, 'Проверка: к20 против сложности', { x: 800, y: 440, size: 76, weight: 600, anchor: 'middle' });
+    T(g, 'Проверка: d20 против сложности', { x: 800, y: 440, size: 76, weight: 600, anchor: 'middle' });
     tw(g, { o: 1, y: 0 }, .2, 1.1, out);
     const r = say(scene, 'четыре шага, степени успеха, бонусы и штрафы, испытания', 800, 560, m('sub'), { size: 34, fill: COL.dim });
     tw(g, { o: 0, y: -24 }, D - .9, .8); hide(r, D - .9, .8);
@@ -61,7 +61,7 @@ const BEATS = [
   ['steps', 'Четыре шага', (m) => {
     const p = panel(0);
     say(p, 'Проверка в четыре шага', 90, 120, .2, { size: 36, weight: 600, anchor: 'start' });
-    [['Бросьте к20, найдите модификаторы', 's1'], ['Сложите: получится итог', 's2'], ['Сравните итог со сложностью (СЛ)', 's3'], ['Определите степень успеха', 's4']].forEach(([str, mark], i) => {
+    [['Бросьте d20, найдите модификаторы', 's1'], ['Сложите: получится итог', 's2'], ['Сравните итог со сложностью (СЛ)', 's3'], ['Определите степень успеха', 's4']].forEach(([str, mark], i) => {
       const g = G(p, { x: -16, y: 240 + i * 120, o: 0 });
       mk('circle', { cx: 116, cy: -10, r: 26, fill: RULE }, g);
       T(g, String(i + 1), { x: 116, y: 1, size: 30, fill: COL.board, weight: 700, anchor: 'middle' });
@@ -120,7 +120,7 @@ const BEATS = [
     tw(five, { o: 1 }, m('later', 3), .3);
     pulse(sh, m('later', 3.1), 1.08);
     say(p, 'на листе уже сложено: 2 + 3 = 5', 800, 620, m('later', 2.6), { size: 30, fill: RULE, weight: 700 });
-    pill(p, 'к20 + число с листа + ситуация', RULE, 800, 760, m('sit'), 32);
+    pill(p, 'd20 + число с листа + ситуация', RULE, 800, 760, m('sit'), 32);
   }],
   ['dc', 'Кто знает СЛ', (m) => {
     const p = panel(0);
@@ -425,7 +425,7 @@ const BEATS = [
     say(p, 'свой бросок: 1 выдала бы ответ', 215, 662, m('why', 2.6), { size: 24, fill: COL.dim, anchor: 'start' });
     draw(path(p, 'M800 70V700', { stroke: COL.faint, 'stroke-width': 2 }, { d: 0 }), m('flat', -.3), .4);
     say(p, 'Чистая проверка', 1190, 100, m('flat'), { size: 34, fill: RULE, weight: 600 });
-    say(p, 'только к20, без модификаторов', 1190, 148, m('flat', .4), { size: 26, fill: COL.dim });
+    say(p, 'только d20, без модификаторов', 1190, 148, m('flat', .4), { size: 26, fill: COL.dim });
     const sg = G(p);
     for (let i = 1; i <= 20; i++) {
       const x = 890 + ((i - 1) % 10) * 62, y = 200 + Math.floor((i - 1) / 10) * 76, t0 = m('fog', .3 + i * .03);
@@ -443,7 +443,7 @@ const BEATS = [
   }],
   ['wrap', 'Итоги', (m) => {
     const p = panel(0);
-    [['к20 + модификатор = итог; итог не меньше СЛ — успех.', 'w1'], ['СЛ ± 10 — критический результат; 20 и 1 на кубике сдвигают на степень.', 'w2'], ['Бонусы одного вида не складываются, разных видов — складываются.', 'w3'], ['Испытание бросает цель; СЛ из модификатора = 10 + модификатор.', 'w4']].forEach(([str, mark], i) => {
+    [['d20 + модификатор = итог; итог не меньше СЛ — успех.', 'w1'], ['СЛ ± 10 — критический результат; 20 и 1 на кубике сдвигают на степень.', 'w2'], ['Бонусы одного вида не складываются, разных видов — складываются.', 'w3'], ['Испытание бросает цель; СЛ из модификатора = 10 + модификатор.', 'w4']].forEach(([str, mark], i) => {
       const g = G(p, { x: -16, y: 230 + i * 130, o: 0 });
       mk('circle', { cx: 110, cy: -12, r: 26, fill: COL.task }, g);
       T(g, String(i + 1), { x: 110, y: -1, size: 30, fill: COL.board, weight: 700, anchor: 'middle' });
@@ -501,7 +501,7 @@ const P_TF = [
   { parts: ['Испытание бросает тот, кто сотворил заклинание.'], ans: ['f'], why: 'Испытание бросает цель, а заклинатель задаёт СЛ.' },
   { parts: ['На испытание тратится одно действие.'], ans: ['f'], why: 'Испытание происходит само, даже без сознания.' },
   { parts: ['Тайную проверку бросает ведущий и не показывает результат.'], ans: ['t'], why: 'Так игрок не знает, хорошо ли вышло.' },
-  { parts: ['Чистая проверка — это бросок к20 без модификаторов.'], ans: ['t'], why: 'Чистая удача: важно только число на кубике.' },
+  { parts: ['Чистая проверка — это бросок d20 без модификаторов.'], ans: ['t'], why: 'Чистая удача: важно только число на кубике.' },
 ];
 const P_DEGREE = [
   { parts: ['На кубике 13'], ans: ['s'], why: '13 + 7 = 20, итог равен СЛ — успех.' },

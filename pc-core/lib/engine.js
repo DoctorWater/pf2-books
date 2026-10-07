@@ -57,7 +57,7 @@ document.body.insertAdjacentHTML('afterbegin', `<div id="frame">
     <small><span id="coverMeta"></span> <kbd>Пробел</kbd> — начать, <kbd>?</kbd> — клавиши.</small>
   </div></button>
   <div id="bar">
-    <a class="icon" id="bHome" href="../" aria-label="Все главы" title="Все главы">
+    <a class="icon" id="bHome" href="../" aria-label="Все главы" data-tip="Все главы">
       <svg viewBox="0 0 18 18"><path d="M2 2h6v6H2zM10 2h6v6h-6zM2 10h6v6H2zM10 10h6v6h-6z"/></svg>
     </a>
     <button class="icon" id="bPlay" aria-label="Пуск или пауза (пробел)">
@@ -73,7 +73,7 @@ document.body.insertAdjacentHTML('afterbegin', `<div id="frame">
     <div class="segs" id="segs"></div>
     <div class="step" id="stepName"></div>
     <div class="volume">
-      <button class="icon" id="bVolume" aria-label="Громкость" aria-controls="volume" title="Громкость (0 — без звука)">
+      <button class="icon" id="bVolume" aria-label="Громкость" aria-controls="volume" data-tip="Громкость (0 — без звука)">
         <svg viewBox="0 0 24 24" aria-hidden="true">
           <path d="M3 9v6h4l5 4V5L7 9z" fill="currentColor"/>
           <path d="M16 8a6 6 0 0 1 0 8m3-11a10 10 0 0 1 0 14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
@@ -81,8 +81,8 @@ document.body.insertAdjacentHTML('afterbegin', `<div id="frame">
       </button>
       <input id="volume" type="range" min="0" max="1" step="0.05" value="1" aria-label="Громкость">
     </div>
-    <button class="icon txt" id="bHelp" aria-label="Клавиши (?)" title="Клавиши (?)">?</button>
-    <button class="icon cc" id="bCC" aria-pressed="false" aria-label="Субтитры (C)" title="Субтитры (C)">CC</button>
+    <button class="icon txt" id="bHelp" aria-label="Клавиши (?)" data-tip="Клавиши (?)">?</button>
+    <button class="icon cc" id="bCC" aria-pressed="false" aria-label="Субтитры (C)" data-tip="Субтитры (C)">CC</button>
     <button class="icon" id="bFull" aria-label="Во весь экран">
       <svg viewBox="0 0 18 18"><path d="M1 1h6v2H3v4H1zM11 1h6v6h-2V3h-4zM1 11h2v4h4v2H1zM15 11h2v6h-6v-2h4z"/></svg>
     </button>
@@ -1533,12 +1533,30 @@ function buildSegs() {
   segs = BEATS.map((b, i) => {
   const s = h('button', 'seg' + (b.ask ? ' ask' : ''), [h('i')]);
   s.style.flex = TIMINGS[b.id].dur + (b.ask ? 12 : 0);
-  s.title = b.title;
+  s.dataset.tip = b.title;
   s.setAttribute('aria-label', `Перейти к шагу ${i + 1}: ${b.title}`);
   s.onclick = () => { hideCover(); seek(i, true); };
   $('segs').append(s);
   return s.firstChild;
   });
+}
+// Hover/focus tips for the bar, shown at once (the native title tooltip waits about a second).
+function barTips() {
+  const bar = $('bar'), tip = h('div', 'tip');
+  bar.append(tip);
+  const hide = () => tip.classList.remove('on');
+  const show = e => {
+    const el = e.target.closest('[data-tip]');
+    if (!el) return hide();
+    tip.textContent = el.dataset.tip;
+    const b = bar.getBoundingClientRect(), r = el.getBoundingClientRect(), k = b.width / bar.offsetWidth, w = tip.offsetWidth / 2;
+    tip.style.left = Math.min(bar.offsetWidth - w - 8, Math.max(w + 8, (r.left + r.width / 2 - b.left) / k)) + 'px';
+    tip.classList.add('on');
+  };
+  bar.addEventListener('pointerover', show);
+  bar.addEventListener('focusin', show);
+  bar.addEventListener('pointerleave', hide);
+  bar.addEventListener('focusout', hide);
 }
 function ui() {
   segs.forEach((f, k) => { f.style.width = (k < P.i || P.done ? 100 : k > P.i ? 0 : Math.min(100, P.t / P.end * 100)) + '%'; });
@@ -1643,6 +1661,7 @@ function boot() {
   document.getElementById('stage').setAttribute('aria-label', `Lesson animation: ${CHAPTER.title}`);
   $('coverMeta').textContent = `Около ${CHAPTER.minutes} мин, со звуком и быстрыми проверками.`;
   buildSegs();
+  barTips();
   const qs = new URLSearchParams(location.search);
   if (qs.has('beat')) {
     $('cover').hidden = true;

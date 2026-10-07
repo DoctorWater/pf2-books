@@ -56,7 +56,7 @@ const FIGHTERS = [
 const TRICKSTERS = [
   { name: 'Плут', key: 'Ловкость или другая', hp: 8, book: 'PC1', lines: ['больше всех навыков', 'атака исподтишка —', 'по застигнутому', 'врасплох'], mark: 'rog' },
   { name: 'Сорвиголова', key: 'Ловкость', hp: 10, book: 'PC2', lines: ['эффектные трюки', 'копят кураж', '→ решающий удар'], mark: 'swa' },
-  { name: 'Следователь', key: 'Интеллект', hp: 8, book: 'PC2', lines: ['к20 бросает заранее', 'бьёт по расчёту:', 'Интеллект вместо', 'Силы или Ловкости'], mark: 'inv' },
+  { name: 'Следователь', key: 'Интеллект', hp: 8, book: 'PC2', lines: ['d20 бросает заранее', 'бьёт по расчёту:', 'Интеллект вместо', 'Силы или Ловкости'], mark: 'inv' },
   { name: 'Алхимик', key: 'Интеллект', hp: 8, book: 'PC2', lines: ['не заклинатель', 'пробирки → бомбы,', 'эликсиры, мутагены'], mark: 'alc' },
 ];
 const CASTERS = [
@@ -360,73 +360,106 @@ const BEATS = [
     colorLine(p, [['ключевая характеристика', ATTR], [': хорошо, если её уже подняли ', COL.chalk], ['народ', COL.chalk], [' и ', COL.chalk], ['происхождение', COL.chalk]], 800, 790, m('key'), { size: 28 });
   }],
   ['shippa1', 'Шиппа выбирает класс', (m) => {
-    const p = panel(0);
-    say(p, 'Шиппа выбирает класс', 800, 64, .2, { size: 36, weight: 600 });
-    who(p, 'Шиппа', HERO, 170, 190, .3, 52);
-    const b = attrBoard(p, 1000, 400, .3, { dx: 165, cw: 92, nameSize: 22 });
+    const p0 = panel(0), p = S.shLeft = G(p0);
+    // the sheet as chapter 4 left it; it stays for the next beat, the left part is replaced
+    const sh = S.shSheet = charSheet(p0, .3);
+    [['name', 'Шиппа'], ['anc', 'гоблин'], ['her', 'небьющийся гоблин'], ['bg', 'трактирщик'], ['hp', '10', 'от народа'], ['size', 'Небольшой'], ['spd', '25 футов'],
+      ['sense', 'ночное зрение'], ['lang', 'всеобщий, гоблинский'], ['ft_anc', 'Гоблинская песня'], ['ft_skill', 'Неформальное общение'],
+      ['sk0', 'Дипломатия', 'изучен'], ['sk1', 'Знание (выпивка)', 'изучен']].forEach(a => sh.fill(...a));
+    ['0', '+2', '+1', '0', '−1', '+2'].forEach((v, i) => sh.fill('a' + i, v));
+    say(p, 'Шиппа выбирает класс', 640, 64, .2, { size: 36, weight: 600 });
+    who(p, 'Шиппа', HERO, 130, 210, .3, 52);
+    const b = S.sh = attrBoard(p, 640, 430, .3, { dx: 150, cw: 84, nameSize: 20 });
     // after chapter 4: 0 / +2 / +1 / 0 / −1 / +2
     [[1, 1], [1, 1], [2, 1], [4, -1], [5, 1], [5, 1]].forEach(([i, d]) => bump(b, i, d, .4));
-    b.cols.forEach((c, i) => pulse(c.val, m('board', .4 + i * .5), 1.3));
-    say(p, 'после главы 4', 1000, 160, .5, { size: 22, fill: COL.dim });
+    b.cols.forEach((c, i) => { pulse(c.val, m('board', .4 + i * .5), 1.3); sh.flash('a' + i, m('board', .4 + i * .5)); });
+    say(p, 'после главы 4', 640, 130, .5, { size: 22, fill: COL.dim });
     // a cleric would not fit
-    const tc = boostToken(p, 'жрец: Мудрость', 'fix', b.cols[4].x, 160, m('cle'));
+    const tc = boostToken(p, 'жрец: Мудрость', 'fix', b.cols[4].x, 190, m('cle'));
     const rc = give(b, tc, 4, 1, m('cle', 1.4));
-    const n1 = say(p, 'жрец: Мудрость только 0', 70, 360, m('cle', 2.2), { size: 25, fill: NO, weight: 700, anchor: 'start' });
-    const n2 = say(p, 'Ловкость и Харизма — без дела', 70, 404, m('idle'), { size: 23, fill: NO, anchor: 'start' });
+    const n1 = say(p, 'жрец: Мудрость только 0', 60, 625, m('cle', 2.2), { size: 25, fill: NO, weight: 700, anchor: 'start' });
+    const n2 = say(p, 'Ловкость и Харизма — без дела', 60, 665, m('idle'), { size: 23, fill: NO, anchor: 'start' });
     [1, 5].forEach(i => pulse(b.cols[i].val, m('idle', .5), 1.3));
     // back to −1, then the bard
     const c4 = b.cols[4];
     hide(rc, m('bard', -.2), .3); hide(n1, m('bard', -.2), .3); hide(n2, m('bard', -.2), .3);
     prog(() => { c4.val.textContent = '−1'; }, m('bard', -.1), 0);
     c4.up.pop(); c4.v -= 1;
-    const tb = boostToken(p, 'бард: Харизма', 'fix', b.cols[5].x, 160, m('bard'));
+    b.sheet = sh;   // only the real choice reaches the sheet, not the cleric what-if
+    const tb = boostToken(p, 'бард: Харизма', 'fix', b.cols[5].x, 190, m('bard'));
     give(b, tb, 5, 1, m('up'));
-    say(p, 'бард: Харизма +3', 70, 360, m('up', 1), { size: 26, fill: OK, weight: 700, anchor: 'start' });
+    sh.set('cls', 'бард', m('bard', 1.2));
+    sh.set('lvl', '1', m('bard', 1.6));
+    say(p, 'бард: Харизма +3', 60, 625, m('up', 1), { size: 26, fill: OK, weight: 700, anchor: 'start' });
     // Hit Points: ancestry + class + Constitution
-    const x0 = 340, u = 40, y = 640;
+    const x0 = 270, u = 32, y = 720;
     say(p, 'ПЗ', x0 - 24, y + 36, m('hp'), { size: 30, weight: 700, anchor: 'end' });
     hpSeg(p, x0, y, 10, u, ANC, m('hp', .3));
     say(p, 'небьющийся гоблин 10', x0 + 5 * u, y + 88, m('hp', .6), { size: 22, fill: ANC, weight: 600 });
+    sh.flash('hp', m('hp', .3));
     hpSeg(p, x0 + 10 * u, y, 8, u, CLS, m('hp2'));
     say(p, 'бард 8', x0 + 14 * u, y + 88, m('hp2', .3), { size: 22, fill: CLS, weight: 600 });
+    sh.set('hp', '18', m('hp2'), '10+8');
     hpSeg(p, x0 + 18 * u, y, 1, u, ATTR, m('hp3'));
-    say(p, 'Выносливость 1', x0 + 18.5 * u + 40, y + 88, m('hp3', .3), { size: 22, fill: ATTR, weight: 600, anchor: 'start' });
+    say(p, 'Выносливость 1', x0 + 18 * u, y + 88, m('hp3', .3), { size: 22, fill: ATTR, weight: 600, anchor: 'start' });
+    sh.set('hp', '19', m('hp3'), '10+8+1');
     say(p, '= 19', x0 + 19 * u + 20, y + 40, m('tot'), { size: 44, weight: 700, anchor: 'start' });
-    say(p, 'вырастет Выносливость в главе 6 — ПЗ пересчитаются', 800, 830, m('ch6'), { size: 24, fill: COL.dim });
+    sh.flash('hp', m('tot'));
+    say(p, 'вырастет Выносливость в главе 6 — ПЗ пересчитаются', 552, 856, m('ch6'), { size: 24, fill: COL.dim });
   }],
   ['shippa2', 'Шиппа-бард: умения', (m) => {
-    const p = panel(0);
-    say(p, 'Шиппа-бард: умения и навыки', 800, 64, .2, { size: 36, weight: 600 });
-    box(p, 60, 100, 760, 500, COL.faint, .3);
+    const sh = S.shSheet, p = G(S.panel);   // the sheet from the previous beat stays; the left part is rebuilt
+    hide(S.shLeft, .1, .4);
+    say(p, 'Шиппа-бард: умения и навыки', 640, 64, .5, { size: 36, weight: 600 });
+    box(p, 30, 100, 612, 470, COL.faint, .5);
     const rows = [['Внимание', 'эксперт', 'per', 'Мудрость'], ['Воля', 'эксперт', 'will', 'Мудрость'], ['Стойкость', 'изучен', 'tr', 'Выносливость'], ['Реакция', 'изучен', 'tr', 'Ловкость'],
       ['Простое и особое оружие', 'изучен', 'tr', null], ['Лёгкая броня', 'изучен', 'tr', null], ['Оккультные заклинания', 'изучен', 'tr', null]];
     const tags = { 'Мудрость': ['saves', 0], 'Выносливость': ['fr', 0], 'Ловкость': ['fr', 1.6] };
     rows.forEach(([s, r, mark, attr], i) => {
-      const y = 150 + i * 64, t0 = m(mark, mark === 'tr' ? (i - 2) * .7 : 0);
-      say(p, s, 90, y + 9, t0, { size: 26, anchor: 'start' });
-      pill(p, r, PROF, 520, y, t0 + .2, 22);
-      if (attr) { const [tm, dt] = i === 0 ? ['calc', 0] : tags[attr]; say(p, attr, 630, y + 8, m(tm, dt + (i === 1 ? .3 : 0)), { size: 21, fill: ATTR, anchor: 'start' }); }
+      const y = 150 + i * 62, t0 = m(mark, mark === 'tr' ? (i - 2) * .7 : 0);
+      say(p, s, 52, y + 9, t0, { size: 24, anchor: 'start' });
+      pill(p, r, PROF, 420, y, t0 + .2, 22);
+      if (attr) { const [tm, dt] = i === 0 ? ['calc', 0] : tags[attr]; say(p, attr, 506, y + 8, m(tm, dt + (i === 1 ? .3 : 0)), { size: 19, fill: ATTR, anchor: 'start' }); }
     });
-    colorLine(p, [['эксперт в Воле', PROF], [' — кстати при ', OK], ['Мудрости −1', ATTR]], 1180, 480, m('will', 1.2), { size: 24 });
+    sh.tag('per', 'эксперт', m('per', .6));
+    sh.tag('will', 'эксперт', m('will', .2));
+    sh.tag('fort', 'изучен', m('tr'));
+    sh.tag('ref', 'изучен', m('tr', .7));
+    sh.set('prof', 'изучен', m('tr', 1.4));
+    colorLine(p, [['эксперт в Воле', PROF], [' — кстати при ', OK], ['Мудрости −1', ATTR]], 873, 520, m('will', 1.2), { size: 20 });
     // skills
-    say(p, 'Навыки', 1180, 150, m('sk'), { size: 30, weight: 700 });
-    pill(p, 'Оккультизм', HERO, 1060, 214, m('sk', .3), 26);
-    pill(p, 'Исполнение', HERO, 1300, 214, m('sk', .7), 26);
-    colorLine(p, [['+ 4 на выбор (4 + ', COL.chalk], ['Интеллект 0', ATTR], [')', COL.chalk]], 1180, 290, m('sk', 1.6), { size: 26 });
-    say(p, 'Дипломатия — уже от происхождения', 1180, 340, m('sk', 3), { size: 22, fill: COL.dim });
-    colorLine(p, [['Гоблинская песня', HERO], [' ← изученное Исполнение', OK]], 1180, 410, m('song'), { size: 26 });
+    say(p, 'Навыки', 865, 150, m('sk'), { size: 30, weight: 700 });
+    pill(p, 'Оккультизм', HERO, 770, 214, m('sk', .3), 26);
+    pill(p, 'Исполнение', HERO, 980, 214, m('sk', .7), 26);
+    sh.set('sk2', 'Оккультизм', m('sk', .9), 'изучен');
+    sh.set('sk3', 'Исполнение', m('sk', 1.8), 'изучен');
+    sh.set('sk4', 'ещё четыре на выбор', m('sk', 3));
+    colorLine(p, [['+ 4 на выбор (4 + ', COL.chalk], ['Интеллект 0', ATTR], [')', COL.chalk]], 865, 290, m('sk', 1.6), { size: 24 });
+    say(p, 'Дипломатия — уже от происхождения', 865, 340, m('sk', 3), { size: 20, fill: COL.dim });
+    colorLine(p, [['Гоблинская песня', HERO]], 865, 410, m('song'), { size: 26 });
+    colorLine(p, [['← изученное Исполнение', OK]], 865, 446, m('song', .5), { size: 24 });
+    sh.flash('sk3', m('song'));
+    sh.flash('ft_anc', m('song', .3));
     // Perception
-    hr(p, 630, m('calc', -.4), 60, 1540);
-    say(p, 'Внимание', 300, 700, m('calc'), { size: 30, weight: 700, anchor: 'end' });
-    say(p, '−1', 400, 700, m('calc', 1), { size: 40, fill: ATTR, weight: 700 });
-    say(p, 'Мудрость', 400, 738, m('calc', 1), { size: 20, fill: ATTR });
-    say(p, '+', 480, 700, m('rank'), { size: 40, fill: COL.dim, weight: 700 });
-    say(p, '5', 560, 700, m('rank'), { size: 40, fill: PROF, weight: 700 });
-    say(p, 'эксперт: 1 + 4', 560, 738, m('rank', .8), { size: 20, fill: PROF });
-    say(p, '=', 650, 700, m('res'), { size: 40, fill: COL.dim, weight: 700 });
-    say(p, '+4', 740, 700, m('res'), { size: 44, weight: 700 });
-    colorLine(p, [['ранг изучен: ', COL.dim], ['−1', ATTR], [' + ', COL.dim], ['3', PROF], [' (1 + 2) = ', COL.dim], ['+2', COL.chalk]], 1180, 700, m('tr2'), { size: 28 });
-    colorLine(p, [['неизучен: ', COL.dim], ['−1', ATTR], [' + ', COL.dim], ['0', PROF], [' = ', COL.dim], ['−1', COL.chalk]], 1180, 760, m('un'), { size: 28 });
+    hr(p, 610, m('calc', -.4), 30, 1070);
+    say(p, 'Внимание', 250, 700, m('calc'), { size: 30, weight: 700, anchor: 'end' });
+    say(p, '−1', 350, 700, m('calc', 1), { size: 40, fill: ATTR, weight: 700 });
+    say(p, 'Мудрость', 350, 738, m('calc', 1), { size: 20, fill: ATTR });
+    sh.flash('a4', m('calc', 1));
+    say(p, '+', 430, 700, m('rank'), { size: 40, fill: COL.dim, weight: 700 });
+    say(p, '5', 510, 700, m('rank'), { size: 40, fill: PROF, weight: 700 });
+    say(p, 'эксперт: 1 + 4', 510, 738, m('rank', .8), { size: 20, fill: PROF });
+    say(p, '=', 600, 700, m('res'), { size: 40, fill: COL.dim, weight: 700 });
+    say(p, '+4', 690, 700, m('res'), { size: 44, weight: 700 });
+    sh.set('per', '+4', m('res'));
+    colorLine(p, [['ранг изучен: ', COL.dim], ['−1', ATTR], [' + ', COL.dim], ['3', PROF], [' (1 + 2) = ', COL.dim], ['+2', COL.chalk]], 552, 790, m('tr2'), { size: 26 });
+    colorLine(p, [['неизучен: ', COL.dim], ['−1', ATTR], [' + ', COL.dim], ['0', PROF], [' = ', COL.dim], ['−1', COL.chalk]], 552, 840, m('un'), { size: 26 });
+    sh.set('will', '+4', m('saves', .3));
+    sh.flash('a4', m('saves', .3));
+    sh.set('fort', '+4', m('fr', .3));
+    sh.flash('a2', m('fr', .3));
+    sh.set('ref', '+5', m('fr', 1.9));
+    sh.flash('a1', m('fr', 1.9));
   }],
   ['wrap', 'Итоги', (m) => {
     const p = panel(0);
@@ -438,6 +471,9 @@ const BEATS = [
   }],
   ['final1', 'Практика главы', () => { panel(0); }, { ask: done => quiz(SCREEN, [{
     id: 'p-tf', prompt: ['Верно или неверно?'], build: grid(P_TF, TF, { multi: false, text: true }),
+  }, {
+    id: 'p-what', prompt: ['Что это: народ, происхождение или класс?'],
+    build: grid(P_WHAT, [['a', 'Народ'], ['b', 'Происхождение'], ['c', 'Класс']], { multi: false, text: true }),
   }], done, 'Практика главы   1 из 3') }],
   ['final2', 'Практика главы', () => {}, { ask: done => quiz(SCREEN, [{
     id: 'p-orc', prompt: ['Орк (10 ПЗ от народа) становится варваром: 12 ПЗ за уровень, ключевая — Сила, эксперт во Внимании, обучен Атлетике и ещё 3 навыкам плюс Интеллект. До выбора класса: Сила +3, Выносливость +2, Интеллект 0, Мудрость +1.'],
@@ -490,6 +526,14 @@ const Q_KEY = [
   { parts: ['Друид'], ans: ['wis'], why: 'Жрец и друид — Мудрость.' },
   { parts: ['Оракул'], ans: ['cha'], why: 'Бард, оракул и чародей — Харизма.' },
   { parts: ['Волшебник'], ans: ['int'], why: 'Ведьма и волшебник — Интеллект.' },
+];
+const P_WHAT = [
+  { parts: ['Эльф'], ans: ['a'], why: 'Эльф — народ.' },
+  { parts: ['Трактирщик'], ans: ['b'], why: 'Кем герой был до приключений — происхождение.' },
+  { parts: ['Волшебник'], ans: ['c'], why: 'Чем герой занимается в приключениях — класс.' },
+  { parts: ['Дварф'], ans: ['a'], why: 'Дварф — народ.' },
+  { parts: ['Послушник'], ans: ['b'], why: 'Служба в храме до приключений — происхождение.' },
+  { parts: ['Плут'], ans: ['c'], why: 'Плут — класс.' },
 ];
 const P_TF = [
   { parts: ['Повышение класса добавляет +1 к ключевой характеристике.'], ans: ['t'], why: 'Как любое повышение: +1.' },

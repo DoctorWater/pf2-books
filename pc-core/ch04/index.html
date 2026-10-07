@@ -342,47 +342,63 @@ const BEATS = [
   }], done) }],
   ['shippa1', 'Шиппа: народ и родословная', (m) => {
     const p = panel(0);
-    say(p, 'Пример: гоблинка Шиппа', 800, 70, .2, { size: 36, weight: 600 });
-    who(p, 'Шиппа', HERO, 200, 200, .4, 52);
-    say(p, 'поёт и заговаривает зубы', 200, 320, .8, { size: 22, fill: COL.dim });
-    const b = S.sh = attrBoard(p, 1010, 420, .5, { dx: 165, cw: 92, nameSize: 22 });
-    b.cols.forEach((c, i) => pulse(c.val, m('zero', .2 + i * .12), 1.3));
-    say(p, '1. Народ: гоблин', 70, 420, m('gob'), { size: 23, weight: 600, anchor: 'start' });
-    give(b, boostToken(p, 'Ловкость', 'fix', b.cols[1].x, 170, m('dex')), 1, 1, m('dex', .6));
-    give(b, boostToken(p, 'Харизма', 'fix', b.cols[5].x, 170, m('cha')), 5, 1, m('cha', .6));
-    give(b, boostToken(p, 'Мудрость', 'flaw', b.cols[4].x, 170, m('wis')), 4, -1, m('wis', .7));
-    give(b, boostToken(p, 'любая', 'free', 1010, 170, m('free')), 2, 1, m('free', 1.8));
-    say(p, '2. Родословная: небьющийся гоблин', 70, 470, m('her'), { size: 23, weight: 600, anchor: 'start' });
+    const sh = S.shSheet = charSheet(p, .3);
+    sh.fill('name', 'Шиппа');
+    say(p, 'Пример: гоблинка Шиппа', 640, 64, .2, { size: 36, weight: 600 });
+    who(p, 'Шиппа', HERO, 120, 210, .4, 52);
+    say(p, 'поёт и заговаривает', 120, 322, .8, { size: 18, fill: COL.dim });
+    say(p, 'зубы', 120, 346, .8, { size: 18, fill: COL.dim });
+    const b = S.sh = attrBoard(p, 640, 430, .5, { dx: 150, cw: 84, nameSize: 20 });
+    b.sheet = sh;
+    b.cols.forEach((c, i) => { pulse(c.val, m('zero', .2 + i * .12), 1.3); sh.set('a' + i, '0', m('zero', .2 + i * .12)); });
+    say(p, '1. Народ: гоблин', 60, 625, m('gob'), { size: 23, weight: 600, anchor: 'start' });
+    sh.set('anc', 'гоблин', m('gob'));
+    give(b, boostToken(p, 'Ловкость', 'fix', b.cols[1].x, 190, m('dex')), 1, 1, m('dex', .6));
+    give(b, boostToken(p, 'Харизма', 'fix', b.cols[5].x, 190, m('cha')), 5, 1, m('cha', .6));
+    give(b, boostToken(p, 'Мудрость', 'flaw', b.cols[4].x, 190, m('wis')), 4, -1, m('wis', .7));
+    give(b, boostToken(p, 'любая', 'free', 640, 190, m('free')), 2, 1, m('free', 1.8));
+    say(p, '2. Родословная: небьющийся гоблин', 60, 665, m('her'), { size: 23, weight: 600, anchor: 'start' });
+    sh.set('her', 'небьющийся гоблин', m('her'));
     // what stays below the board until the background
     const low = S.shLow = G(p, { o: 1 });
-    say(low, 'ПЗ от народа', 530, 638, m('her', .6), { size: 24, fill: COL.dim, anchor: 'end' });
+    say(low, 'ПЗ от народа', 388, 732, m('her', .6), { size: 24, fill: COL.dim, anchor: 'end' });
     const cells = [];
     for (let k = 0; k < 10; k++) {
-      const r = mk('rect', { x: 560 + k * 38, y: 610, width: 34, height: 40, rx: 5, fill: k < 6 ? ANC : HERO, 'fill-opacity': .5, stroke: k < 6 ? ANC : HERO, 'stroke-width': 2 }, low);
+      const r = mk('rect', { x: 400 + k * 34, y: 700, width: 30, height: 40, rx: 5, fill: k < 6 ? ANC : HERO, 'fill-opacity': .5, stroke: k < 6 ? ANC : HERO, 'stroke-width': 2 }, low);
       put(r, { o: 0 }); show(r, k < 6 ? m('her', .7 + k * .05) : m('hp', 1.5 + (k - 6) * .15), .25);
       cells.push(r);
     }
-    const hpT = say(low, '6', 560 + 6 * 38 + 14, 642, m('her', 1.1), { size: 32, weight: 700, anchor: 'start' });
-    tw(hpT, { x: 560 + 10 * 38 + 14 }, m('hp', 1.5), .6);
+    const hpT = say(low, '6', 400 + 6 * 34 + 12, 733, m('her', 1.1), { size: 32, weight: 700, anchor: 'start' });
+    tw(hpT, { x: 400 + 10 * 34 + 12 }, m('hp', 1.5), .6);
     prog(() => { hpT.textContent = '10'; }, m('hp', 2.1), 0);
-    say(low, 'падение: урон как с половины высоты', 1010, 642, m('fall'), { size: 24, anchor: 'start' });
-    say(low, 'от народа: ночное зрение · Скорость 25 футов · Небольшой · всеобщий и гоблинский', 800, 720, m('rest'), { size: 24 });
-    colorLine(low, [['черта народа: ', COL.dim], ['Гоблинская песня', HERO]], 800, 790, m('feat'), { size: 28 });
-    say(low, 'успешная проверка Исполнения против СЛ Воли врага → −1 к Вниманию и испытаниям Воли', 800, 840, m('song'), { size: 22, fill: COL.dim });
+    sh.set('hp', '6', m('her', 1.1), 'от народа');
+    sh.set('hp', '10', m('hp', 2.1));
+    say(low, 'падение: урон как с половины высоты', 552, 784, m('fall'), { size: 24 });
+    sh.set('sense', 'ночное зрение', m('rest', .9));
+    sh.set('spd', '25 футов', m('rest', 2.5));
+    sh.set('size', 'Небольшой', m('rest', 4));
+    sh.set('lang', 'всеобщий, гоблинский', m('rest', 5));
+    colorLine(low, [['черта народа: ', COL.dim], ['Гоблинская песня', HERO]], 552, 826, m('feat'), { size: 28 });
+    sh.set('ft_anc', 'Гоблинская песня', m('feat', 1.2));
+    say(low, 'успешная проверка Исполнения против СЛ Воли врага → −1 к Вниманию и испытаниям Воли', 552, 864, m('song'), { size: 21, fill: COL.dim });
   }],
   ['shippa2', 'Шиппа: происхождение', (m) => {
-    const b = S.sh, p = b.p;
+    const b = S.sh, p = b.p, sh = S.shSheet;
     hide(S.shLow, .1, .4);
-    say(p, '3. Происхождение: трактирщик', 70, 520, .4, { size: 23, weight: 600, anchor: 'start' });
-    give(b, boostToken(p, 'Выносливость или Харизма', 'fix', 1010, 170, m('b1', .2)), 5, 1, m('b1', 3.4));
-    give(b, boostToken(p, 'любая', 'free', 1010, 170, m('b2')), 1, 1, m('b2', 1.6));
-    say(p, 'Ловкость и Харизма уже росли от народа: это другой шаг, так можно', 800, 640, m('why'), { size: 25, fill: OK, weight: 600 });
-    colorLine(p, [['изучена: ', COL.dim], ['Дипломатия', HERO], [', ', COL.dim], ['Знание (выпивка)', HERO]], 800, 704, m('sk'), { size: 28 });
-    colorLine(p, [['черта навыка: ', COL.dim], ['Неформальное общение', HERO]], 800, 760, m('feat'), { size: 28 });
+    say(p, '3. Происхождение: трактирщик', 60, 705, .4, { size: 23, weight: 600, anchor: 'start' });
+    sh.set('bg', 'трактирщик', .9);
+    give(b, boostToken(p, 'Выносливость или Харизма', 'fix', 640, 190, m('b1', .2)), 5, 1, m('b1', 3.4));
+    give(b, boostToken(p, 'любая', 'free', 640, 190, m('b2')), 1, 1, m('b2', 1.6));
+    say(p, 'Ловкость и Харизма уже росли от народа: это другой шаг, так можно', 552, 755, m('why'), { size: 25, fill: OK, weight: 600 });
+    colorLine(p, [['изучена: ', COL.dim], ['Дипломатия', HERO], [', ', COL.dim], ['Знание (выпивка)', HERO]], 552, 800, m('sk'), { size: 28 });
+    sh.set('sk0', 'Дипломатия', m('sk', 1.3), 'изучен');
+    sh.set('sk1', 'Знание (выпивка)', m('sk', 2.2), 'изучен');
+    colorLine(p, [['черта навыка: ', COL.dim], ['Неформальное общение', HERO]], 552, 840, m('feat'), { size: 28 });
+    sh.set('ft_skill', 'Неформальное общение', m('feat', .9));
     const fr = mk('rect', { x: b.xL, y: b.y0 + CH + 46, width: b.xR - b.xL, height: 56, rx: 12, fill: 'none', stroke: OK, 'stroke-width': 3 }, p);
     put(fr, { o: 0 }); show(fr, m('res'), .4);
-    b.cols.forEach((c, i) => pulse(c.val, m('res', 1.3 + i * 1.1), 1.35));
-    say(p, 'класс — в главе 5', 800, 850, m('next'), { size: 26, fill: COL.dim });
+    b.cols.forEach((c, i) => { pulse(c.val, m('res', 1.3 + i * 1.1), 1.35); sh.flash('a' + i, m('res', 1.3 + i * 1.1)); });
+    say(p, 'класс — в главе 5', 1040, 705, m('next'), { size: 24, fill: COL.dim, anchor: 'end' });
   }],
   ['wrap', 'Итоги', (m) => {
     const p = panel(0);

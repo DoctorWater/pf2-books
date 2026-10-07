@@ -104,6 +104,10 @@ button[hidden] { display: none; }
 .seg:hover { height: 12px; }
 .seg i { position: absolute; left: 0; top: 0; bottom: 0; width: 0; background: var(--chalk); }
 .seg.ask { background: #2d4a57; }
+.tip { position: absolute; left: 0; bottom: calc(100% + 10px); transform: translateX(-50%); padding: 6px 14px; border-radius: 10px;
+  background: #22322d; border: 1px solid #2a3b35; color: var(--chalk); font-size: 18px; white-space: nowrap; pointer-events: none;
+  opacity: 0; transition: opacity .08s; z-index: 5; }
+.tip.on { opacity: 1; }
 .seg.ask i { background: var(--quiz); }
 .step { width: 300px; flex: none; color: var(--dim); font-size: 19px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: right; }
 .volume { display: flex; align-items: center; flex: none; width: 44px; height: 44px; overflow: hidden;
