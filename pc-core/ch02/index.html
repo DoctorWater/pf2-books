@@ -17,16 +17,7 @@
 const CHAPTER = { number: 2, title: 'Проверка: d20 против сложности', minutes: 10, language: 'ru', next: '../ch03/' };
 
 /* ---------- chapter drawing helpers (shared ones: lib/pf.js) ---------- */
-// Degrees of success, best first: key, label, colour, fill opacity.
-const DEG = [['cs', 'крит. успех', OK, .5], ['s', 'успех', OK, .2], ['f', 'провал', NO, .2], ['cf', 'крит. провал', NO, .5]];
-const degOf = (total, dc) => DEG[total >= dc + 10 ? 0 : total >= dc ? 1 : total > dc - 10 ? 2 : 3];
-const DEGREES = [['cs', 'Крит. успех', OK], ['s', 'Успех', OK], ['f', 'Провал', NO], ['cf', 'Крит. провал', NO]];
-// A d20 outline with the rolled number inside.
-function numDie(p, n, x, y, t0, size = 50, color = RULE) {
-  const d = dieShape(p, 20, x, y, color, t0, size, null, false);
-  T(d, String(n), { y: size * .22, size: size * .62, fill: color, weight: 700, anchor: 'middle' });
-  return d;
-}
+// DEG, degOf, DEGREES, numDie: lib/pf.js.
 // Bracket under (dir 1) or over (dir −1) a span.
 const bracket = (p, x1, x2, y, color, t0, dir = 1) =>
   draw(path(p, `M${x1} ${y - dir * 14}V${y}H${x2}V${y - dir * 14}`, { stroke: color, 'stroke-width': 4 }, { d: 0 }), t0, .6);

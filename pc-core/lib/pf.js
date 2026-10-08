@@ -3,7 +3,7 @@
 const HERO = COL.whole, FOE = COL.nat, RULE = COL.task, OK = COL.good, NO = COL.bad, GMC = COL.rat;
 // Modes of play: exploration, encounter, downtime.
 const EXP = COL.irr, ENC = COL.nat, DOWN = COL.real;
-const WIDE = { x: 96, y: 56, w: 1408, cls: 'side', maxH: 790 };
+const WIDE = { x: 96, y: 56, w: 1408, cls: 'side', maxH: 830 };
 
 const say = (p, str, x, y, t0, { size = 30, fill = COL.chalk, anchor = 'middle', weight = 500 } = {}) => {
   const e = T(p, str, { x, y, size, fill, anchor, weight, o: 0 });
@@ -248,4 +248,15 @@ function charSheet(p, t0) {
       pulse(q.v, t0, 1.2);
     },
   };
+}
+
+// Degrees of success, best first: key, label, colour, fill opacity (ch02, shared since ch07).
+const DEG = [['cs', 'крит. успех', OK, .5], ['s', 'успех', OK, .2], ['f', 'провал', NO, .2], ['cf', 'крит. провал', NO, .5]];
+const degOf = (total, dc) => DEG[total >= dc + 10 ? 0 : total >= dc ? 1 : total > dc - 10 ? 2 : 3];
+const DEGREES = [['cs', 'Крит. успех', OK], ['s', 'Успех', OK], ['f', 'Провал', NO], ['cf', 'Крит. провал', NO]];
+// A d20 outline with the rolled number inside.
+function numDie(p, n, x, y, t0, size = 50, color = RULE) {
+  const d = dieShape(p, 20, x, y, color, t0, size, null, false);
+  T(d, String(n), { y: size * .22, size: size * .62, fill: color, weight: 700, anchor: 'middle' });
+  return d;
 }

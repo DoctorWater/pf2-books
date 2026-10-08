@@ -142,7 +142,7 @@ function T(parent, str, { x = 0, y = 0, size = 30, fill = COL.chalk, font = UI, 
 }
 const ctx2d = document.createElement('canvas').getContext('2d');
 function textW(str, size, italic = false) { ctx2d.font = `${italic ? 'italic ' : ''}${size}px ${MATH}`; return ctx2d.measureText(str).width; }
-const VAR = /(?<![A-Za-z°])(?:(?!(?:of|in|is|to|or|at|on|by|as|an|if|it|be|no|so|up|we|my)(?![A-Za-z]))[a-z]{1,2}|(?!(?:If|In|It|Is|On|At|No|So|Or|An|As|To|By|Up)(?![A-Za-z]))[a-z]?[A-Z]{1,3}[a-z]?)(?![A-Za-z])/g;   // capitals: A, PV, nRT   // short lowercase runs are variables (a, x, ab), except short English words
+const VAR = /(?!)/g;   // math-book variables (x, PV) were italic; this book has none, and dice like "d20" stay upright
 const F = (n, d) => ({ f: [String(n), String(d)] });   // fraction
 const R = (x, i) => ({ r: x && x.f ? x : String(x), i: i && String(i) });   // root of a number or of F(n, d); i = index, e.g. 3 for a cube root
 const E = x => ({ sup: String(x) });                    // exponent, raised after the part before it
@@ -1258,13 +1258,19 @@ const blanks = rowsIn => (body, api) => {
         b.dataset.ans = p.box;
         if (p.lowest) b.dataset.lowest = '1';
         b.style.width = `${Math.max(2, String(p.box).length) + 2}ch`;
-        line.append(b);
+        const glue = h('span', 'glue'), t = line.lastChild, word = t?.classList?.contains('bt') && t.textContent.match(/\S+\s*$/);
+        if (word) { t.textContent = t.textContent.slice(0, word.index); glue.append(h('span', 'bt', word[0])); }   // a wrap never leaves the box alone
+        glue.append(b);
+        line.append(glue);
         boxes.push(b);
         all.push(b);
+      } else if (typeof p === 'string') {   // plain text wraps; SVG math would run off the card
+        flush();
+        line.append(h('span', 'bt', [p]));
       } else run.push(p);
     }
     flush();
-    line.append(mark);
+    (line.lastChild?.classList?.contains('glue') ? line.lastChild : line).append(mark);
     body.append(h('div', 'brow', [line, why]));
     return { it, boxes, mark, why, played: false };
   });

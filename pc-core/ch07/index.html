@@ -1,0 +1,561 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Навыки и их действия — Первый герой</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%231d2b27'/%3E%3Ctext x='32' y='45' text-anchor='middle' font-size='48' fill='%23f0b45a'%3E∞%3C/text%3E%3C/svg%3E">
+<link rel="stylesheet" href="../lib/engine.css">
+<link rel="expect" href="#bar" blocking="render"><!-- hold the first frame until the player exists, so the page transition can run -->
+</head>
+<body>
+<script src="../lib/engine.js"></script>
+<script src="../lib/pf.js"></script>
+<script src="audio/ru/timings.js"></script>
+<script>
+'use strict';
+const CHAPTER = { number: 7, title: 'Навыки и их действия', minutes: 13, language: 'ru', next: null };
+
+/* ---------- chapter drawing helpers (shared ones: lib/pf.js) ---------- */
+// Attribute modifier, proficiency bonus, armour penalty (as in ch03, ch06); NPCs that are not foes — dim chalk.
+const ATTR = HERO, PROF = RULE, NPC = COL.dim;
+const hr = (p, y, t0, x1 = 80, x2 = 1520) => draw(path(p, `M${x1} ${y}H${x2}`, { stroke: COL.faint, 'stroke-width': 2 }, { d: 0 }), t0, .5);
+const box = (p, x, y, w, h, colr, t0) => { const r = mk('rect', { x, y, width: w, height: h, rx: 18, fill: '#22322d', stroke: colr, 'stroke-width': 2.5 }, p); put(r, { o: 0 }); show(r, t0); return r; };
+const pw = (s, size) => s.length * size * .56 + 44;   // width of a pill()
+const title = (p, s, t0 = .2) => say(p, s, 800, 62, t0, { size: 36, weight: 600 });
+// Pills in a row centred on cx; t0s[i] is when pill i appears.
+function pillRow(p, items, cx, y, size, colr, t0s) {
+  const w = items.map(s => pw(s, size)), tot = w.reduce((a, b) => a + b + 18, -18);
+  let x = cx - tot / 2;
+  return items.map((s, i) => { const g = pill(p, s, [].concat(colr)[i] || [].concat(colr)[0], x + w[i] / 2, y, t0s[i], size); x += w[i] + 18; return g; });
+}
+// A padlock: actions only for the trained.
+function padlock(p, x, y, colr, t0, s = 1) {
+  const g = G(p, { x, y, o: 0, s });
+  path(g, 'M-13 -8V-20A13 13 0 0 1 13 -20V-8', { stroke: colr, 'stroke-width': 5 });
+  mk('rect', { x: -20, y: -9, width: 40, height: 32, rx: 6, fill: colr }, g);
+  mk('circle', { cx: 0, cy: 5, r: 4.5, fill: COL.board }, g);
+  if (t0 != null) show(g, t0);
+  return g;
+}
+// The totals 0…30 with the four degrees of success for one DC; marks: { s, cs, f, cf } -> time each band appears; texts under the names.
+function degScale(p, { dc, y, t0, marks, texts = {}, x0 = 170, u = 42 }) {
+  const X = v => x0 + v * u;
+  draw(path(p, `M${X(0)} ${y}H${X(30)}`, { stroke: COL.dim, 'stroke-width': 3 }, { d: 0 }), t0, .6);
+  for (let v = 0; v <= 30; v++) {
+    path(p, `M${X(v)} ${y - (v % 5 ? 6 : 10)}V${y + (v % 5 ? 6 : 10)}`, { stroke: COL.dim, 'stroke-width': 2 });
+    if (v % 5 === 0) say(p, String(v), X(v), y + 40, t0, { size: 22, fill: COL.dim });
+  }
+  const span = { cs: [dc + 9.5, 30.5], s: [dc - .5, dc + 9.5], f: [dc - 9.5, dc - .5], cf: [-.5, dc - 9.5] };
+  DEG.forEach(([k, name, colr, op]) => {
+    const [a, b] = span[k].map(v => Math.max(-.5, Math.min(30.5, v)));
+    if (b <= a || marks[k] == null) return;
+    const r = mk('rect', { x: X(a), y: y - 126, width: X(b) - X(a), height: 112, rx: 6, fill: colr, 'fill-opacity': op, stroke: colr, 'stroke-width': 2.5 }, p);
+    put(r, { o: 0 }); show(r, marks[k]);
+    if (X(b) - X(a) < 140) return;   // too narrow for a label
+    say(p, name, (X(a) + X(b)) / 2, y - 80, marks[k] + .1, { size: 22, weight: 700 });
+    if (texts[k]) say(p, texts[k], (X(a) + X(b)) / 2, y - 42, marks[k] + .3, { size: 20, fill: COL.chalk });
+  });
+  const dl = path(p, `M${X(dc)} ${y - 150}V${y + 12}`, { stroke: RULE, 'stroke-width': 4 }, { d: 0 });
+  draw(dl, t0 + .3, .4);
+  say(p, 'СЛ ' + dc, X(dc) + 10, y - 132, t0 + .5, { size: 24, fill: RULE, weight: 700, anchor: 'start' });
+  return X;
+}
+// A marker on a degScale at total v.
+function scaleMark(p, X, y, v, colr, t0, label, ghost) {
+  const g = G(p, { x: X(v), y, o: 0 });
+  mk('circle', { r: 13, fill: ghost ? COL.board : colr, stroke: colr, 'stroke-width': 3, ...(ghost ? { 'stroke-dasharray': '5 4' } : {}) }, g);
+  if (label) T(g, label, { y: -150 - 14, size: 24, fill: colr, weight: 700, anchor: 'middle' });
+  show(g, t0, .3);
+  return g;
+}
+// A die with its roll and a coloured sum after it, left-aligned at x.
+function roll(p, n, x, y, parts, t0, size = 30) {
+  numDie(p, n, x, y - 10, t0, 34);
+  colorLine(p, parts, x + 56, y, t0 + .3, { size, anchor: 'start' });
+}
+
+/* ---------- beats: [id, title, run(m, D), { ask }?] ---------- */
+const BEATS = [
+  ['intro', 'Навыки и их действия', (m, D) => {
+    const g = G(scene, { o: 0, y: 24 });
+    T(g, 'Раздел 3 «Игра» · Глава 7', { x: 800, y: 330, size: 28, fill: COL.dim, anchor: 'middle' });
+    T(g, 'Навыки и их действия', { x: 800, y: 440, size: 70, weight: 600, anchor: 'middle' });
+    tw(g, { o: 1, y: 0 }, .2, 1.1, out);
+    const r = say(scene, 'проверки, приёмы и разговоры', 800, 560, m('sub'), { size: 34, fill: COL.dim });
+    tw(g, { o: 0, y: -24 }, D - .9, .8); hide(r, D - .9, .8);
+  }],
+  ['door', 'Одна дверь — три навыка', (m) => {
+    const p = panel(0);
+    title(p, 'Одна дверь — три навыка');
+    // the warehouse door
+    const d = G(p, { x: 800, y: 440, o: 0 });
+    mk('rect', { x: -120, y: -200, width: 240, height: 400, rx: 10, fill: '#2a2620', stroke: COL.dim, 'stroke-width': 4 }, d);
+    [-60, 0, 60].forEach(x => path(d, `M${x} -196V196`, { stroke: COL.faint, 'stroke-width': 2 }));
+    [-120, 120].forEach(y => path(d, `M-116 ${y}H116`, { stroke: COL.dim, 'stroke-width': 6 }));
+    padlock(d, 80, 10, COL.dim, .2, 1.2);
+    T(d, 'склад', { y: -220, size: 26, fill: COL.dim, weight: 600, anchor: 'middle' });
+    show(d, .2);
+    const H = [['Воин', 260, 250, 'Выбиваю', 'Атлетика', 'w', 's1'], ['Плут', 260, 600, 'Отмычки', 'Воровство', 'r', 's2'], ['Бард', 1340, 420, 'Мы от хозяина', 'Обман', 'b', 's3']];
+    H.forEach(([n, x, y, line, sk, mark, smark]) => {
+      who(p, n, HERO, x, y, m(mark));
+      bubble(p, line, x, y - 110, HERO, m(mark, .3));
+      pill(p, sk, PROF, x, y + 130, m(smark), 28);
+      arrowTo(p, x < 800 ? x + 70 : x - 70, y, x < 800 ? 670 : 930, Math.min(560, Math.max(300, y)), COL.faint, m('sk', .2), true);
+    });
+    who(p, 'Ведущий', GMC, 560, 790, m('gm'), 40);
+    bubble(p, 'Проверка навыка, которым действуешь', 1000, 790, GMC, m('gm', .4), { size: 24, side: 'left' });
+  }],
+  ['skill', 'Модификатор и СЛ навыка', (m) => {
+    const p = panel(0);
+    title(p, 'Модификатор навыка');
+    const a = pw('ключевая характеристика', 28), b = pw('бонус умения', 28), c = pw('штраф доспеха', 28), x0 = 800 - (a + b + c + 120) / 2;
+    pill(p, 'ключевая характеристика', ATTR, x0 + a / 2, 170, m('attr'), 28);
+    say(p, '+', x0 + a + 30, 180, m('prof'), { size: 36, fill: COL.dim });
+    pill(p, 'бонус умения', PROF, x0 + a + 60 + b / 2, 170, m('prof'), 28);
+    say(p, '−', x0 + a + b + 90, 180, m('arm'), { size: 36, fill: COL.dim });
+    pill(p, 'штраф доспеха', NO, x0 + a + b + 120 + c / 2, 170, m('arm'), 28);
+    say(p, 'только навыки на Силу и Ловкость', x0 + a + b + 120 + c / 2, 236, m('arm', .4), { size: 21, fill: NO });
+    colorLine(p, [['Обман Шиппы: ', COL.chalk], ['Харизма 4', ATTR], [' + ', COL.dim], ['3', PROF], [' (изучен)', COL.dim], [' = ', COL.dim], ['+7', COL.chalk]], 800, 330, m('ex'), { size: 40 });
+    hr(p, 400, m('dc', -.4));
+    box(p, 120, 440, 640, 360, HERO, m('dc'));
+    say(p, 'бросает Шиппа', 440, 500, m('dc'), { size: 28, fill: HERO, weight: 700 });
+    numDie(p, '?', 330, 620, m('dc', .3), 56);
+    colorLine(p, [[' + 7', COL.chalk]], 430, 640, m('dc', .3), { size: 52, anchor: 'start' });
+    say(p, 'против СЛ противника', 440, 760, m('dc', .5), { size: 22, fill: COL.dim });
+    box(p, 840, 440, 640, 360, RULE, m('dc', .8));
+    say(p, 'бросают против Шиппы', 1160, 500, m('dc', .8), { size: 28, fill: RULE, weight: 700 });
+    say(p, 'СЛ навыка = 10 + модификатор', 1160, 580, m('dc', 1.6), { size: 30 });
+    colorLine(p, [['СЛ Обмана: 10 + 7 = ', COL.chalk], ['17', RULE]], 1160, 680, m('dc2'), { size: 44 });
+    say(p, 'например, её ложь пытаются раскусить', 1160, 760, m('dc2', .6), { size: 22, fill: COL.dim });
+  }],
+  ['ladder', 'Простые СЛ', (m) => {
+    const p = panel(0);
+    title(p, 'Простые СЛ: по одной на ранг');
+    const R = [['неизучен', 10], ['изучен', 15], ['эксперт', 20], ['мастер', 30], ['легенда', 40]];
+    const base = 830, k = 13.5, x0 = 110, w = 172;
+    path(p, `M${x0 - 20} ${base}H${x0 + 5 * w + 10}`, { stroke: COL.dim, 'stroke-width': 3 });
+    const tops = R.map(([r, dc], i) => {
+      const x = x0 + i * w, h = dc * k, t0 = m('r' + i);
+      const rc = mk('rect', { x: x + 6, y: base, width: w - 12, height: 0, rx: 6, fill: i ? PROF : COL.dim, 'fill-opacity': .35, stroke: i ? PROF : COL.dim, 'stroke-width': 2.5 }, p);
+      tw(rc, { a_y: base - h, a_height: h }, t0, .6);
+      const n = say(p, String(dc), x + w / 2, base - h - 18, t0 + .4, { size: 44, fill: i ? PROF : COL.chalk, weight: 700 });
+      say(p, r, x + w / 2, base - 24, t0 + .2, { size: 22, weight: 600 });
+      return n;
+    });
+    say(p, 'задача для ранга → простая СЛ', 540, 130, m('steps'), { size: 26, fill: COL.dim });
+    box(p, 1030, 250, 520, 440, COL.faint, m('ex'));
+    say(p, 'Лазание: примеры задач', 1290, 300, m('ex'), { size: 28, weight: 700 });
+    [['приставная лестница', 'неизучен', 'c0', 0], ['верёвка', 'изучен', 'c1', 1], ['стена с мелкими выступами', 'эксперт', 'c2', 2]].forEach(([s, r, mark, i]) => {
+      const y = 380 + i * 100;
+      say(p, s, 1060, y, m(mark), { size: 27, anchor: 'start' });
+      say(p, '→ ' + r, 1060, y + 38, m(mark, .3), { size: 23, fill: i ? PROF : COL.dim, weight: 600, anchor: 'start' });
+      pulse(tops[i], m(mark, .4), 1.4);
+    });
+    colorLine(p, [['верёвка: СЛ ', COL.chalk], ['≈ 15', PROF]], 1290, 760, m('rope'), { size: 34 });
+  }],
+  ['q1', 'Быстрая проверка', () => { panel(0); }, { ask: done => quiz(WIDE, [{
+    id: 'c-skill', prompt: ['Навык = характеристика + бонус умения (− штраф доспеха). СЛ навыка = 10 + модификатор.'], build: blanks(Q_SKILL),
+  }, {
+    id: 'c-simple', prompt: ['Простые СЛ по рангам задачи.'], build: blanks(Q_SIMPLE),
+  }], done) }],
+  ['trained', 'Без обучения и для изученных', (m) => {
+    const p = panel(0);
+    title(p, 'Две группы действий');
+    box(p, 70, 110, 700, 700, OK, m('un'));
+    say(p, 'без обучения', 420, 168, m('un'), { size: 34, fill: OK, weight: 700 });
+    say(p, 'доступны любому герою', 420, 214, m('un', .3), { size: 24, fill: COL.dim });
+    box(p, 830, 110, 700, 700, PROF, m('tr'));
+    padlock(p, 920, 160, PROF, m('tr'), 1.1);
+    say(p, 'только для изученных', 1200, 168, m('tr'), { size: 34, fill: PROF, weight: 700 });
+    say(p, 'ранг в навыке: изучен или выше', 1180, 214, m('tr', .3), { size: 24, fill: COL.dim });
+    colorLine(p, [['навык не изучен → ', COL.chalk], ['бонус умения 0', PROF]], 420, 310, m('zero'), { size: 28 });
+    hr(p, 360, m('sh', -.3), 110, 730);
+    say(p, 'Шиппа', 420, 420, m('sh'), { size: 26, fill: HERO, weight: 700 });
+    say(p, 'Запугивание: не изучено', 420, 470, m('sh'), { size: 28, fill: COL.dim });
+    pill(p, 'Деморализация', HERO, 420, 560, m('dem'), 30);
+    colorLine(p, [['Харизма 4', ATTR], [' + ', COL.dim], ['0', PROF], [' = ', COL.dim], ['+4', COL.chalk]], 420, 650, m('dem', .5), { size: 40 });
+    yesNo(p, true, 420, 730, m('dem', 1), 1.2);
+    pill(p, 'Взлом замка', PROF, 1180, 320, m('lock'), 30);
+    say(p, 'нужно изученное Воровство', 1180, 390, m('lock', 1.4), { size: 26 });
+    hr(p, 440, m('no', -.3), 870, 1490);
+    say(p, 'Шиппа', 1180, 500, m('no'), { size: 26, fill: HERO, weight: 700 });
+    say(p, 'Воровство: не изучено', 1180, 550, m('no'), { size: 28, fill: COL.dim });
+    yesNo(p, false, 1180, 640, m('no', .5), 1.6);
+    say(p, 'даже с отмычками в руках', 1180, 720, m('no', 1.2), { size: 24, fill: NO });
+    say(p, 'для трудной задачи ведущий может потребовать ранг выше', 800, 860, m('gm'), { size: 24, fill: COL.dim });
+  }],
+  ['lore', 'Знание', (m) => {
+    const p = panel(0);
+    title(p, 'Знание — узкий навык');
+    pillRow(p, ['Знание (выпивка)', 'Знание (мореходство)'], 800, 170, 30, HERO, [m('topics', .4), m('topics', 1.6)]);
+    say(p, 'каждая тема — отдельный навык, растут независимо', 800, 240, m('topics', 2.4), { size: 24, fill: COL.dim });
+    colorLine(p, [['Знание (магия)', HERO], [' вместо ', COL.dim], ['Мистицизма', HERO]], 800, 340, m('no'), { size: 32 });
+    draw(path(p, 'M520 330H1080', { stroke: NO, 'stroke-width': 5, 'stroke-linecap': 'round' }, { d: 0 }), m('no', 2), .4);
+    say(p, 'широкий навык Знание не заменяет', 800, 390, m('no', 2.3), { size: 24, fill: NO });
+    hr(p, 440, m('low', -.3));
+    bubble(p, 'Откуда это редкое вино?', 800, 510, NPC, m('low'), { size: 26 });
+    const u = 26, x0 = 520, bar = (y, label, dc, colr, t0) => {
+      say(p, label, x0 - 24, y + 36, t0, { size: 28, anchor: 'end' });
+      const r = mk('rect', { x: x0, y, width: 0, height: 52, rx: 6, fill: colr, 'fill-opacity': .4, stroke: colr, 'stroke-width': 2 }, p);
+      tw(r, { a_width: dc * u }, t0, .6);
+      say(p, 'СЛ ' + dc, x0 + dc * u + 20, y + 38, t0 + .5, { size: 32, fill: colr, weight: 700, anchor: 'start' });
+    };
+    bar(620, 'Общество', 20, COL.dim, m('q'));
+    bar(720, 'Знание (выпивка)', 15, PROF, m('q2'));
+    say(p, 'по своей теме СЛ обычно ниже', 800, 850, m('q2', 2), { size: 24, fill: COL.dim });
+  }],
+  ['icons', 'Значки и время', (m) => {
+    const p = panel(0);
+    title(p, 'Значки и время');
+    actGlyph(p, 1, 200, 170, RULE, m('one'));
+    say(p, 'одно действие', 300, 180, m('one'), { size: 30, anchor: 'start' });
+    actGlyph(p, 2, 200, 280, RULE, m('two'));
+    colorLine(p, [['два действия', COL.chalk], ['  · Взлом замка: 2 из 3 за ход', COL.dim]], 300, 290, m('two'), { size: 30, anchor: 'start' });
+    pill(p, 'исследование', EXP, 240, 390, m('exp'), 28);
+    say(p, 'минуты', 420, 400, m('exp', .3), { size: 30, anchor: 'start' });
+    pill(p, 'свободное время', DOWN, 260, 480, m('down'), 28);
+    colorLine(p, [['дни', COL.chalk], ['  · в бою обычно не делают', COL.dim]], 460, 490, m('down', .3), { size: 30, anchor: 'start' });
+    hr(p, 560, m('secret', -.3));
+    who(p, 'Ведущий', GMC, 200, 690, m('secret'));
+    numDie(p, '?', 330, 700, m('secret', .4), 40);
+    const scr = mk('rect', { x: 400, y: 610, width: 26, height: 170, rx: 6, fill: COL.faint, stroke: COL.dim, 'stroke-width': 2 }, p);
+    put(scr, { o: 0 }); show(scr, m('secret', .6));
+    colorLine(p, [['тайная проверка: ', RULE], ['кубик бросает ведущий', COL.chalk]], 480, 670, m('secret', .8), { size: 30, anchor: 'start' });
+    say(p, 'глава 2', 480, 714, m('secret', 1.4), { size: 22, fill: COL.dim, anchor: 'start' });
+    const w1 = pw('Вспомнить информацию', 28);
+    pill(p, 'Вспомнить информацию', RULE, 480 + w1 / 2, 790, m('list', .6), 28);
+    pill(p, 'Ложь', RULE, 480 + w1 + 20 + pw('Ложь', 28) / 2, 790, m('list', 1.6), 28);
+  }],
+  ['q2', 'Быстрая проверка', () => { panel(0); }, { ask: done => quiz(WIDE, [{
+    id: 'c-trained', prompt: ['Верно или неверно?'], build: grid(Q_TRAINED, TF, { multi: false, text: true }),
+  }], done) }],
+  ['recall', 'Вспомнить информацию', (m) => {
+    const p = panel(0);
+    title(p, 'Вспомнить информацию');
+    actGlyph(p, 1, 600, 128, RULE, m('act')); put(p.lastChild, { s: .6 });
+    colorLine(p, [['без обучения', OK], [' · тайная', RULE]], 640, 138, m('act'), { size: 28, anchor: 'start' });
+    pillRow(p, ['Мистицизм', 'Религия', 'Природа', 'Общество', 'Знание', '…'], 800, 210, 24, COL.chalk, [0, 1, 2, 3, 4, 5].map(i => m('sk', .3 + i * .6)));
+    bubble(p, 'Что это за тварь?', 800, 290, HERO, m('q'), { size: 24 });
+    const y = 540;
+    const X = degScale(p, { dc: 15, y, t0: m('q', .5), marks: { s: m('s'), cs: m('cs'), f: m('f'), cf: m('cf') },
+      texts: { cs: 'правда + подробность', s: 'правда', f: 'ответа нет', cf: 'ложный ответ' } });
+    say(p, 'ведущий бросает тайно: ложь звучит так же уверенно', 800, 630, m('sec'), { size: 24, fill: RULE });
+    hr(p, 670, m('ex', -.3));
+    colorLine(p, [['Знак на стене склепа · Шиппа: ', COL.chalk], ['Религия +3', HERO]], 800, 720, m('ex'), { size: 28 });
+    roll(p, 14, 440, 800, [['14 + 3 = ', COL.chalk], ['17', COL.chalk]], m('roll'), 34);
+    scaleMark(p, X, y, 17, HERO, m('roll', 1.5), '17');
+    colorLine(p, [['успех: ', OK], ['знак бога мёртвых', COL.chalk]], 1000, 810, m('res', .4), { size: 30, anchor: 'start' });
+    scaleMark(p, X, y, 25, OK, m('crit'), '25', true);
+    say(p, 'для подробности нужно 25', 1460, 860, m('crit', .3), { size: 22, fill: OK, anchor: 'end' });
+  }],
+  ['obst', 'Ломание и Взлом замка', (m) => {
+    const p = panel(0);
+    title(p, 'Дверь склада: Ломание и Взлом замка');
+    box(p, 50, 100, 730, 780, COL.faint, m('fo', -.2));
+    actGlyph(p, 1, 100, 160, RULE, m('fo')); put(p.lastChild, { s: .6 });
+    say(p, 'Ломание', 140, 172, m('fo'), { size: 34, weight: 700, anchor: 'start' });
+    colorLine(p, [['Атлетика · ', COL.dim], ['без обучения', OK]], 90, 214, m('fo', .6), { size: 24, anchor: 'start' });
+    colorLine(p, [['без ломика: ', COL.chalk], ['−2', NO]], 90, 264, m('bar'), { size: 28, anchor: 'start' });
+    [['успех: открыта, но сломана', OK, 's'], ['крит. успех: открыта целой', OK, 'cs'], ['крит. провал: заклинило, дальше −2', NO, 'cf']]
+      .forEach(([s, c, mark], i) => say(p, s, 90, 320 + i * 44, m(mark), { size: 25, fill: c, anchor: 'start' }));
+    hr(p, 460, m('dw', -.3), 80, 750);
+    colorLine(p, [['Дварф-воин: ', HERO], ['Атлетика +7', COL.chalk]], 90, 510, m('dw'), { size: 28, anchor: 'start' });
+    colorLine(p, [['хлипкая дверь — задача для эксперта: ', COL.dim], ['СЛ 20', RULE]], 90, 556, m('dw', 3), { size: 24, anchor: 'start' });
+    roll(p, 15, 110, 660, [['15 + 7 ', COL.chalk], ['− 2', NO], [' = 20', COL.chalk]], m('roll'), 34);
+    colorLine(p, [['20 ≥ 20 → ', COL.chalk], ['успех', OK]], 90, 760, m('roll', 4.6), { size: 32, anchor: 'start' });
+    box(p, 820, 100, 730, 780, COL.faint, m('pick', -.2));
+    actGlyph(p, 2, 890, 160, RULE, m('pick')); put(p.lastChild, { s: .6 });
+    say(p, 'Взлом замка', 940, 172, m('pick'), { size: 34, weight: 700, anchor: 'start' });
+    colorLine(p, [['Воровство · ', COL.dim], ['только для изученных', PROF]], 860, 214, m('pick', 1.6), { size: 24, anchor: 'start' });
+    padlock(p, 1330, 204, PROF, m('pick', 1.6), .7);
+    say(p, 'нужны инструменты вора', 860, 264, m('pick', 3), { size: 26, anchor: 'start' });
+    say(p, 'хороший замок: несколько успехов', 860, 310, m('many'), { size: 26, anchor: 'start' });
+    say(p, 'крит. успех = 2 успеха', 860, 352, m('many', 1.8), { size: 26, fill: OK, anchor: 'start' });
+    hr(p, 400, m('rog', -.3), 850, 1520);
+    colorLine(p, [['Плут: ', HERO], ['Воровство +7', COL.chalk], [' · СЛ 20 · два успеха', COL.dim]], 860, 450, m('rog'), { size: 28, anchor: 'start' });
+    const pip = (x, t0) => { mk('circle', { cx: x, cy: 820, r: 22, fill: 'none', stroke: OK, 'stroke-width': 3 }, p); const c = mk('circle', { cx: x, cy: 820, r: 15, fill: OK }, p); put(c, { o: 0 }); pop(c, t0); };
+    [['ход 1', 15, 22, 't1'], ['ход 2', 13, 20, 't2']].forEach(([s, n, tot, mark], i) => {
+      const y = 540 + i * 100, t0 = m(mark);
+      say(p, s, 860, y, t0, { size: 24, fill: COL.dim, anchor: 'start' });
+      const g = actGlyph(p, 2, 990, y - 8, RULE, t0); put(g, { s: .45 });
+      roll(p, n, 1060, y, [[`${n} + 7 = ${tot} → `, COL.chalk], ['успех', OK]], t0 + .2, 28);
+      pip(990 + i * 60, t0 + 1.2);
+    });
+    say(p, 'успехи:', 860, 830, m('t1', 1), { size: 24, fill: COL.dim, anchor: 'start' });
+    colorLine(p, [['замок открыт: ', OK], ['4 действия', COL.chalk]], 1500, 830, m('four'), { size: 30, anchor: 'end' });
+  }],
+  ['q3', 'Быстрая проверка', () => { panel(0); }, { ask: done => quiz(WIDE, [{
+    id: 'c-obst', prompt: ['Посчитайте.'], build: blanks(Q_OBST),
+  }], done) }],
+  ['foes', 'СЛ из защиты врага', (m) => {
+    const p = panel(0);
+    title(p, 'Против врага: СЛ = 10 + его защита');
+    who(p, 'Разбойник', FOE, 150, 210, m('ban'));
+    const D = [['Стойкость', 4], ['Реакция', 5], ['Воля', 2], ['Внимание', 4]];
+    const tiles = D.map(([n, v], i) => {
+      const x = 330 + i * 300;
+      box(p, x, 120, 270, 190, FOE, m('def', .4 + i * .5));
+      say(p, n, x + 135, 170, m('def', .4 + i * .5), { size: 28, weight: 600 });
+      say(p, '+' + v, x + 135, 220, m('ban', 1.4 + i * 1.3), { size: 32, fill: FOE, weight: 700 });
+      return say(p, 'СЛ ' + (10 + v), x + 135, 284, m('dcs', .8 + i * .7), { size: 38, fill: RULE, weight: 700 });
+    });
+    // the table of actions against a foe
+    const cols = [100, 600, 920, 1500];
+    ['Действие', 'Навык', 'Против СЛ', 'Обучение'].forEach((s, i) => say(p, s, cols[i], 375, m('fort', -.4), { size: 22, fill: COL.dim, anchor: i === 3 ? 'end' : 'start' }));
+    hr(p, 392, m('fort', -.4), 80, 1520);
+    const A = [['Захват', 'Атлетика', 0, 0, 'fort'], ['Толчок', 'Атлетика', 0, 0, 'fort'], ['Сбивание с ног', 'Атлетика', 1, 0, 'ref'], ['Разоружение', 'Атлетика', 1, 1, 'ref'],
+      ['Перекат', 'Акробатика', 1, 0, 'ref'], ['Деморализация', 'Запугивание', 2, 0, 'will'], ['Финт', 'Обман', 3, 1, 'per']];
+    let k = { fort: 0, ref: 0, will: 0, per: 0 };
+    A.forEach(([n, sk, d, tr, mark], i) => {
+      const y = 450 + i * 62, t0 = m(mark, .2 + (k[mark]++) * .8);
+      say(p, n, cols[0], y, t0, { size: 30, weight: 600, anchor: 'start' });
+      say(p, sk, cols[1], y, t0 + .1, { size: 28, fill: COL.dim, anchor: 'start' });
+      colorLine(p, [[D[d][0], FOE], [' · ' + (10 + D[d][1]), RULE]], cols[2], y, t0 + .2, { size: 28, anchor: 'start' });
+      if (tr) { say(p, 'изучен', cols[3], y, m('tr'), { size: 26, fill: PROF, weight: 600, anchor: 'end' }); padlock(p, cols[3] - 120, y - 8, PROF, m('tr'), .7); }
+      else say(p, 'не нужно', cols[3], y, t0 + .3, { size: 26, fill: OK, anchor: 'end' });
+    });
+    ['fort', 'ref', 'will', 'per'].forEach((mark, i) => pulse(tiles[i], m(mark), 1.3));
+  }],
+  ['grapple', 'Захват, Толчок, Сбивание с ног', (m) => {
+    const p = panel(0);
+    title(p, 'Захват, Толчок, Сбивание с ног');
+    say(p, 'свободная рука · цель больше вас не более чем на 1 размер', 800, 120, .5, { size: 25, fill: COL.dim });
+    who(p, 'Дварф', HERO, 170, 250, m('gr', -.6));
+    who(p, 'Разбойник', FOE, 380, 250, m('gr', -.4));
+    [['Захват', 'держит до конца вашего следующего хода', 'gr'], ['Толчок', 'отталкивает на 5 футов', 'sh'], ['Сбивание с ног', 'роняет на землю', 'tr']].forEach(([n, s, mark], i) => {
+      const y = 400 + i * 66;
+      pill(p, n, HERO, 90 + pw(n, 26) / 2, y, m(mark), 26);
+      say(p, s, 360, y + 9, m(mark, .3), { size: 26, anchor: 'start' });
+    });
+    colorLine(p, [['Захват: Атлетика +7 против СЛ Стойкости ', COL.chalk], ['14', RULE]], 560, 230, m('dw'), { size: 26, anchor: 'start' });
+    roll(p, 8, 580, 300, [['8 + 7 = 15 ≥ 14 → ', COL.chalk], ['успех', OK]], m('dw', 1.2), 30);
+    hr(p, 600, m('att', -.3));
+    colorLine(p, [['дескриптор «атака»', RULE], [' → штраф за последовательные атаки', COL.chalk]], 800, 650, m('att'), { size: 28 });
+    const S3 = [['1 · удар мечом', '+7', '', COL.chalk], ['2 · Сбивание с ног', '7 − 4 = +3', '−4', NO], ['3 · ещё атака', '…', '−8', NO]];
+    S3.forEach(([n, v, pen, c], i) => {
+      const x = 90 + i * 480;
+      box(p, x, 680, 440, 110, i === 1 ? RULE : COL.faint, m('agile', i * .3));
+      say(p, n, x + 24, 722, m('sw', i * .4), { size: 26, anchor: 'start' });
+      say(p, v, x + 24, 768, m('sw', .2 + i * .4), { size: 30, fill: COL.chalk, weight: 700, anchor: 'start' });
+      if (pen) say(p, pen, x + 416, 744, m('agile', .6 + i * 1.6), { size: 34, fill: c, weight: 700, anchor: 'end' });
+    });
+    say(p, 'кулак «быстрое»', 1500, 830, m('agile'), { size: 22, fill: COL.dim, anchor: 'end' });
+    colorLine(p, [['штраф доспеха к «атаке» не идёт: ', COL.chalk], ['Атлетика Шиппы ', HERO], ['−1', NO], [' → ', COL.dim], ['0', OK]], 800, 866, m('arm'), { size: 28 });
+  }],
+  ['demor', 'Деморализация', (m) => {
+    const p = panel(0);
+    title(p, 'Деморализация');
+    who(p, 'Шиппа', HERO, 160, 230, .4);
+    who(p, 'Разбойник', FOE, 720, 230, .6);
+    bubble(p, 'Стража уже бежит сюда', 300, 120, HERO, m('act'), { size: 24, side: 'left' });
+    show(path(p, 'M220 230H660', { stroke: COL.dim, 'stroke-width': 3, 'stroke-dasharray': '10 8' }, { o: 0 }), m('act', 1.5));
+    say(p, 'до 30 футов · против Воли', 440, 214, m('act', 1.8), { size: 22, fill: COL.dim });
+    infoCard(p, 900, 110, 640, 'Испуг 1', ['−1 ко всем проверкам и СЛ', ['в конце каждого хода цели: −1', COL.dim]], NO, m('fr'), m('fade') - m('fr') - .3);
+    say(p, 'следующие 10 минут — эту цель снова нельзя', 1220, 360, m('imm'), { size: 23, fill: COL.dim });
+    const y = 590;
+    const X = degScale(p, { dc: 12, y, t0: m('s', -.6), marks: { s: m('s'), cs: m('cs'), f: m('s', 1), cf: m('s', 1) }, texts: { cs: 'испуг 2', s: 'испуг 1', f: 'ничего', cf: 'ничего' } });
+    colorLine(p, [['Шиппа: ', COL.chalk], ['Запугивание +4', HERO], [' против СЛ Воли ', COL.chalk], ['12', RULE]], 800, 720, m('sh'), { size: 28 });
+    roll(p, 9, 360, 800, [['9 + 4 = 13 → ', COL.chalk], ['испуг 1', OK]], m('roll'), 32);
+    scaleMark(p, X, y, 13, HERO, m('roll', 1.2), '13');
+    scaleMark(p, X, y, 22, OK, m('two'), '22', true);
+    say(p, 'испуг 2: итог 22 = 18 на кубике', 1460, 812, m('two', .5), { size: 26, fill: OK, anchor: 'end' });
+  }],
+  ['q4', 'Быстрая проверка', () => { panel(0); }, { ask: done => quiz(WIDE, [{
+    id: 'c-foe', prompt: ['Разбойник: Стойкость +4, Реакция +5, Воля +2, Внимание +4. Дварф: Атлетика +7.'], build: blanks(Q_FOE),
+  }], done) }],
+  ['talk', 'Отношение', (m) => {
+    const p = panel(0);
+    title(p, 'Разговор: отношение');
+    const A = ['враждебность', 'недружелюбие', 'безразличие', 'дружелюбие', 'готовность помочь'];
+    const AC = [NO, mix(NO, COL.dim, .5), COL.dim, mix(OK, COL.dim, .5), OK], bx = i => 90 + i * 288;
+    A.forEach((s, i) => {
+      box(p, bx(i), 170, 270, 80, AC[i], m('a' + i));
+      say(p, s, bx(i) + 135, 220, m('a' + i), { size: i === 4 ? 23 : 25, fill: AC[i], weight: 700 });
+    });
+    const mark = G(p, { x: bx(2) + 135, y: 270, o: 0 });
+    path(mark, 'M0 0L-16 24H16Z', { fill: COL.chalk });
+    show(mark, m('ind'));
+    say(p, 'большинство незнакомцев', bx(2) + 135, 330, m('ind', .3), { size: 22, fill: COL.dim });
+    // a bracket over friendly and helpful: where Request works
+    const br = draw(path(p, `M${bx(3) + 6} 160V146H${bx(4) + 264}V160`, { stroke: OK, 'stroke-width': 4 }, { d: 0 }), m('req'), .5);
+    say(p, 'здесь работает Просьба', (bx(3) + bx(4) + 270) / 2, 132, m('req', .3), { size: 22, fill: OK, weight: 600 });
+    hr(p, 360, m('imp', -.3));
+    colorLine(p, [['Улучшение впечатления: ', HERO], ['минута беседы, Дипломатия против СЛ Воли', COL.chalk]], 800, 410, m('imp'), { size: 28 });
+    pillRow(p, ['успех: +1 ступень', 'крит. успех: +2', 'крит. провал: −1'], 800, 480, 24, [OK, OK, NO], [m('s'), m('cs'), m('cf')]);
+    colorLine(p, [['Хозяин трактира: ', NPC], ['безразличен, Воля +1 → СЛ ', COL.chalk], ['11', RULE]], 90, 570, m('inn'), { size: 28, anchor: 'start' });
+    roll(p, 14, 110, 640, [['Дипломатия Шиппы: 14 + 7 = 21 = СЛ + 10 → ', COL.chalk], ['крит. успех', OK]], m('roll'), 28);
+    tw(mark, { x: bx(4) + 135 }, m('help'), 1, io);
+    colorLine(p, [['Просьба: ', HERO], ['бесплатная комната, СЛ ', COL.chalk], ['15', RULE]], 90, 740, m('rdc'), { size: 28, anchor: 'start' });
+    roll(p, 6, 110, 810, [['6 + 7 = 13 → ', COL.chalk], ['провал', NO]], m('r2'), 28);
+    bubble(p, 'Даром не дам. За полцены — пожалуйста', 1130, 790, NPC, m('half'), { size: 24 });
+  }],
+  ['feats', 'Черты навыков и Уверенность', (m) => {
+    const p = panel(0);
+    title(p, 'Черты навыков');
+    const lx = l => 140 + (l - 1) * 92, ly = 190;
+    path(p, `M${lx(1) - 20} ${ly}H${lx(10) + 20}`, { stroke: COL.dim, 'stroke-width': 3 });
+    for (let l = 1; l <= 10; l++) say(p, String(l), lx(l), ly + 40, .4, { size: 22, fill: COL.dim });
+    say(p, 'уровень', lx(10) + 50, ly + 40, .4, { size: 20, fill: COL.dim, anchor: 'start' });
+    const dotAt = (l, colr, t0) => { const c = mk('circle', { cx: lx(l), cy: ly, r: 14, fill: colr }, p); put(c, { o: 0 }); pop(c, t0); };
+    dotAt(1, HERO, m('bg')); say(p, 'происхождение', lx(1), ly - 30, m('bg'), { size: 20, fill: HERO });
+    [2, 4, 6, 8, 10].forEach((l, i) => dotAt(l, PROF, m('cls', .8 + i * .4)));
+    say(p, 'класс: со 2-го уровня каждые 2 уровня', lx(6), ly - 30, m('cls', 1.2), { size: 20, fill: PROF });
+    hr(p, 270, m('as', -.3));
+    pill(p, 'Уверенность', RULE, 800, 320, m('as'), 30);
+    say(p, 'один изученный навык: кубик не бросают', 800, 384, m('as', 1), { size: 24, fill: COL.dim });
+    colorLine(p, [['итог = 10 + ', COL.chalk], ['бонус умения', PROF], [' — без характеристики, бонусов и штрафов', COL.dim]], 800, 440, m('f'), { size: 28 });
+    // scale 0..30: the roll's range against the fixed total
+    const x0 = 170, u = 42, X = v => x0 + v * u, y = 700;
+    const ax = G(p, { o: 0 });
+    path(ax, `M${X(0)} ${y}H${X(30)}`, { stroke: COL.dim, 'stroke-width': 3 });
+    for (let v = 0; v <= 30; v += 5) { path(ax, `M${X(v)} ${y - 10}V${y + 10}`, { stroke: COL.dim, 'stroke-width': 2 }); T(ax, String(v), { x: X(v), y: y + 40, size: 22, fill: COL.dim, anchor: 'middle' }); }
+    show(ax, m('sh', -.4));
+    const rng = G(p, { o: 0 });
+    mk('rect', { x: X(8), y: y - 130, width: X(27) - X(8), height: 44, rx: 8, fill: HERO, 'fill-opacity': .35, stroke: HERO, 'stroke-width': 2 }, rng);
+    const rl = T(rng, 'Исполнение с броском: d20 + 7 → от 8 до 27', { x: X(17.5), y: y - 99, size: 22, fill: COL.chalk, weight: 600, anchor: 'middle' });
+    show(rng, m('sh', -.4));
+    const as = G(p, { x: X(13), o: 0 });
+    path(as, `M0 ${y - 70}V${y + 12}`, { stroke: RULE, 'stroke-width': 6 });
+    T(as, 'Уверенность: 13', { y: y - 52 + 120, size: 26, fill: RULE, weight: 700, anchor: 'middle' });
+    show(as, m('sh', 1));
+    say(p, '10 + 3 = 13 · всегда', X(13), y + 104, m('sh', 2), { size: 22, fill: RULE });
+    const dcLine = (v, good, t0) => {
+      show(path(p, `M${X(v)} ${y - 160}V${y - 20}`, { stroke: good ? OK : NO, 'stroke-width': 3, 'stroke-dasharray': '8 6' }, { o: 0 }), t0, .4);
+      colorLine(p, [['СЛ ' + v + (good ? ' ✓' : ' ✗'), good ? OK : NO]], X(v), y - 172, t0 + .2, { size: 24 });
+    };
+    dcLine(10, true, m('ok')); dcLine(15, false, m('no'));
+    tw(rng, { x: -2 * u }, m('fr', 2.4), .8);
+    prog(q => { rl.textContent = q < .5 ? 'Исполнение с броском: d20 + 7 → от 8 до 27' : 'испуг 2: d20 + 5 → от 6 до 25'; }, m('fr', 2.4), .8, lin);
+    pulse(as, m('st'), 1.15);
+  }],
+  ['sheet', 'Навыки Шиппы', (m) => {
+    const p = panel(0);
+    title(p, 'Все навыки Шиппы на 1-м уровне');
+    // name, attribute, its value, trained, armour penalty, group
+    const SK = [['Акробатика', 'Ловкость', 3, 0, 1, 'dex'], ['Атлетика', 'Сила', 0, 0, 1, 'str'], ['Воровство', 'Ловкость', 3, 0, 1, 'dex'], ['Выживание', 'Мудрость', 0, 0, 0, 'rest'],
+      ['Дипломатия', 'Харизма', 4, 1, 0, 'cha'], ['Запугивание', 'Харизма', 4, 0, 0, 'cha'], ['Знание (выпивка)', 'Интеллект', 0, 1, 0, 'rest'], ['Исполнение', 'Харизма', 4, 1, 0, 'cha'],
+      ['Медицина', 'Мудрость', 0, 0, 0, 'rest'], ['Мистицизм', 'Интеллект', 0, 0, 0, 'rest'], ['Обман', 'Харизма', 4, 1, 0, 'cha'], ['Общество', 'Интеллект', 0, 1, 0, 'rest'],
+      ['Оккультизм', 'Интеллект', 0, 1, 0, 'rest'], ['Природа', 'Мудрость', 0, 0, 0, 'rest'], ['Религия', 'Мудрость', 0, 1, 0, 'rest'], ['Ремесло', 'Интеллект', 0, 0, 0, 'rest'],
+      ['Скрытность', 'Ловкость', 3, 1, 1, 'dex']];
+    const cnt = {};
+    SK.forEach(([n, a, v, tr, arm, grp], i) => {
+      const col = i < 9 ? 0 : 1, x = 60 + col * 760, y = 190 + (i % 9) * 70, t0 = m(grp, .3 + (cnt[grp] = (cnt[grp] || 0) + 1) * .35);
+      if (i % 9 === 0) {
+        ['навык', 'расчёт', 'итог'].forEach((s, k) => say(p, s, x + [20, 300, 700][k], 140, .3, { size: 20, fill: COL.dim, anchor: k === 2 ? 'end' : 'start' }));
+      }
+      const nm = say(p, n, x + 20, y, .4 + (i % 9) * .05, { size: 27, fill: tr ? COL.chalk : COL.dim, weight: tr ? 700 : 500, anchor: 'start' });
+      const tot = v + (tr ? 3 : 0) - arm;
+      colorLine(p, [[a + ' ' + v, ATTR], [' + ', COL.dim], [String(tr ? 3 : 0), tr ? PROF : COL.dim], ...(arm ? [[' − ', COL.dim], ['1', NO]] : [])], x + 300, y, t0, { size: 25, anchor: 'start' });
+      say(p, sgn(tot), x + 700, y, t0 + .2, { size: 30, fill: COL.chalk, weight: 700, anchor: 'end' });
+      pulse(nm, t0, 1.15);
+    });
+    colorLine(p, [['Атлетика для Захвата, Толчка, Сбивания с ног и Ломания: ', COL.chalk], ['0', OK], [' (без штрафа доспеха)', COL.dim]], 800, 840, m('str', 1.4), { size: 25 });
+    say(p, 'жирным — изученные', 1540, 62, m('rest', 4), { size: 20, fill: PROF, anchor: 'end' });
+  }],
+  ['scene', 'Шиппа в деле', (m) => {
+    const p = panel(0);
+    title(p, 'У ворот склада');
+    who(p, 'Шиппа', HERO, 150, 210, .4);
+    who(p, 'Сторож', NPC, 1450, 210, .6);
+    bubble(p, 'Хозяин прислал пересчитать бочки', 760, 150, HERO, m('lie', -.4), { size: 24 });
+    colorLine(p, [['Ложь', HERO], [' (тайная): Обман +7 против СЛ Внимания сторожа ', COL.chalk], ['16', RULE]], 800, 236, m('lie', 3), { size: 26 });
+    roll(p, 10, 440, 310, [['ведущий: 10 + 7 = 17 ≥ 16 → ', COL.chalk], ['сторож верит', OK]], m('roll', 2), 28);
+    hr(p, 360, m('in', -.3));
+    colorLine(p, [['Внутри: ', COL.chalk], ['разбойник', FOE], [' · СЛ Воли 12 · СЛ Внимания 14', RULE]], 800, 410, m('in'), { size: 28 });
+    const SL = [['Деморализация', 'a1'], ['Финт', 'a2'], ['Удар рапирой', 'a3']];
+    SL.forEach(([n, mark], i) => {
+      const x = 50 + i * 510, t0 = m(mark);
+      box(p, x, 450, 480, 420, COL.faint, t0);
+      const g = actGlyph(p, 1, x + 40, 500, RULE, t0); put(g, { s: .5 });
+      say(p, (i + 1) + ' · ' + n, x + 72, 510, t0, { size: 28, weight: 700, anchor: 'start' });
+    });
+    roll(p, 12, 100, 600, [['12 + 4 = 16 ≥ 12', COL.chalk]], m('a1', 2.4), 28);
+    colorLine(p, [['разбойник: ', COL.chalk], ['испуг 1', OK]], 290, 690, m('a1', 5.2), { size: 30 });
+    say(p, '−1 ко всем его проверкам и СЛ', 290, 740, m('a1', 5.6), { size: 21, fill: COL.dim });
+    say(p, 'Обман против СЛ Внимания', 580, 560, m('a2', 2.6), { size: 22, fill: COL.dim, anchor: 'start' });
+    ['успех: цель застигнута врасплох', 'против следующей атаки Шиппы', 'в ближнем бою в этом ходу: −2 КБ'].forEach((s, i) => say(p, s, 580, 610 + i * 34, m('fe', .3 + i * .6), { size: 21, fill: i ? COL.chalk : OK, anchor: 'start' }));
+    roll(p, 7, 610, 750, [['7 + 7 = 14', COL.chalk]], m('r2'), 28);
+    colorLine(p, [['СЛ 14 − 1 (испуг) = 13 → ', COL.chalk], ['успех', OK]], 800, 830, m('fr', 1), { size: 24 });
+    say(p, 'по застигнутому врасплох врагу', 1300, 600, m('a3', 1.4), { size: 23, anchor: 'middle' });
+    say(p, 'как считать удар — глава 9', 1300, 680, m('a3', 2.6), { size: 25, fill: COL.dim, anchor: 'middle' });
+  }],
+  ['wrap', 'Итоги', (m) => {
+    const p = panel(0);
+    numbered(p, [['Навык = характеристика + умение (− доспех); СЛ навыка = 10 + модификатор.', 'w1'],
+      ['Простые СЛ по рангам: 10, 15, 20, 30, 40.', 'w2'],
+      ['Без обучения — может любой; для изученных — только обученный.', 'w3'],
+      ['Против врага СЛ = 10 + его Стойкость, Реакция, Воля или Внимание.', 'w4']], m, 190, 125, 29);
+    colorLine(p, [['На лист: ', RULE], ['все 17 навыков и два-три действия для боя', COL.chalk]], 800, 760, m('now'), { size: 30 });
+  }],
+  ['final1', 'Практика главы', () => { panel(0); }, { ask: done => quiz(SCREEN, [{
+    id: 'p-tf', prompt: ['Верно или неверно?'], build: grid(P_TF, TF, { multi: false, text: true }),
+  }], done, 'Практика главы   1 из 3') }],
+  ['final2', 'Практика главы', () => {}, { ask: done => quiz(SCREEN, [{
+    id: 'p-sheet', prompt: ['Шиппа: Сила 0, Ловкость +3, Интеллект 0, Мудрость 0, Харизма +4. Изучен — бонус умения +3. Доспех даёт −1 к навыкам на Силу и Ловкость. Изучены: Дипломатия, Обман, Исполнение, Скрытность, Общество, Оккультизм, Религия, Знание (выпивка).'],
+    build: blanks(P_SHEET),
+  }], done, 'Практика главы   2 из 3') }],
+  ['final3', 'Практика главы', () => {}, { ask: done => quiz(SCREEN, [{
+    id: 'p-talk', prompt: ['Шиппа (Дипломатия +7, Обман +7) делает Улучшение впечатления на безразличного стражника с Волей +2.'],
+    build: blanks(P_TALK),
+  }], done, 'Практика главы   3 из 3') }],
+  ['finish', 'Готово', () => {}, { ask: finishCard }],
+].map(([id, title, run, extra]) => ({ id, title, run, ...extra }));
+
+/* ---------- question data ---------- */
+const Q_SKILL = [
+  { parts: ['Дипломатия Шиппы +7. СЛ Дипломатии: ', { box: '17' }], why: '10 + 7 = 17.', hint: '10 плюс модификатор.' },
+  { parts: ['Скрытность: Ловкость +3, изучен (+3), штраф доспеха −1. Модификатор: +', { box: '5' }], why: '3 + 3 − 1 = 5.', hint: 'Характеристика + умение − штраф.' },
+];
+const Q_SIMPLE = [
+  { parts: ['Задача для эксперта: СЛ ', { box: '20' }], why: 'Неизучен 10, изучен 15, эксперт 20.', hint: 'Лестница: 10, 15, 20, 30, 40.' },
+  { parts: ['Задача для мастера: СЛ ', { box: '30' }], why: 'После эксперта шаг 10: 30, у легенды 40.', hint: 'Лестница: 10, 15, 20, 30, 40.' },
+];
+const Q_TRAINED = [
+  { parts: ['Действие без обучения может сделать герой, не обученный этому навыку.'], ans: ['t'], why: 'Бонус умения у него просто 0.' },
+  { parts: ['Деморализация у Шиппы идёт с +4, хотя Запугивание не изучено.'], ans: ['t'], why: 'Харизма 4 + 0 = +4.' },
+  { parts: ['Шиппа может попытаться сделать Взлом замка с бонусом умения 0.'], ans: ['f'], why: 'Взлом замка — только для изученных.' },
+  { parts: ['Знание (магия) можно взять вместо Мистицизма.'], ans: ['f'], why: 'Знание не заменяет широкий навык.' },
+  { parts: ['Взлом замка занимает два действия.'], ans: ['t'], why: 'Два ромба — два действия из трёх за ход.' },
+  { parts: ['Тайную проверку за героя бросает ведущий.'], ans: ['t'], why: 'Поэтому игрок не знает, верен ли результат.' },
+];
+const Q_OBST = [
+  { parts: ['Шиппа вспоминает Религией против СЛ 15. Для критического успеха нужен итог ', { box: '25' }], why: 'СЛ + 10 = 25.', hint: 'Критический успех — СЛ плюс 10.' },
+  { parts: ['Дварф (Атлетика +7) ломает дверь без ломика, на кубике 12. Итог: ', { box: '17' }], why: '12 + 7 − 2 = 17: против СЛ 20 это провал.', hint: 'Без ломика −2.' },
+  { parts: ['Замку нужно два успеха, плут дважды успешно делает Взлом замка. Всего действий: ', { box: '4' }], why: 'Каждая попытка — два действия: 2 + 2 = 4.', hint: 'У Взлома замка два ромба.' },
+];
+const Q_FOE = [
+  { parts: ['СЛ Реакции разбойника: ', { box: '15' }], why: '10 + 5 = 15.', hint: '10 плюс модификатор защиты.' },
+  { parts: ['Дварф ударил мечом, затем делает Сбивание с ног: +', { box: '3' }], why: 'Вторая атака, кулак «быстрое»: 7 − 4 = 3.', hint: 'У приёма дескриптор «атака».' },
+  { parts: ['Атлетика Шиппы −1 (из-за доспеха). Для Захвата у неё: ', { box: '0' }], why: 'Штраф доспеха к «атаке» не идёт: 0 + 0 = 0.', hint: 'Штраф доспеха не идёт к действиям с дескриптором «атака».' },
+  { parts: ['Шиппа (Запугивание +4) деморализует разбойника, на кубике 9. Итог: ', { box: '13' }], why: '9 + 4 = 13 ≥ 12: испуг 1.', hint: 'Кубик плюс модификатор.' },
+  { parts: ['Для испуга 2 против СЛ Воли 12 нужен итог: ', { box: '22' }], why: '12 + 10 = 22.', hint: 'Критический успех — СЛ плюс 10.' },
+];
+const P_TF = [
+  { parts: ['СЛ навыка равна 10 + модификатор навыка.'], ans: ['t'], why: 'У Шиппы СЛ Обмана 10 + 7 = 17.' },
+  { parts: ['Простая СЛ задачи для изученного — 20.'], ans: ['f'], why: '15; СЛ 20 — для эксперта.' },
+  { parts: ['Критический провал Вспомнить информацию даёт ложный ответ.'], ans: ['t'], why: 'Проверка тайная, ложь звучит уверенно.' },
+  { parts: ['Штраф доспеха идёт к Захвату и Сбиванию с ног.'], ans: ['f'], why: 'К действиям с дескриптором «атака» он не идёт.' },
+  { parts: ['Разбойника можно деморализовать каждый ход.'], ans: ['f'], why: 'После попытки 10 минут эту цель снова деморализовать нельзя.' },
+  { parts: ['Просьба работает, только если собеседник дружелюбен или готов помочь.'], ans: ['t'], why: 'Сначала отношение улучшают.' },
+  { parts: ['Уверенность учитывает испуг.'], ans: ['f'], why: 'Итог 10 + бонус умения, без штрафов.' },
+  { parts: ['Успешный Финт даёт цели −2 к КБ против следующей атаки в ближнем бою.'], ans: ['t'], why: 'Цель застигнута врасплох: −2 к КБ.' },
+];
+const P_SHEET = [
+  { parts: ['Акробатика (не изучена): +', { box: '2' }], why: '3 + 0 − 1 = 2.', hint: 'Ловкость, и не забудьте доспех.' },
+  { parts: ['Запугивание (не изучено): +', { box: '4' }], why: '4 + 0 = 4.', hint: 'Харизма, бонус умения 0.' },
+  { parts: ['Религия: +', { box: '3' }], why: 'Мудрость 0 + 3 = 3.', hint: 'Религия — от Мудрости.' },
+  { parts: ['Атлетика для Сбивания с ног: ', { box: '0' }], why: 'Сила 0 + 0, штрафа доспеха нет.', hint: 'Дескриптор «атака».' },
+  { parts: ['СЛ Обмана: ', { box: '17' }], why: '10 + 4 + 3 = 17.', hint: '10 плюс модификатор.' },
+];
+const P_TALK = [
+  { parts: ['СЛ Воли стражника: ', { box: '12' }], why: '10 + 2 = 12.', hint: '10 плюс модификатор Воли.' },
+  { parts: ['На кубике 15. Итог: ', { box: '22' }], why: '15 + 7 = 22 = СЛ + 10: критический успех.', hint: 'Кубик плюс Дипломатия.' },
+  { parts: ['Отношение улучшается на ступени: ', { box: '2' }], why: 'Критический успех: на две, из безразличия в готовность помочь.', hint: 'Успех +1, критический успех +2.' },
+  { parts: ['Уверенность в Дипломатии (изучен, +3) дала бы итог: ', { box: '13' }], why: '10 + 3 = 13.', hint: '10 плюс бонус умения.' },
+  { parts: ['У Шиппы испуг 1. Её Обман сейчас: +', { box: '6' }], why: '7 − 1 = 6.', hint: 'Испуг 1 — минус 1 ко всем проверкам.' },
+];
+boot();
+</script>
+</body>
+</html>

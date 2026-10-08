@@ -144,8 +144,10 @@ button[hidden] { display: none; }
 .sound-note[hidden] { display: none; }
 .blanks .brow { padding: 8px 0; border-bottom: 1px solid #2e433b; }
 .blanks .brow:last-child { border-bottom: 0; }
-.blanks .bline { line-height: 64px; white-space: nowrap; }
-.blanks .mark { display: inline-block; margin-left: 14px; font-weight: 700; }
+.blanks .bline { line-height: 64px; }
+.blanks .bt { font: 34px "STIX Two Text", "Cambria Math", "Iowan Old Style", Palatino, Georgia, serif; }
+.blanks .glue { white-space: nowrap; }
+.blanks .mark { display: inline-block; min-width: 1em; margin-left: 14px; font-weight: 700; }   /* room kept for ✓ so the line does not reflow on check */
 .blanks .mark.good { color: var(--good); animation: pop .35s ease-out; }
 .blanks .mark.bad { color: var(--bad); }
 .blanks .why { font-size: 19px; color: var(--dim); line-height: 1.35; }
@@ -192,6 +194,9 @@ svg.m { display: inline-block; overflow: visible; }
 .screen .kicker { font-size: 22px; }
 .screen .prompt { font-size: 40px; font-weight: 600; }
 .screen .body { margin-top: 30px; }
+/* Revealed explanations can outgrow the screen: the rows scroll above the pinned feedback and buttons. */
+.card.screen.quiz:not(.sort) { display: flex; flex-direction: column; }
+.screen.quiz:not(.sort) .body { flex: 1 1 auto; min-height: 0; margin-bottom: 110px; overflow-y: auto; scrollbar-width: thin; scrollbar-color: var(--edge) transparent; }
 .screen .fb { position: absolute; left: 70px; bottom: 56px; max-width: 1080px; margin: 0; font-size: 24px; }
 .screen .acts { position: absolute; right: 70px; bottom: 48px; }
 .screen .grid .row { grid-template-columns: 200px minmax(0, 1fr) 40px; padding: 9px 0 9px 12px; }
