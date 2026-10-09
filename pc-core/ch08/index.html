@@ -1,0 +1,653 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Бой: инициатива, раунд, три действия — Первый герой</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%231d2b27'/%3E%3Ctext x='32' y='45' text-anchor='middle' font-size='48' fill='%23f0b45a'%3E∞%3C/text%3E%3C/svg%3E">
+<link rel="stylesheet" href="../lib/engine.css">
+<link rel="expect" href="#bar" blocking="render"><!-- hold the first frame until the player exists, so the page transition can run -->
+</head>
+<body>
+<script src="../lib/engine.js"></script>
+<script src="../lib/pf.js"></script>
+<script src="audio/ru/timings.js"></script>
+<script>
+'use strict';
+const CHAPTER = { number: 8, title: 'Бой: инициатива, раунд, три действия', minutes: 13, language: 'ru', next: null };
+
+/* ---------- chapter drawing helpers (shared ones: lib/pf.js) ---------- */
+// Participants of the chapter's fight: heroes HERO, the bandit FOE; the initiative order of the example.
+const PPL = { b: ['Бронна', HERO], t: ['Тиль', HERO], r: ['Разбойник', FOE], s: ['Шиппа', HERO] };
+const ORDER = ['b', 't', 'r', 's'];
+const hr = (p, y, t0, x1 = 80, x2 = 1520) => draw(path(p, `M${x1} ${y}H${x2}`, { stroke: COL.faint, 'stroke-width': 2 }, { d: 0 }), t0, .5);
+const box = (p, x, y, w, h, colr, t0) => { const r = mk('rect', { x, y, width: w, height: h, rx: 18, fill: '#22322d', stroke: colr, 'stroke-width': 2.5 }, p); put(r, { o: 0 }); show(r, t0); return r; };
+const title = (p, s, t0 = .2) => say(p, s, 800, 62, t0, { size: 36, weight: 600 });
+const glyph = (p, n, x, y, t0, s = .6, colr = RULE) => put(actGlyph(p, n, x, y, colr, t0), { s });
+const grow = (e, s0, t0) => { tw(e, { s: s0 * 1.35 }, t0, .2, out); tw(e, { s: s0 }, t0 + .2, .35); };   // pulse of a scaled element
+// A die with its roll and a coloured sum after it, left-aligned at x (as in ch07).
+function roll(p, n, x, y, parts, t0, size = 26) {
+  numDie(p, n, x, y - 9, t0, 22);
+  colorLine(p, parts, x + 38, y, t0 + .3, { size, anchor: 'start' });
+}
+// One turn: three action cells and (optionally) the reaction cell, left x, top y, all inside one group (.g).
+// spend(i, label, t0, sub) fills cell i (3 = the reaction); span(i, j, …) fills cells i..j as one activity; lose(i, t0) crosses cell i.
+function turnCells(p, x, y, t0, { w = 170, h = 112, gap = 14, rgap = 40, react = true, rt0 = t0 } = {}) {
+  const root = G(p), X = i => x + i * (w + gap) + (i === 3 ? rgap - gap : 0), gs = h / 190, ly = y + h * .7;
+  const cells = [0, 1, 2, 3].slice(0, react ? 4 : 3).map(i => {
+    const g = G(root, { o: 0 });
+    mk('rect', { x: X(i), y, width: w, height: h, rx: 14, fill: '#22322d', stroke: RULE, 'stroke-width': 2.5, ...(i === 3 ? { 'stroke-dasharray': '9 6' } : {}) }, g);
+    const f = put(mk('rect', { x: X(i), y, width: w, height: h, rx: 14, fill: RULE, 'fill-opacity': .28 }, g), { o: 0 });
+    const gl = glyph(g, i < 3 ? 1 : 'r', X(i) + w / 2 - (i < 3 ? 0 : 6 * gs), y + h * .32, 0, gs);
+    const lab = T(g, '', { x: X(i) + w / 2, y: ly, size: Math.round(h / 5.6), weight: 600, anchor: 'middle', o: 0 });
+    const sub = T(g, '', { x: X(i) + w / 2, y: ly + h / 4.6, size: Math.round(h / 6.4), fill: COL.dim, anchor: 'middle', o: 0 });
+    show(g, i === 3 ? rt0 : t0);
+    return { g, f, gl, lab, sub };
+  });
+  const fill = (i, t1) => { show(cells[i].f, t1, .3); grow(cells[i].gl, gs, t1); };
+  return {
+    g: root, X, w, cells,
+    spend(i, label, t1, sub = '') {
+      const c = cells[i];
+      c.lab.textContent = label; c.sub.textContent = sub;
+      fill(i, t1); show(c.lab, t1 + .1, .3); show(c.sub, t1 + .2, .3);
+    },
+    span(i, j, label, t1, sub = '') {   // one block over cells i..j and the gaps between them
+      const b = G(root, { o: 0 }), bw = X(j) + w - X(i);
+      mk('rect', { x: X(i), y, width: bw, height: h, rx: 14, fill: '#22322d' }, b);
+      mk('rect', { x: X(i), y, width: bw, height: h, rx: 14, fill: RULE, 'fill-opacity': .28, stroke: RULE, 'stroke-width': 2.5 }, b);
+      glyph(b, j - i + 1, X(i) + bw / 2, y + h * .32, 0, gs);
+      show(b, t1, .3);
+      say(root, label, (X(i) + X(j) + w) / 2, ly, t1 + .1, { size: Math.round(h / 5.6), weight: 600 });
+      if (sub) say(root, sub, (X(i) + X(j) + w) / 2, ly + h / 4.6, t1 + .2, { size: Math.round(h / 6.4), fill: COL.dim });
+    },
+    lose(i, t1) {
+      const a = X(i) + 22, b = X(i) + w - 22;
+      draw(path(cells[i].g, `M${a} ${y + 18}L${b} ${y + h - 18}M${b} ${y + 18}L${a} ${y + h - 18}`, { stroke: NO, 'stroke-width': 5 }, { d: 0 }), t1, .4);
+      tw(cells[i].gl, { o: .3 }, t1, .3);
+    },
+  };
+}
+// The initiative order as a row of rings (step dx); cur(k, t0) moves the amber highlight to participant k.
+function ribbon(p, keys, x0, y, dx, t0, r = 30) {
+  const pos = {}, tok = {};
+  const hl = put(mk('circle', { r: r + 9, fill: 'none', stroke: RULE, 'stroke-width': 4 }, p), { x: x0, y, o: 0 });
+  keys.forEach((k, i) => { pos[k] = x0 + i * dx; tok[k] = who(p, PPL[k][0], PPL[k][1], pos[k], y, t0 + i * .12, r); });
+  return { tok, pos, hl, cur: (k, t1, dur = .4) => tw(hl, { x: pos[k], o: 1 }, t1, dur) };
+}
+
+// The mill yard of the example round: 8 × 3 cells of 5 feet, gate on the left, barn in the last column.
+const MAP = { x: 120, y: 250, c: 100 };
+const cellXY = (c, r) => [MAP.x + c * MAP.c + MAP.c / 2, MAP.y + r * MAP.c + MAP.c / 2];
+function yard(p, t0) {
+  const g = G(p, { o: 0 }), { x, y, c } = MAP;
+  for (let i = 0; i < 7; i++) for (let j = 0; j < 3; j++)
+    mk('rect', { x: x + i * c + 3, y: y + j * c + 3, width: c - 6, height: c - 6, rx: 6, fill: 'none', stroke: COL.faint, 'stroke-width': 2, 'stroke-dasharray': '6 5' }, g);
+  mk('rect', { x: x + 7 * c + 6, y: y - 10, width: c - 6, height: 3 * c + 20, rx: 6, fill: '#2a2620', stroke: COL.dim, 'stroke-width': 3 }, g);
+  mk('rect', { x: x + 7 * c, y: y + c + 12, width: 14, height: c - 24, rx: 3, fill: COL.dim }, g);
+  T(g, 'амбар', { x: x + 7.5 * c + 3, y: y - 22, size: 22, fill: COL.dim, weight: 600, anchor: 'middle' });
+  path(g, `M${x - 14} ${y - 10}V${y + c * .45}M${x - 14} ${y + c * 2.55}V${y + 3 * c + 10}`, { stroke: COL.dim, 'stroke-width': 8 });
+  T(g, 'ворота', { x: x - 14, y: y - 22, size: 22, fill: COL.dim, weight: 600, anchor: 'middle' });
+  T(g, 'мельничный двор · клетка 5 футов', { x: x + 3.5 * c, y: y + 3 * c + 44, size: 22, fill: COL.dim, anchor: 'middle' });
+  show(g, t0);
+}
+// A token on the yard: ring with the first letter.
+function mtok(p, k, c, r, t0) {
+  const [x, y] = cellXY(c, r), g = G(p, { x, y, o: 0 });
+  mk('circle', { r: 34, fill: COL.board, stroke: PPL[k][1], 'stroke-width': 4 }, g);
+  T(g, PPL[k][0][0], { y: 12, size: 34, fill: PPL[k][1], weight: 700, anchor: 'middle' });
+  show(g, t0);
+  return g;
+}
+const moveTok = (g, c, r, t0, dur = .8) => { const [x, y] = cellXY(c, r); tw(g, { x, y }, t0, dur); };
+// A raised shield on a token (child of the token group, so it moves with it).
+function shieldOn(g, t0) {
+  const s = path(g, 'M0 -16L14 -10V2C14 10 7 15 0 18C-7 15 -14 10 -14 2V-10Z', { fill: RULE, stroke: COL.board, 'stroke-width': 2 }, { x: 30, y: -30, o: 0 });
+  if (t0 != null) pop(s, t0); else put(s, { o: 1 });
+  return s;
+}
+// The common picture of the round beats: order, yard, tokens, the bandit's card (known to the GM) and the heroes' line.
+function yardScene(p, { pos, shield, foeHp, shHp, cur, foeT0 = .4 }) {
+  title(p, 'Раунд у мельницы');
+  const rib = ribbon(p, ORDER, 1090, 120, 130, .2, 30);
+  if (cur) rib.cur(cur, .3, .01);
+  yard(p, .2);
+  const tok = {};
+  ORDER.forEach((k, i) => { tok[k] = mtok(p, k, ...pos[k], .3 + i * .08); });
+  const sh = shield ? shieldOn(tok.b) : null;
+  box(p, 1000, 250, 560, 180, FOE, foeT0);
+  say(p, 'Разбойник · знает ведущий', 1030, 296, foeT0, { size: 25, fill: FOE, weight: 700, anchor: 'start' });
+  say(p, 'КБ 16 · дубинка +7', 1030, 346, foeT0 + .2, { size: 27, anchor: 'start' });
+  say(p, 'Внеочередной атаки нет', 1030, 396, foeT0 + .4, { size: 23, fill: COL.dim, anchor: 'start' });
+  const fhp = say(p, 'ПЗ ' + foeHp, 1530, 296, foeT0, { size: 30, fill: FOE, weight: 700, anchor: 'end' });
+  box(p, 1000, 450, 560, 140, HERO, .5);
+  say(p, 'Шиппа: КБ 18 · рапира +6', 1030, 492, .5, { size: 23, anchor: 'start' });
+  const shp = say(p, 'ПЗ ' + shHp, 1530, 492, .5, { size: 25, fill: HERO, weight: 700, anchor: 'end' });
+  say(p, 'Бронна: длинный меч +9 · КБ 18 · щит', 1030, 532, .5, { size: 23, anchor: 'start' });
+  say(p, 'Тиль: атака заклинанием +7 · Обман +3', 1030, 572, .5, { size: 23, anchor: 'start' });
+  return { rib, tok, sh, fhp, shp };
+}
+const setHp = (e, v, t0) => { prog(() => { e.textContent = 'ПЗ ' + v; }, t0, 0); pulse(e, t0, 1.3); };
+// Damage floating up from a token.
+function hurt(p, g, str, t0) {
+  const e = say(p, str, st(g).x + 52, st(g).y - 30, t0, { size: 30, fill: NO, weight: 700, anchor: 'start' });
+  tw(e, { y: st(g).y - 70, o: 0 }, t0 + 1.4, .8);
+}
+const RX = 910, RY = 650, RDY = 46;   // result lines of the round beats, right of the turn cells
+const rline = i => RY + i * RDY;
+
+/* ---------- beats: [id, title, run(m, D), { ask }?] ---------- */
+const BEATS = [
+  ['intro', 'Бой: инициатива, раунд, три действия', (m, D) => {
+    const g = G(scene, { o: 0, y: 24 });
+    T(g, 'Раздел 4 «Бой» · Глава 8', { x: 800, y: 330, size: 28, fill: COL.dim, anchor: 'middle' });
+    T(g, 'Бой: инициатива, раунд, три действия', { x: 800, y: 440, size: 62, weight: 600, anchor: 'middle' });
+    tw(g, { o: 1, y: 0 }, .2, 1.1, out);
+    const r = say(scene, 'кто когда ходит и что успевает', 800, 560, m('sub'), { size: 34, fill: COL.dim });
+    tw(g, { o: 0, y: -24 }, D - .9, .8); hide(r, D - .9, .8);
+  }],
+  ['mill', 'Бросайте инициативу', (m, D) => {
+    const p = panel(0);
+    // the mill: tower, roof, door and four sails turning slowly
+    const mill = G(p, { x: 1150, y: 300, o: 0 });
+    path(mill, 'M-80 330L-55 30H55L80 330Z', { fill: '#2a2620', stroke: COL.dim, 'stroke-width': 4 });
+    path(mill, 'M-70 34L0 -40L70 34Z', { fill: '#2a2620', stroke: COL.dim, 'stroke-width': 4 });
+    mk('rect', { x: -22, y: 250, width: 44, height: 80, rx: 6, fill: COL.board, stroke: COL.dim, 'stroke-width': 3 }, mill);
+    const sails = G(mill);
+    [0, 90, 180, 270].forEach(a => {
+      const b = G(sails, { r: a });
+      path(b, 'M0 0V-150', { stroke: COL.dim, 'stroke-width': 5 });
+      mk('rect', { x: 4, y: -150, width: 30, height: 110, rx: 3, fill: 'none', stroke: COL.dim, 'stroke-width': 3 }, b);
+    });
+    mk('circle', { r: 10, fill: COL.dim }, mill);
+    show(mill, .2);
+    prog(q => put(sails, { r: q * 60 }), 0, D, lin);
+    ['s', 'b', 't'].forEach((k, i) => who(p, PPL[k][0], HERO, 170 + i * 160, 560, .4 + i * .15));
+    const ban = who(p, 'Разбойник', FOE, 1150, 600, .5);
+    T(ban, 'с дубинкой', { y: 46 + 66, size: 22, fill: COL.dim, anchor: 'middle' });
+    tw(ban, { x: 1420 }, .5, 1.4, out);
+    who(p, 'Ведущий', GMC, 170, 790, m('gm'), 40);
+    bubble(p, 'Бросайте инициативу', 470, 790, GMC, m('gm', .3), { size: 26, side: 'left' });
+    pill(p, 'бой', ENC, 640, 150, m('enc'), 40);
+    colorLine(p, [['раунд', RULE], [' = 6 секунд', COL.chalk]], 640, 250, m('rnd'), { size: 34 });
+    say(p, 'каждый действует в свою очередь', 640, 310, m('turn'), { size: 28, fill: COL.dim });
+  }],
+  ['init', 'Инициатива', (m) => {
+    const p = panel(0);
+    title(p, 'Инициатива');
+    numDie(p, '?', 140, 186, .4, 40);
+    colorLine(p, [['+ Внимание', HERO], [' = итог', COL.chalk]], 200, 200, .5, { size: 34, anchor: 'start' });
+    say(p, 'итог ни с какой СЛ не сравнивают', 100, 280, .9, { size: 26, fill: COL.dim, anchor: 'start' });
+    // three totals sort themselves: the highest goes first
+    const V = [[14, 0], [9, 1], [18, 2]], px = i => 160 + i * 150;
+    const pills = V.map(([v, i]) => pill(p, String(v), RULE, px(i), 390, m('sort', i * .2), 32));
+    [1, 2, 0].forEach((to, i) => tw(pills[i], { x: px(to) }, m('sort', 1.4), .8));
+    ['1-й', '2-й', '3-й'].forEach((s, i) => say(p, 'ходит ' + s, px(i), 460, m('sort', 2.3) + i * .2, { size: 22, fill: COL.dim }));
+    say(p, 'по убыванию: больший ходит первым', 100, 530, m('sort', 2.9), { size: 26, anchor: 'start' });
+    box(p, 720, 130, 820, 480, COL.faint, m('per', -.3));
+    say(p, 'Какой проверкой', 760, 182, m('per', -.3), { size: 28, fill: RULE, weight: 700, anchor: 'start' });
+    [['обычно', 'Внимание', 'per', 250], ['крался (Незаметное перемещение)', 'Скрытность', 'sneak', 330], ['переговоры сорвались', 'Обман', 'talk', 410]]
+      .forEach(([s, sk, mark, y]) => {
+        say(p, s, 760, y + 9, m(mark), { size: 25, anchor: 'start' });
+        pill(p, sk, HERO, 1430 - (sk.length * 26 * .56 + 44) / 2, y, m(mark, .4), 26);
+      });
+    hr(p, 470, m('any', -.3), 750, 1510);
+    colorLine(p, [['почти всегда можно взять ', COL.chalk], ['Внимание', OK]], 760, 540, m('any'), { size: 28, anchor: 'start' });
+    who(p, 'Ведущий', GMC, 170, 740, m('gm'), 40);
+    say(p, 'бросает за всех, кроме героев', 240, 752, m('gm', .3), { size: 28, anchor: 'start' });
+  }],
+  ['order', 'Порядок инициативы', (m) => {
+    const p = panel(0);
+    title(p, 'Порядок инициативы');
+    ['участник', 'Внимание', 'кубик', 'итог'].forEach((s, i) => say(p, s, [120, 520, 690, 870][i], 150, .3, { size: 22, fill: COL.dim, anchor: i ? 'middle' : 'start' }));
+    hr(p, 170, .3, 100, 940);
+    const R = [['b', 6, 12], ['t', 4, 14], ['r', 4, 10], ['s', 5, 9]], ry = i => 230 + i * 80;
+    const tots = R.map(([k, mod, die], i) => {
+      const [d1, d2, d3] = k === 'b' ? [4.4, 5.9, 7.3] : [1.2, 2.1, 3], t0 = .5 + i * .3, y = ry(i);
+      say(p, PPL[k][0] + (k === 'b' ? ', дварф-воин' : k === 't' ? ', эльф-волшебник' : ''), 120, y, t0, { size: 28, fill: PPL[k][1], weight: 700, anchor: 'start' });
+      say(p, '+' + mod, 520, y, m(k, d1), { size: 30 });
+      numDie(p, die, 690, y - 10, m(k, d2), 30);
+      return say(p, String(mod + die), 870, y, m(k, d3), { size: 34, fill: RULE, weight: 700 });
+    });
+    const brace = (i, colr, lines, t0) => {
+      draw(path(p, `M950 ${ry(i) - 40}H970V${ry(i + 1) + 14}H950`, { stroke: colr, 'stroke-width': 4 }, { d: 0 }), t0, .5);
+      lines.forEach(([s, c], k) => say(p, s, 995, ry(i) + 10 + k * 40, t0 + .3 + k * .5, { size: 26, fill: c, weight: k ? 500 : 700, anchor: 'start' }));
+      pulse(tots[i], t0, 1.3); pulse(tots[i + 1], t0, 1.3);
+    };
+    brace(0, HERO, [['18 = 18, оба героя:', HERO], ['договорились — Бронна первой', COL.chalk]], m('tie1'));
+    brace(2, FOE, [['14 = 14, герой и враг:', FOE], ['враг ходит раньше', COL.chalk]], m('tie2'));
+    say(p, 'очередь', 120, 650, m('row'), { size: 26, fill: COL.dim, anchor: 'start' });
+    ORDER.forEach((k, i) => {
+      who(p, PPL[k][0], PPL[k][1], 400 + i * 270, 640, m('row', .3 + i * .5), 40);
+      if (i) say(p, '→', 265 + i * 270, 652, m('row', .3 + i * .5), { size: 34, fill: COL.dim });
+    });
+    say(p, 'до конца боя · в новом раунде инициативу не перебрасывают', 800, 820, m('keep'), { size: 28, fill: RULE, weight: 600 });
+  }],
+  ['q1', 'Быстрая проверка', () => { panel(0); }, { ask: done => quiz(WIDE, [{
+    id: 'c-init', prompt: ['Итоги: Бронна 18, Тиль 18, разбойник 14, Шиппа 14. В бой вступает волк: Внимание +6.'], build: blanks(Q_INIT),
+  }, {
+    id: 'c-init-tf', prompt: ['Верно или неверно?'], build: grid(Q_INIT_TF, TF, { multi: false, text: true }),
+  }], done) }],
+  ['round', 'Раунд и ход', (m) => {
+    const p = panel(0);
+    title(p, 'Раунд и ход');
+    const cx = 330, cy = 480, R = 200, at = i => [cx + R * Math.sin(i * Math.PI / 2), cy - R * Math.cos(i * Math.PI / 2)];
+    draw(path(p, `M${cx} ${cy - R}A${R} ${R} 0 1 1 ${cx - .1} ${cy - R}`, { stroke: COL.faint, 'stroke-width': 3, 'stroke-dasharray': '10 8' }, { d: 0 }), .2, .8);
+    const hl = put(mk('circle', { r: 46, fill: 'none', stroke: RULE, 'stroke-width': 4 }, p), { x: at(0)[0], y: at(0)[1], o: 0 });
+    ORDER.forEach((k, i) => who(p, PPL[k][0], PPL[k][1], ...at(i), .3 + i * .1, 36));
+    say(p, 'раунд', cx, cy - 6, .5, { size: 32, fill: RULE, weight: 700 });
+    say(p, '6 секунд', cx, cy + 34, .6, { size: 24, fill: COL.dim });
+    show(hl, .8);
+    [1, 2, 3].forEach(i => tw(hl, { x: at(i)[0], y: at(i)[1] }, m('last', -.6 + i * .5), .4));
+    tw(hl, { x: at(0)[0], y: at(0)[1] }, m('next'), .5);
+    say(p, 'и снова по кругу', cx, cy + R + 110, m('next', .3), { size: 22, fill: COL.dim });
+    const row = (name, y, d) => pill(p, name, RULE, 800, y, m('turn', d), 26);
+    row('начало', 200, 1.2); row('действия', 450, 2.2); row('конец', 580, 3.6);
+    say(p, 'эффекты на несколько раундов: −1', 900, 209, m('start'), { size: 26, anchor: 'start' });
+    say(p, 'заклинание на 3 раунда:', 900, 262, m('spell'), { size: 23, fill: COL.dim, anchor: 'start' });
+    [['ход 2: ещё 2', 3], ['ход 3: ещё 1', 4.8], ['ход 4: конец', 6.4]].forEach(([s, d], i) => say(p, s, 900 + i * 210, 312, m('spell', d), { size: 25, fill: i === 2 ? NO : COL.chalk, anchor: 'start' }));
+    say(p, 'затем:', 900, 383, m('get', -.2), { size: 23, fill: COL.dim, anchor: 'start' });
+    glyph(p, 3, 970, 446, m('get'), .6); glyph(p, 'r', 1070, 446, m('get', .9), .6);
+    say(p, '3 действия и 1 ответное', 1120, 458, m('get', .9), { size: 27, anchor: 'start' });
+    say(p, 'кончается то, что «до конца хода»', 900, 575, m('end'), { size: 26, anchor: 'start' });
+    say(p, 'испуг слабеет на 1', 900, 615, m('end', 2.4), { size: 24, fill: COL.dim, anchor: 'start' });
+    hr(p, 680, m('early', -.3), 720, 1520);
+    say(p, 'завершить ход раньше:', 740, 740, m('early'), { size: 26, anchor: 'start' });
+    colorLine(p, [['действия пропадут', NO], [' · ', COL.dim], ['ответное останется', OK]], 740, 790, m('early', 1.5), { size: 28, anchor: 'start' });
+  }],
+  ['actions', 'Три действия и одно ответное', (m) => {
+    const p = panel(0);
+    title(p, 'Три действия и одно ответное');
+    const tc = turnCells(p, 310, 130, m('a3', -.2), { w: 220, h: 150, gap: 20, rgap: 60, rt0: m('r1') });
+    say(p, 'в свой ход · в любом порядке', 800, 345, m('any'), { size: 28 });
+    tc.spend(0, 'Удар', m('any', 1.2)); tc.spend(1, 'Шаг', m('any', 1.8));
+    say(p, 'начатое — закончить, потом браться за следующее', 800, 392, m('any', 2.6), { size: 24, fill: COL.dim });
+    hr(p, 430, m('lost', -.3));
+    tc.lose(2, m('lost', 1.2));
+    say(p, 'копить нельзя: неистраченные действия пропадают в конце хода', 800, 480, m('lost', 1), { size: 26, fill: NO });
+    tc.lose(3, m('rlost', .8));
+    glyph(p, 'r', tc.X(3) + 220 + 60, 190, m('rlost', 3.2), .5, OK);
+    say(p, 'новое', tc.X(3) + 220 + 60, 250, m('rlost', 3.4), { size: 22, fill: OK });
+    say(p, 'ответное — до начала следующего хода, потом приходит новое', 800, 530, m('rlost', 1), { size: 26, fill: COL.dim });
+    who(p, 'Шиппа', HERO, 330, 720, m('talk'), 46);
+    bubble(p, 'Тиль, он идёт к тебе', 720, 680, HERO, m('talk', 2.4), { size: 26, side: 'left' });
+    colorLine(p, [['говорить можно ', COL.chalk], ['без действий', OK]], 1000, 780, m('talk', .3), { size: 30, anchor: 'start' });
+  }],
+  ['react', 'Ответное действие и условие', (m) => {
+    const p = panel(0);
+    title(p, 'Ответное действие и условие');
+    colorLine(p, [['в любой ход, свой или чужой — ', COL.chalk], ['но только по условию', RULE]], 800, 130, .4, { size: 28 });
+    // Bronna and the eight cells around her
+    const zone = G(p, { o: 0 });
+    for (let i = -1; i <= 1; i++) for (let j = -1; j <= 1; j++)
+      mk('rect', { x: 300 + i * 120, y: 410 + j * 120, width: 114, height: 114, rx: 8, fill: i || j ? HERO : 'none', 'fill-opacity': .1, stroke: COL.faint, 'stroke-width': 2, 'stroke-dasharray': '6 5' }, zone);
+    show(zone, .3);
+    const br = who(p, 'Бронна', HERO, 357, 467, .4, 42);
+    const ban = who(p, 'Разбойник', FOE, 477, 467, .6, 42);
+    say(p, 'зона досягаемости', 357, 225, m('cond', .3), { size: 22, fill: HERO });
+    box(p, 760, 200, 790, 400, RULE, m('rs'));
+    glyph(p, 'r', 806, 252, m('rs'), .6);
+    say(p, 'Внеочередная атака', 850, 262, m('rs'), { size: 32, fill: RULE, weight: 700, anchor: 'start' });
+    say(p, 'воин, с 1-го уровня', 1520, 262, m('rs', .6), { size: 22, fill: COL.dim, anchor: 'end' });
+    say(p, 'Условие: существо в зоне досягаемости', 790, 330, m('cond'), { size: 26, weight: 600, anchor: 'start' });
+    [['· действие с манипуляцией или движением', 1.4], ['· атакует издалека', 4.4], ['· уходит из клетки', 5.8]].forEach(([s, d], i) => say(p, s, 810, 380 + i * 44, m('cond', d), { size: 25, anchor: 'start' }));
+    colorLine(p, [['→ ', COL.dim], ['удар вне очереди', HERO]], 790, 560, m('hit'), { size: 28, anchor: 'start' });
+    tw(ban, { x: 660 }, m('hit', -.9), .8);
+    const rg = glyph(br, 'r', 0, -78, m('hit'), .5);
+    arrowTo(p, 400, 467, 610, 467, HERO, m('hit', .3));
+    hr(p, 660, m('once', -.3));
+    colorLine(p, [['1 ответное действие на раунд', RULE], [' · ударив в ход разбойника, Бронна ждёт своего хода', COL.dim]], 800, 720, m('once'), { size: 25 });
+    say(p, 'на одно условие — только одно действие', 800, 800, m('one'), { size: 28 });
+    grow(rg, .5, m('once', 1));
+  }],
+  ['icons', 'Значки действий', (m) => {
+    const p = panel(0);
+    title(p, 'Значки действий');
+    const R = [[1, 'одиночное действие', '1 действие', 'g1'], [2, 'занятие на 2 действия', '2 действия', 'g2'], [3, 'занятие на 3 действия', 'весь ход', 'g3'],
+      ['r', 'ответное действие', 'ответное действие раунда', 'gr'], ['f', 'свободное действие', 'ничего', 'gf']];
+    say(p, 'значок', 170, 128, .3, { size: 22, fill: COL.dim }); say(p, 'цена', 1060, 128, .3, { size: 22, fill: COL.dim, anchor: 'start' });
+    R.forEach(([n, name, cost, mark], i) => {
+      const y = 180 + i * 66;
+      glyph(p, n, n === 'r' ? 164 : 170, y, .4 + i * .15, .55);
+      say(p, name, 290, y + 10, m(mark), { size: 30, anchor: 'start' });
+      say(p, cost, 1060, y + 10, m(mark, .4), { size: 28, fill: RULE, weight: 600, anchor: 'start' });
+    });
+    hr(p, 500, m('act', -.3));
+    say(p, 'занятие = несколько действий подряд', 100, 552, m('act'), { size: 26, anchor: 'start' });
+    const tc = turnCells(p, 100, 590, m('ign', -.2), { w: 160, h: 112, react: false });
+    tc.span(0, 1, 'Поджигание', m('ign', .6), 'Тиль');
+    say(p, 'осталось 1 действие', 100 + 2 * 174 + 80, 750, m('ign', 2.6), { size: 22, fill: OK });
+    colorLine(p, [['начать и закончить — ', COL.chalk], ['в один ход', RULE]], 760, 610, m('one'), { size: 28, anchor: 'start' });
+    say(p, 'не на стыке двух ходов', 760, 654, m('one', .8), { size: 23, fill: COL.dim, anchor: 'start' });
+    colorLine(p, [['сорвали — ', COL.chalk], ['пропали все вложенные действия', NO]], 760, 730, m('dis'), { size: 28, anchor: 'start' });
+    say(p, 'заклинание на 3 действия, сорванное на первом: −3', 760, 776, m('dis', 3), { size: 23, fill: COL.dim, anchor: 'start' });
+  }],
+  ['q2', 'Быстрая проверка', () => { panel(0); }, { ask: done => quiz(WIDE, [{
+    id: 'c-turn', prompt: ['В ход — 3 действия и 1 ответное.'], build: blanks(Q_TURN),
+  }], done) }],
+  ['traits', 'Дескрипторы', (m) => {
+    const p = panel(0);
+    title(p, 'Дескрипторы');
+    say(p, 'пометки под названием действия, на них ссылаются правила', 800, 122, .4, { size: 24, fill: COL.dim });
+    const D = [['атака', 'каждая атака после первой за ход — со штрафом', 'штраф за последовательные атаки (глава 2)', 'att'],
+      ['движение', 'переход из клетки в клетку', 'чаще всего провоцирует ответные действия врагов', 'mov'],
+      ['манипуляция', 'нужны руки или жесты', 'рядом с воином — Внеочередная атака', 'man'],
+      ['концентрация', 'нужна сосредоточенность', 'на неё реагируют некоторые способности', 'con']];
+    const P = D.map(([n, a, b, mark], i) => {
+      const y = 200 + i * 92;
+      const g = pill(p, n, RULE, 210, y, .5 + i * .2, 28);
+      pulse(g, m(mark), 1.15);
+      say(p, a, 360, y + 2, m(mark, .3), { size: 27, anchor: 'start' });
+      say(p, b, 360, y + 36, m(mark, [1.6, 3, 3.2, 2.5][i]), { size: 22, fill: COL.dim, anchor: 'start' });
+      return g;
+    });
+    box(p, 100, 590, 1400, 280, HERO, m('ign', -.3));
+    glyph(p, 2, 170, 640, m('ign', -.3), .55);
+    say(p, 'Поджигание', 230, 652, m('ign', -.3), { size: 32, fill: HERO, weight: 700, anchor: 'start' });
+    say(p, 'заклинание Тиля', 450, 652, m('ign', -.1), { size: 22, fill: COL.dim, anchor: 'start' });
+    const T3 = [['атака', 900], ['концентрация', 1110], ['манипуляция', 1355]];
+    const tp = T3.map(([n, x], i) => pill(p, n, RULE, x, 640, m('ign', [2, 2.7, 3.5][i]), 24));
+    colorLine(p, [['атака', RULE], [' → следующая атака Тиля в этот ход получит штраф', COL.chalk]], 140, 740, m('map'), { size: 27, anchor: 'start' });
+    colorLine(p, [['манипуляция', RULE], [' → рядом с воином врага: Внеочередная атака', COL.chalk]], 140, 810, m('risk'), { size: 27, anchor: 'start' });
+    pulse(tp[0], m('map'), 1.25); pulse(P[0], m('map'), 1.15);
+    pulse(tp[2], m('risk'), 1.25); pulse(P[2], m('risk'), 1.15);
+  }],
+  ['basic', 'Базовые действия', (m) => {
+    const p = panel(0);
+    title(p, 'Базовые действия');
+    // two rows of 5-foot cells: Shippa (Speed 25) and Bronna (Speed 20)
+    const cx = c => 170 + c * 100, rowY = [190, 310];
+    const strip = G(p, { o: 0 });
+    rowY.forEach(y => { for (let c = 0; c < 6; c++) mk('rect', { x: cx(c) - 47, y: y - 47, width: 94, height: 94, rx: 6, fill: 'none', stroke: COL.faint, 'stroke-width': 2, 'stroke-dasharray': '6 5' }, strip); });
+    T(strip, '5 футов', { x: cx(0), y: 128, size: 20, fill: COL.dim, anchor: 'middle' });
+    show(strip, .3);
+    const tok = ['s', 'b'].map((k, i) => {
+      const g = G(p, { x: cx(0), y: rowY[i], o: 0 });
+      mk('circle', { r: 34, fill: COL.board, stroke: HERO, 'stroke-width': 4 }, g);
+      T(g, PPL[k][0][0], { y: 12, size: 34, fill: HERO, weight: 700, anchor: 'middle' });
+      show(g, .4 + i * .1);
+      return g;
+    });
+    glyph(p, 1, 820, 180, m('str'), .45);
+    colorLine(p, [['Перемещение', COL.chalk], [' — до своей Скорости', COL.dim]], 850, 190, m('str'), { size: 28, anchor: 'start' });
+    tw(tok[0], { x: cx(5) }, m('sh', .4), 1.4);
+    colorLine(p, [['Шиппа: 25 футов = ', COL.chalk], ['5 клеток', HERO]], 850, 238, m('sh', .4), { size: 26, anchor: 'start' });
+    tw(tok[1], { x: cx(4) }, m('br', .4), 1.2);
+    colorLine(p, [['Бронна: 20 футов = ', COL.chalk], ['4 клетки', HERO]], 850, 282, m('br', .4), { size: 26, anchor: 'start' });
+    tw(tok[1], { x: cx(5) }, m('st', .5), .5);
+    glyph(p, 1, 820, 340, m('st'), .45);
+    colorLine(p, [['Шаг', COL.chalk], [' — 1 клетка, без ответных действий на движение', COL.dim]], 850, 350, m('st'), { size: 26, anchor: 'start' });
+    say(p, 'от воина врага отходят Шагом', 850, 392, m('st', 4.9), { size: 23, fill: OK, anchor: 'start' });
+    hr(p, 430, m('mv', -.3));
+    // the rest of the basic actions by group
+    // items: glyph, name, note, [mark, offset] (Укрытие, Освобождение, Поиск, Проницательность are on screen only)
+    const C = [['Двигаться', 80, 'mv', [[1, 'Распластывание', 'лечь', ['mv', .4]], [1, 'Вставание', 'встать', ['mv', 1]], [1, 'Ползание', 'лёжа, 5 футов', ['mv', 1.6]], [1, 'Прыжок', 'до 10 футов', ['mv', 2.2]]]],
+      ['Атаковать и защищаться', 600, 'at', [[1, 'Удар', 'атака · глава 9', ['at', .3]], [1, 'Поднятие щита', '+2 к КБ до начала вашего хода', ['sh2', .3]], [1, 'Укрытие', 'за препятствием · глава 10', ['sh2', 3]], [1, 'Освобождение', 'из захвата · атака', ['sh2', 3.5]]]],
+      ['Руки и глаза', 1130, 'hd', [[1, 'Взаимодействие', 'достать оружие, открыть дверь', ['hd', .3]], ['f', 'Отпускание', 'без ответных действий', ['rl', .3]], [1, 'Поиск', 'концентрация · глава 13', ['rl', 4.5]], [1, 'Проницательность', 'концентрация · глава 13', ['rl', 5]]]]];
+    C.forEach(([head, x, mark, items]) => {
+      say(p, head, x, 482, m(mark), { size: 26, fill: RULE, weight: 700, anchor: 'start' });
+      items.forEach(([n, name, note, [mk2, d]], j) => {
+        const y = 540 + j * 86, t0 = m(mk2, d);
+        glyph(p, n, x + 16, y - 9, t0, .4);
+        say(p, name, x + 46, y, t0, { size: 26, weight: 600, anchor: 'start' });
+        say(p, note, x + 46, y + 30, t0 + .2, { size: 20, fill: COL.dim, anchor: 'start' });
+      });
+    });
+  }],
+  ['q3', 'Быстрая проверка', () => { panel(0); }, { ask: done => quiz(WIDE, [{
+    id: 'c-move', prompt: ['Клетка — 5 футов.'], build: blanks(Q_MOVE),
+  }, {
+    id: 'c-trait', prompt: ['Верно или неверно?'], build: grid(Q_TRAIT, TF, { multi: false, text: true }),
+  }], done) }],
+  ['aid', 'Помощь товарищу', (m) => {
+    const p = panel(0);
+    title(p, 'Помощь товарищу');
+    glyph(p, 'r', 600, 52, .2, .55);
+    const steps = [['ваш ход', HERO, 'prep', [['подготовка: 1 действие', COL.chalk], ['объясните ведущему,', COL.dim], ['как помогаете', COL.dim]], 1],
+      ['условие', RULE, 'trig', [['союзник собирается сделать', COL.chalk], ['проверку навыка', COL.chalk], ['или атаки', COL.chalk]], null],
+      ['ответное действие', RULE, 'roll', [['ваша проверка,', COL.chalk], ['её назначит ведущий:', COL.chalk], ['обычно СЛ 15', RULE]], 'r']];
+    steps.forEach(([h, c, mark, lines, g], i) => {
+      const x = 80 + i * 500, t0 = m(mark);
+      box(p, x, 120, 440, 250, c, t0);
+      if (g) glyph(p, g, x + 44, 172, t0, .5);
+      say(p, h, x + (g ? 84 : 32), 182, t0, { size: 28, fill: c, weight: 700, anchor: 'start' });
+      lines.forEach(([s, col], k) => say(p, s, x + 32, 240 + k * 42, t0 + .4 + k * .3, { size: 26, fill: col, anchor: 'start' }));
+      if (i) say(p, '→', x - 30, 255, t0, { size: 40, fill: COL.dim });
+    });
+    // what the Aid check gives the ally
+    const G4 = [['cs', '+2', 'ситуативный бонус'], ['s', '+1', 'ситуативный бонус'], ['f', '0', 'ничего'], ['cf', '−1', 'штраф']];
+    G4.forEach(([k, v, s], i) => {
+      const [, name, colr, op] = DEG.find(d => d[0] === k), x = 120 + i * 350, t0 = m({ cs: 'cs', s: 's', f: 's', cf: 'cf' }[k], k === 'f' ? 1.4 : 0);
+      const r = mk('rect', { x, y: 430, width: 320, height: 170, rx: 14, fill: colr, 'fill-opacity': op, stroke: colr, 'stroke-width': 2.5 }, p);
+      put(r, { o: 0 }); show(r, t0);
+      say(p, name, x + 160, 474, t0, { size: 26, weight: 700 });
+      say(p, v, x + 160, 540, t0 + .2, { size: 48, fill: COL.chalk, weight: 700 });
+      say(p, s, x + 160, 582, t0 + .3, { size: 20, fill: COL.chalk });
+    });
+    colorLine(p, [['Помощь товарищу есть у всех → ', COL.chalk], ['ответное действие найдётся у каждого героя', OK]], 800, 700, m('all'), { size: 28 });
+    say(p, 'даже если класс своего не дал', 800, 750, m('all', 2.4), { size: 24, fill: COL.dim });
+  }],
+  ['ready', 'Подготовка действия', (m) => {
+    const p = panel(0);
+    title(p, 'Подготовка действия');
+    glyph(p, 2, 570, 52, .2, .5);
+    colorLine(p, [['занятие на 2 действия · ', COL.chalk], ['концентрация', RULE]], 100, 140, .4, { size: 28, anchor: 'start' });
+    say(p, 'выберите одиночное или свободное действие и условие', 100, 190, m('pick'), { size: 27, anchor: 'start' });
+    say(p, 'ваш ход на этом заканчивается', 100, 238, m('ends'), { size: 27, fill: COL.dim, anchor: 'start' });
+    colorLine(p, [['условие до начала вашего следующего хода → ', COL.chalk], ['действие как ответное', RULE]], 100, 286, m('fire'), { size: 27, anchor: 'start' });
+    hr(p, 330, m('ex', -.3));
+    // the barn with a door; the bandit waits inside
+    const barn = G(p, { o: 0 });
+    mk('rect', { x: 1260, y: 380, width: 280, height: 290, rx: 8, fill: '#2a2620', stroke: COL.dim, 'stroke-width': 3 }, barn);
+    T(barn, 'амбар', { x: 1400, y: 366, size: 22, fill: COL.dim, weight: 600, anchor: 'middle' });
+    show(barn, m('ex'));
+    const door = put(mk('rect', { x: 1248, y: 450, width: 24, height: 150, rx: 4, fill: COL.dim }, p), { o: 0 });
+    show(door, m('ex'));
+    const ban = who(p, 'Разбойник', FOE, 1400, 520, m('ex', .4), 42);
+    tw(ban, { o: .3 }, m('ex', 1.2), .5);
+    const sh = who(p, 'Шиппа', HERO, 760, 520, m('ex', .6), 42);
+    tw(sh, { x: 900 }, m('s1', .3), .6);
+    bubble(p, 'Если выйдет — бью рапирой', 760, 405, HERO, m('s2', 1.4), { size: 24, side: 'right' });
+    const tc = turnCells(p, 80, 700, m('s1', -.2), { w: 160, h: 112 });
+    tc.spend(0, 'Шаг', m('s1'));
+    tc.span(1, 2, 'Подготовка', m('s2'), 'ход закончен');
+    hide(door, m('out'), .3);
+    tw(ban, { x: 1130, o: 1 }, m('out', .3), .8);
+    tc.spend(3, 'Удар', m('hit'), 'рапира');
+    roll(p, 11, 880, 740, [['11 + 6 = 17 ≥ КБ 16 → ', COL.chalk], ['попадание', OK]], m('hit', 1.6));
+    say(p, 'не выйди он — 2 действия пропали бы', 880, 810, m('lost'), { size: 24, fill: COL.dim, anchor: 'start' });
+  }],
+  ['delay', 'Выжидание', (m) => {
+    const p = panel(0);
+    title(p, 'Выжидание');
+    glyph(p, 'f', 125, 140, .3, .6);
+    colorLine(p, [['свободное действие · условие: ', COL.chalk], ['начинается ваш ход', RULE]], 160, 150, .4, { size: 28, anchor: 'start' });
+    say(p, 'выходите из порядка инициативы', 160, 200, m('out'), { size: 27, anchor: 'start' });
+    say(p, 'возвращаетесь в конце хода любого другого участника', 160, 248, m('back'), { size: 27, anchor: 'start' });
+    say(p, 'новое место — до конца боя', 160, 296, m('keep'), { size: 27, fill: RULE, weight: 600, anchor: 'start' });
+    const rib = ribbon(p, ORDER, 350, 560, 300, .5, 44);
+    rib.cur('b', m('ex'));
+    tw(rib.tok.t, { y: 410 }, m('lift', .2), .6);
+    const out1 = say(p, 'вне очереди', 650, 335, m('lift', .6), { size: 22, fill: COL.dim });
+    tw(rib.hl, { x: 950 }, m('lift', .9), .5);
+    tw(rib.tok.r, { x: 650 }, m('ret', 1.6), .6);
+    tw(rib.hl, { x: 650 }, m('ret', 1.6), .6);
+    tw(rib.tok.t, { x: 950, y: 560 }, m('ret', 2), .8);
+    hide(out1, m('ret', 2));
+    tw(rib.hl, { x: 950 }, m('ret', 2.8), .5);
+    colorLine(p, [['до конца боя: ', RULE], ['Бронна, разбойник, Тиль, Шиппа', COL.chalk]], 800, 720, m('new'), { size: 28 });
+    say(p, 'вне очереди ответных действий нет', 800, 775, m('nor'), { size: 25, fill: COL.dim });
+    say(p, 'не вернулись за целый раунд → действия пропали, место прежнее', 800, 830, m('round'), { size: 25, fill: COL.dim });
+  }],
+  ['q4', 'Быстрая проверка', () => { panel(0); }, { ask: done => quiz(WIDE, [{
+    id: 'c-aid', prompt: ['Помощь товарищу: обычно СЛ 15. Порядок: Бронна, Тиль, разбойник, Шиппа.'], build: blanks(Q_AID),
+  }], done) }],
+  ['rnd1', 'Раунд у мельницы: Бронна и Тиль', (m) => {
+    const p = panel(0);
+    const Y = yardScene(p, { pos: { s: [0, 0], b: [0, 1], t: [0, 2], r: [6, 1] }, foeHp: 18, shHp: 20, foeT0: m('foe') });
+    say(p, 'до разбойника 30 футов = 6 клеток', 520, 238, 1.2, { size: 22, fill: COL.dim });
+    Y.rib.cur('b', m('b'));
+    const tb = turnCells(p, 120, 640, m('b', .3));
+    const [bx, by] = cellXY(0, 1), [ex] = cellXY(5, 1);
+    const dist = G(p, { o: 0 });
+    path(dist, `M${bx + 40} ${by - 40}H${ex}`, { stroke: RULE, 'stroke-width': 3, 'stroke-dasharray': '10 8' });
+    T(dist, '25 футов', { x: (bx + ex) / 2, y: by - 52, size: 22, fill: RULE, weight: 600, anchor: 'middle' });
+    show(dist, m('b', 2)); hide(dist, m('b2', 1));
+    moveTok(Y.tok.b, 4, 1, m('b1', .3), 1.2); tb.spend(0, 'Перемещение', m('b1'), '20 футов');
+    moveTok(Y.tok.b, 5, 1, m('b2', .3), .5); tb.spend(1, 'Перемещение', m('b2'), '5 футов');
+    tb.spend(2, 'Поднятие щита', m('b3'), '+2 к КБ'); shieldOn(Y.tok.b, m('b3', .6));
+    const r1 = G(p);
+    colorLine(r1, [['Бронна: КБ 18 + 2 = ', COL.chalk], ['20', RULE]], RX, rline(0), m('b3', 2), { size: 26, anchor: 'start' });
+    say(r1, 'до начала её следующего хода', RX, rline(1), m('b3', 2.4), { size: 22, fill: COL.dim, anchor: 'start' });
+    hide(tb.g, m('t', -.2)); hide(r1, m('t', -.2));
+    Y.rib.cur('t', m('t'));
+    const tt = turnCells(p, 120, 640, m('t', .3));
+    tt.span(0, 1, 'Поджигание', m('t1'));
+    const [tx, ty] = cellXY(0, 2), [rx, ry] = cellXY(6, 1);
+    draw(path(p, `M${tx + 36} ${ty}Q${(tx + rx) / 2} ${ty + 70} ${rx - 14} ${ry + 32}`, { stroke: RULE, 'stroke-width': 4, 'stroke-dasharray': '12 9' }, { d: 0 }), m('t1', .8), .6);
+    roll(p, 6, RX, rline(0), [['6 + 7 = 13 < КБ 16 → ', COL.chalk], ['промах', NO]], m('t1', 3));
+    tt.spend(2, 'подготовка', m('t3'), 'Помощи');
+    colorLine(p, [['Помощь товарищу: ', HERO], ['ведущий назначает Обман', COL.chalk]], RX, rline(1) + 10, m('t3', 5), { size: 25, anchor: 'start' });
+  }],
+  ['rnd2', 'Раунд у мельницы: разбойник', (m) => {
+    const p = panel(0);
+    const Y = yardScene(p, { pos: { s: [0, 0], b: [5, 1], t: [0, 2], r: [6, 1] }, shield: true, foeHp: 18, shHp: 20, cur: 'r' });
+    const tc = turnCells(p, 120, 640, .5);
+    tc.spend(0, 'Перемещение', m('m1'));
+    moveTok(Y.tok.r, 5.6, .6, m('m1', 2.2), .6);
+    const rg = glyph(Y.tok.b, 'r', 0, -66, m('rs'), .45);
+    colorLine(p, [['Внеочередная атака Бронны', HERO]], RX, rline(0), m('rs'), { size: 26, anchor: 'start' });
+    roll(p, 7, RX, rline(1), [['7 + 9 = 16 ≥ КБ 16 → ', COL.chalk], ['попадание', OK]], m('rsr'));
+    setHp(Y.fhp, 11, m('dmg')); hurt(p, Y.tok.r, '−7', m('dmg'));
+    moveTok(Y.tok.r, 5, 0, m('go', .2), .3); moveTok(Y.tok.r, 1, 0, m('go', .5), 1.4);
+    tc.spend(1, 'Удар', m('a2'), 'дубинка');
+    roll(p, 10, RX, rline(2), [['10 + 7 = 17 < КБ 18 → ', COL.chalk], ['промах', NO]], m('a2', .8));
+    tc.spend(2, 'Удар', m('a3'), 'второй: −5');
+    colorLine(p, [['второй Удар: +7 ', COL.chalk], ['− 5', NO], [' = +2', COL.chalk]], RX, rline(3), m('a3', 1), { size: 26, anchor: 'start' });
+    roll(p, 17, RX, rline(4), [['17 + 2 = 19 ≥ 18 → ', COL.chalk], ['попадание', OK]], m('a3', 3.8));
+    setHp(Y.shp, 16, m('sd')); hurt(p, Y.tok.s, '−4', m('sd'));
+    grow(rg, .45, m('rs', .5));
+  }],
+  ['rnd3', 'Раунд у мельницы: Шиппа', (m) => {
+    const p = panel(0);
+    const Y = yardScene(p, { pos: { s: [0, 0], b: [5, 1], t: [0, 2], r: [1, 0] }, shield: true, foeHp: 11, shHp: 16, cur: 's' });
+    const tc = turnCells(p, 120, 640, .5);
+    tc.spend(0, 'Взаимодействие', m('s1', 2.4), 'рапира в руке');
+    say(p, 'у разбойника нет Внеочередной атаки → безопасно', RX, rline(0), m('s1', 4.5), { size: 23, fill: COL.dim, anchor: 'start' });
+    tc.spend(1, 'Удар', m('s2'), 'рапира');
+    const ag = glyph(Y.tok.t, 'r', 62, -10, m('aid'), .45);
+    roll(p, 13, RX, rline(1), [['Тиль, Помощь: 13 + 3 = 16 ≥ 15 → ', COL.chalk], ['+1', OK]], m('aid', .8), 25);
+    roll(p, 9, RX, rline(2), [['9 + 6 + 1 = 16 ≥ КБ 16 → ', COL.chalk], ['попадание', OK]], m('hit'), 25);
+    say(p, 'без помощи 15 — был бы промах', RX + 38, rline(3) - 6, m('hit', 3.4), { size: 21, fill: COL.dim, anchor: 'start' });
+    setHp(Y.fhp, 6, m('dmg')); hurt(p, Y.tok.r, '−5', m('dmg'));
+    tc.spend(2, 'Гоблинская', m('s3'), 'песня');
+    roll(p, 8, RX, rline(4) - 6, [['8 + 7 = 15 ≥ СЛ Воли 12 → ', COL.chalk], ['успех', OK]], m('s3', 3), 25);
+    say(p, 'на 1 раунд: −1 к Вниманию и Воле', RX + 38, rline(5) - 14, m('s3', 7.6), { size: 21, fill: COL.dim, anchor: 'start' });
+    tw(Y.rib.hl, { o: 0 }, m('end'), .4);
+    say(p, 'раунд 1 окончен', 1290, 222, m('end', .3), { size: 22, fill: COL.dim });
+    Y.rib.cur('b', m('r2'), .6);
+    hide(Y.sh, m('r2', 1.6));
+    grow(ag, .45, m('aid', .2));
+  }],
+  ['end', 'Как бой заканчивается', (m) => {
+    const p = panel(0);
+    title(p, 'Как бой заканчивается');
+    colorLine(p, [['враги побеждены', COL.chalk], [' или ', COL.dim], ['стороны договорились', COL.chalk]], 800, 140, .4, { size: 30 });
+    const ban = who(p, 'Разбойник', FOE, 400, 420, .5, 60);
+    say(p, 'ПЗ 6 из 18', 400, 560, m('drop'), { size: 26, fill: FOE, weight: 600 });
+    const club = G(p, { x: 480, y: 380, r: -30, o: 0 });
+    mk('rect', { x: -10, y: -70, width: 20, height: 90, rx: 9, fill: '#7a5a3a', stroke: COL.dim, 'stroke-width': 2 }, club);
+    show(club, .6);
+    tw(club, { x: 520, y: 500, r: 80 }, m('drop', 4), .6, out);
+    glyph(p, 'f', 560, 620, m('drop', 5), .45);
+    say(p, 'Отпускание', 590, 630, m('drop', 5), { size: 26, anchor: 'start' });
+    bubble(p, 'Сдаюсь, пощадите', 400, 260, FOE, m('beg'), { size: 26 });
+    const rib = G(p);
+    ORDER.forEach((k, i) => who(rib, PPL[k][0], PPL[k][1], 960 + i * 150, 330, .3, 30));
+    draw(path(p, 'M920 320H1450', { stroke: NO, 'stroke-width': 5 }, { d: 0 }), m('over', 2.2), .5);
+    tw(rib, { o: .35 }, m('over', 2.2), .5);
+    say(p, 'порядок инициативы больше не действует', 1185, 450, m('over', 2.2), { size: 26 });
+    pill(p, 'исследование', EXP, 1185, 560, m('exp'), 32);
+    say(p, 'игроки снова говорят, что делают герои', 1185, 630, m('exp', .5), { size: 23, fill: COL.dim });
+    pill(p, 'пункты опыта', RULE, 1185, 740, m('xp'), 30);
+  }],
+  ['wrap', 'Итоги', (m) => {
+    const p = panel(0);
+    numbered(p, [['Инициатива: обычно Внимание, по убыванию; ничья с врагом — враг первым.', 'w1'],
+      ['Раунд — 6 секунд; в свой ход 3 действия и 1 ответное.', 'w2'],
+      ['Значок — цена: ромбы — действия, стрелка — ответное по условию, пустой — свободное.', 'w3'],
+      ['Помощь товарищу и Подготовка — в чужой ход; Выжидание меняет место.', 'w4']], m, 190, 125, 29);
+    colorLine(p, [['На лист: ', RULE], ['обвести Внимание, Скорость в клетках, свои ответные действия', COL.chalk]], 800, 760, m('now'), { size: 29 });
+  }],
+  ['final1', 'Практика главы', () => { panel(0); }, { ask: done => quiz(SCREEN, [{
+    id: 'p-tf', prompt: ['Верно или неверно?'], build: grid(P_TF, TF, { multi: false, text: true }),
+  }], done, 'Практика главы   1 из 3') }],
+  ['final2', 'Практика главы', () => {}, { ask: done => quiz(SCREEN, [{
+    id: 'p-round', prompt: ['Раунд у мельницы. Разбойник: КБ 16, 18 ПЗ, дубинка +7. Шиппа: КБ 18, рапира +6.'], build: blanks(P_ROUND),
+  }], done, 'Практика главы   2 из 3') }],
+  ['final3', 'Практика главы', () => {}, { ask: done => quiz(SCREEN, [{
+    id: 'p-plan', prompt: ['План первого хода: враг в 30 футах, оружие в ножнах. Клетка — 5 футов.'], build: blanks(P_PLAN),
+  }], done, 'Практика главы   3 из 3') }],
+  ['finish', 'Готово', () => {}, { ask: finishCard }],
+].map(([id, title, run, extra]) => ({ id, title, run, ...extra }));
+
+/* ---------- question data ---------- */
+const Q_INIT = [
+  { parts: ['На кубике у волка 12. Итог: ', { box: '18' }], why: '12 + 6 = 18.', hint: 'Кубик плюс Внимание.' },
+  { parts: ['Место волка в очереди: ', { box: '1' }], why: 'Ничья с героями — враг ходит раньше. Волк первый, перед Бронной и Тилем.', hint: 'При ничьей героя с врагом первым ходит враг.' },
+];
+const Q_INIT_TF = [
+  { parts: ['Итог инициативы сравнивают со СЛ.'], ans: ['f'], why: 'Итоги только выстраивают по убыванию.' },
+  { parts: ['В каждом новом раунде инициативу бросают заново.'], ans: ['f'], why: 'Порядок сохраняется до конца боя.' },
+  { parts: ['Если ведущий просит Скрытность, почти всегда можно бросить Внимание.'], ans: ['t'], why: 'Внимание почти всегда можно бросить вместо назначенной проверки.' },
+];
+const Q_TURN = [
+  { parts: ['Тиль сотворил Поджигание (◆◆). Действий у него осталось: ', { box: '1' }], why: '3 − 2 = 1.', hint: 'Два ромба — два действия из трёх.' },
+  { parts: ['Заклинание ◆◆◆ сорвали на первом действии. Пропало действий: ', { box: '3' }], why: 'Сорванное занятие забирает все вложенные действия.', hint: 'Пропадают все действия занятия.' },
+  { parts: ['Заклинание на 3 раунда. В начале вашего третьего хода оно продержится ещё раундов: ', { box: '1' }], why: 'Ход 2 — ещё 2, ход 3 — ещё 1, ход 4 — конец.', hint: 'В начале каждого хода −1.' },
+  { parts: ['Бронна ударила Внеочередной атакой в ход разбойника. Ответных действий у неё до её хода: ', { box: '0' }], why: 'Ответное действие одно на раунд, новое придёт в начале её хода.', hint: 'Сколько ответных действий за раунд?' },
+];
+const Q_MOVE = [
+  { parts: ['Шиппа (Скорость 25) за одно Перемещение проходит клеток: ', { box: '5' }], why: '25 : 5 = 5.', hint: 'Клетка — 5 футов.' },
+  { parts: ['Бронна (Скорость 20) делает два Перемещения. Футов: ', { box: '40' }], why: '20 + 20 = 40.', hint: 'Каждое Перемещение — до Скорости.' },
+  { parts: ['Враг в 50 футах. Шиппе нужно Перемещений: ', { box: '2' }], why: '25 + 25 = 50: два Перемещения.', hint: 'Одно Перемещение — 25 футов.' },
+];
+const Q_TRAIT = [
+  { parts: ['Шаг провоцирует ответные действия на движение.'], ans: ['f'], why: 'Поэтому от воина отходят Шагом.' },
+  { parts: ['Действие с манипуляцией рядом с воином врага может спровоцировать Внеочередную атаку.'], ans: ['t'], why: 'Манипуляция — одно из условий Внеочередной атаки.' },
+  { parts: ['Отпускание провоцирует ответные действия.'], ans: ['f'], why: 'Это свободное действие, ответных оно не провоцирует.' },
+];
+const Q_AID = [
+  { parts: ['Тиль помогает Шиппе: Обман +3, на кубике 17. Итог: ', { box: '20' }], why: '17 + 3 = 20.', hint: 'Кубик плюс Обман.' },
+  { parts: ['Бонус Шиппе: +', { box: '1' }], why: '20 ≥ 15, но меньше 25: успех, +1.', hint: 'Критический успех — от СЛ + 10.' },
+  { parts: ['Шиппа делает Шаг и Подготовку действия. Действий в этом ходу осталось: ', { box: '0' }], why: '1 + 2 = 3, и ход заканчивается.', hint: 'Подготовка — два действия.' },
+  { parts: ['Шиппа Выжидает и возвращается после хода Бронны. Её место в очереди: ', { box: '2' }], why: 'Бронна, Шиппа, Тиль, разбойник.', hint: 'Она встаёт сразу за Бронной.' },
+];
+const P_TF = [
+  { parts: ['При ничьей героя и врага первым ходит герой.'], ans: ['f'], why: 'Первым ходит враг.' },
+  { parts: ['Порядок инициативы сохраняется до конца боя.'], ans: ['t'], why: 'В новом раунде инициативу не перебрасывают.' },
+  { parts: ['Неистраченные действия переходят на следующий ход.'], ans: ['f'], why: 'Они пропадают в конце хода.' },
+  { parts: ['Ответное действие можно совершить в чужой ход, если выполнено его условие.'], ans: ['t'], why: 'Так Бронна ударила в ход разбойника.' },
+  { parts: ['Занятие на 2 действия можно начать в конце одного хода и закончить в следующем.'], ans: ['f'], why: 'Занятие начинают и заканчивают в один ход.' },
+  { parts: ['Свободное действие ничего не стоит.'], ans: ['t'], why: 'Оно не тратит ни действий, ни ответного действия.' },
+  { parts: ['Поднятый щит держится до конца боя.'], ans: ['f'], why: 'До начала вашего следующего хода.' },
+  { parts: ['Пока герой Выжидает вне очереди, у него нет ответных действий.'], ans: ['t'], why: 'Ответные действия возвращаются вместе с ним в очередь.' },
+];
+const P_ROUND = [
+  { parts: ['Внеочередная атака Бронны нанесла 7 урона. ПЗ разбойника: ', { box: '11' }], why: '18 − 7 = 11.', hint: 'Вычтите урон из 18.' },
+  { parts: ['Второй Удар разбойника за ход идёт со штрафом −5. Модификатор: +', { box: '2' }], why: '7 − 5 = 2.', hint: 'Дубинка +7.' },
+  { parts: ['На кубике 17. Итог второго Удара: ', { box: '19' }], why: '17 + 2 = 19 ≥ 18: попадание.', hint: 'Кубик плюс модификатор со штрафом.' },
+  { parts: ['Тиль помог (+1), у Шиппы на кубике 9. Итог её атаки: ', { box: '16' }], why: '9 + 6 + 1 = 16 ≥ 16: попадание.', hint: 'Рапира +6 и бонус Помощи.' },
+  { parts: ['Бронна (КБ 18) подняла щит. Её КБ: ', { box: '20' }], why: '18 + 2 = 20.', hint: 'Поднятие щита: +2.' },
+];
+const P_PLAN = [
+  { parts: ['Чтобы встать в клетку рядом с врагом, нужно пройти футов: ', { box: '25' }], why: '30 − 5 = 25: соседняя клетка ближе на 5 футов.', hint: 'Клетка рядом с врагом ближе на одну клетку.' },
+  { parts: ['Шиппе (Скорость 25) на это нужно Перемещений: ', { box: '1' }], why: '25 футов — одно Перемещение.', hint: 'Скорость 25.' },
+  { parts: ['Потом она выхватывает рапиру. На Удар остаётся действий: ', { box: '1' }], why: 'Перемещение + Взаимодействие + Удар = 3.', hint: 'Всего 3 действия.' },
+  { parts: ['Бронне (Скорость 20) нужно Перемещений: ', { box: '2' }], why: '20 < 25, нужно второе Перемещение.', hint: 'Одно Перемещение — 20 футов.' },
+  { parts: ['Порядок: Бронна, Тиль, разбойник, Шиппа. Тиль Выжидает и возвращается после хода разбойника. Его место: ', { box: '3' }], why: 'Бронна, разбойник, Тиль, Шиппа.', hint: 'Тиль встаёт сразу за разбойником.' },
+];
+boot();
+</script>
+</body>
+</html>

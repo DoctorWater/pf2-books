@@ -19,10 +19,11 @@ function who(p, label, color, x, y, t0, r = 46) {
   show(g, t0);
   return g;
 }
-// PF2e action glyphs: n diamonds, or 'r' for a reaction.
+// PF2e action glyphs: n diamonds, 'r' for a reaction, 'f' for a free action (hollow diamond, ch08).
 function actGlyph(p, n, x, y, color, t0) {
   const g = G(p, { x, y, o: 0 });
-  if (n === 'r') {
+  if (n === 'f') mk('path', { d: 'M0 -22l22 22l-22 22l-22 -22z', fill: 'none', stroke: color, 'stroke-width': 5, 'stroke-linejoin': 'round' }, g);
+  else if (n === 'r') {
     path(g, 'M-6 22A24 24 0 1 1 20 8', { stroke: color, 'stroke-width': 7 });
     mk('path', { d: 'M8 -2L24 12L30 -8Z', fill: color }, g);
   } else for (let i = 0; i < n; i++) mk('path', { d: `M${i * 36 - (n - 1) * 18} -24l24 24l-24 24l-24 -24z`, fill: color }, g);
