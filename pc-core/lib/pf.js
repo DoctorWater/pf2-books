@@ -261,3 +261,54 @@ function numDie(p, n, x, y, t0, size = 50, color = RULE) {
   T(d, String(n), { y: size * .22, size: size * .62, fill: color, weight: 700, anchor: 'middle' });
   return d;
 }
+
+// Turn and initiative helpers (ch08, shared since ch09).
+// An action glyph scaled by s; a pulse of a scaled element.
+const glyph = (p, n, x, y, t0, s = .6, colr = RULE) => put(actGlyph(p, n, x, y, colr, t0), { s });
+const grow = (e, s0, t0) => { tw(e, { s: s0 * 1.35 }, t0, .2, out); tw(e, { s: s0 }, t0 + .2, .35); };
+// One turn: three action cells and (optionally) the reaction cell, left x, top y, all inside one group (.g).
+// spend(i, label, t0, sub) fills cell i (3 = the reaction); span(i, j, …) fills cells i..j as one activity; lose(i, t0) crosses cell i.
+function turnCells(p, x, y, t0, { w = 170, h = 112, gap = 14, rgap = 40, react = true, rt0 = t0 } = {}) {
+  const root = G(p), X = i => x + i * (w + gap) + (i === 3 ? rgap - gap : 0), gs = h / 190, ly = y + h * .7;
+  const cells = [0, 1, 2, 3].slice(0, react ? 4 : 3).map(i => {
+    const g = G(root, { o: 0 });
+    mk('rect', { x: X(i), y, width: w, height: h, rx: 14, fill: '#22322d', stroke: RULE, 'stroke-width': 2.5, ...(i === 3 ? { 'stroke-dasharray': '9 6' } : {}) }, g);
+    const f = put(mk('rect', { x: X(i), y, width: w, height: h, rx: 14, fill: RULE, 'fill-opacity': .28 }, g), { o: 0 });
+    const gl = glyph(g, i < 3 ? 1 : 'r', X(i) + w / 2 - (i < 3 ? 0 : 6 * gs), y + h * .32, 0, gs);
+    const lab = T(g, '', { x: X(i) + w / 2, y: ly, size: Math.round(h / 5.6), weight: 600, anchor: 'middle', o: 0 });
+    const sub = T(g, '', { x: X(i) + w / 2, y: ly + h / 4.6, size: Math.round(h / 6.4), fill: COL.dim, anchor: 'middle', o: 0 });
+    show(g, i === 3 ? rt0 : t0);
+    return { g, f, gl, lab, sub };
+  });
+  const fill = (i, t1) => { show(cells[i].f, t1, .3); grow(cells[i].gl, gs, t1); };
+  return {
+    g: root, X, w, cells,
+    spend(i, label, t1, sub = '') {
+      const c = cells[i];
+      c.lab.textContent = label; c.sub.textContent = sub;
+      fill(i, t1); show(c.lab, t1 + .1, .3); show(c.sub, t1 + .2, .3);
+    },
+    span(i, j, label, t1, sub = '') {   // one block over cells i..j and the gaps between them
+      const b = G(root, { o: 0 }), bw = X(j) + w - X(i);
+      mk('rect', { x: X(i), y, width: bw, height: h, rx: 14, fill: '#22322d' }, b);
+      mk('rect', { x: X(i), y, width: bw, height: h, rx: 14, fill: RULE, 'fill-opacity': .28, stroke: RULE, 'stroke-width': 2.5 }, b);
+      glyph(b, j - i + 1, X(i) + bw / 2, y + h * .32, 0, gs);
+      show(b, t1, .3);
+      say(root, label, (X(i) + X(j) + w) / 2, ly, t1 + .1, { size: Math.round(h / 5.6), weight: 600 });
+      if (sub) say(root, sub, (X(i) + X(j) + w) / 2, ly + h / 4.6, t1 + .2, { size: Math.round(h / 6.4), fill: COL.dim });
+    },
+    lose(i, t1) {
+      const a = X(i) + 22, b = X(i) + w - 22;
+      draw(path(cells[i].g, `M${a} ${y + 18}L${b} ${y + h - 18}M${b} ${y + 18}L${a} ${y + h - 18}`, { stroke: NO, 'stroke-width': 5 }, { d: 0 }), t1, .4);
+      tw(cells[i].gl, { o: .3 }, t1, .3);
+    },
+  };
+}
+// The initiative order as a row of rings (step dx); keys index ppl {key: [name, colour]} (the chapter's PPL by default);
+// cur(k, t0) moves the amber highlight to participant k.
+function ribbon(p, keys, x0, y, dx, t0, r = 30, ppl = PPL) {
+  const pos = {}, tok = {};
+  const hl = put(mk('circle', { r: r + 9, fill: 'none', stroke: RULE, 'stroke-width': 4 }, p), { x: x0, y, o: 0 });
+  keys.forEach((k, i) => { pos[k] = x0 + i * dx; tok[k] = who(p, ppl[k][0], ppl[k][1], pos[k], y, t0 + i * .12, r); });
+  return { tok, pos, hl, cur: (k, t1, dur = .4) => tw(hl, { x: pos[k], o: 1 }, t1, dur) };
+}
