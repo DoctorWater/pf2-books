@@ -193,10 +193,10 @@ svg.m { display: inline-block; overflow: visible; }
 .card.screen { height: 900px; padding: 50px 70px; border: 0; border-radius: 0; background: transparent; box-shadow: none; animation: screen-in .5s ease-out; max-height: none; overflow: visible; }
 .screen .kicker { font-size: 22px; }
 .screen .prompt { font-size: 40px; font-weight: 600; }
-.screen .body { margin-top: 30px; }
+.screen .body { margin-top: 20px; }
 /* Revealed explanations can outgrow the screen: the rows scroll above the pinned feedback and buttons. */
 .card.screen.quiz:not(.sort) { display: flex; flex-direction: column; }
-.screen.quiz:not(.sort) .body { flex: 1 1 auto; min-height: 0; margin-bottom: 110px; overflow-y: auto; scrollbar-width: thin; scrollbar-color: var(--edge) transparent; }
+.screen.quiz:not(.sort) .body { flex: 1 1 auto; min-height: 0; margin-bottom: 80px; overflow-y: auto; scrollbar-width: thin; scrollbar-color: var(--edge) transparent; }
 .screen .fb { position: absolute; left: 70px; bottom: 56px; max-width: 1080px; margin: 0; font-size: 24px; }
 .screen .acts { position: absolute; right: 70px; bottom: 48px; }
 .screen .grid .row { grid-template-columns: 200px minmax(0, 1fr) 40px; padding: 9px 0 9px 12px; }
