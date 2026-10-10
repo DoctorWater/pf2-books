@@ -1,0 +1,708 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Движение и позиция на поле — Первый герой</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%231d2b27'/%3E%3Ctext x='32' y='45' text-anchor='middle' font-size='48' fill='%23f0b45a'%3E∞%3C/text%3E%3C/svg%3E">
+<link rel="stylesheet" href="../lib/engine.css">
+<link rel="expect" href="#bar" blocking="render"><!-- hold the first frame until the player exists, so the page transition can run -->
+</head>
+<body>
+<script src="../lib/engine.js"></script>
+<script src="../lib/pf.js"></script>
+<script src="audio/ru/timings.js"></script>
+<script>
+'use strict';
+const CHAPTER = { number: 10, title: 'Движение и позиция на поле', minutes: 13, language: 'ru', next: '../ch11/' };
+
+/* ---------- chapter drawing helpers (shared ones: lib/pf.js) ---------- */
+// Heroes HERO, bandit and mercenary FOE, costs and rules RULE, difficult terrain TERR, safe OK, risky / penalties NO.
+const TERR = COL.real;
+const hr = (p, y, t0, x1 = 80, x2 = 1520) => draw(path(p, `M${x1} ${y}H${x2}`, { stroke: COL.faint, 'stroke-width': 2 }, { d: 0 }), t0, .5);
+const box = (p, x, y, w, h, colr, t0) => { const r = mk('rect', { x, y, width: w, height: h, rx: 18, fill: '#22322d', stroke: colr, 'stroke-width': 2.5 }, p); put(r, { o: 0 }); show(r, t0); return r; };
+const title = (p, s, t0 = .2) => say(p, s, 800, 62, t0, { size: 36, weight: 600 });
+const L = (p, parts, x, y, t0, size = 26) => colorLine(p, parts, x, y, t0, { size, anchor: 'start' });   // left-aligned coloured line
+const XR = 880;   // left edge of the right-hand column beside the board
+// A d20 with its roll and a coloured sum after it, left-aligned at x (as in ch09).
+function roll(p, n, x, y, parts, t0, size = 26) {
+  numDie(p, n, x, y - 9, t0, 22);
+  colorLine(p, parts, x + 38, y, t0 + .3, { size, anchor: 'start' });
+}
+// A ring with a letter, no name under it (as in ch09).
+function tok(p, letter, colr, x, y, t0, r = 34) {
+  const g = G(p, { x, y, o: 0 });
+  mk('circle', { r, fill: COL.board, stroke: colr, 'stroke-width': 4 }, g);
+  T(g, letter, { y: r * .36, size: r, fill: colr, weight: 700, anchor: 'middle' });
+  if (t0 != null) show(g, t0);
+  return g;
+}
+// A few strokes of a bush around (0,0), scale k.
+const bushMark = (g, k = 1) => path(g, `M${-30 * k} ${8 * k}q${10 * k} ${-20 * k} ${20 * k} 0q${10 * k} ${-20 * k} ${20 * k} 0q${10 * k} ${-20 * k} ${20 * k} 0`, { stroke: TERR, 'stroke-width': 3 });
+
+/* ---------- the board: columns a–g, rows 1–5, north up; one cell = 5 feet ---------- */
+const BX = 70, BY = 150, C = 104, COLS = 'abcdefg';
+const cx = c => BX + (COLS.indexOf(c[0]) + .5) * C, cy = c => BY + (+c[1] - .5) * C;
+const at = c => ({ x: cx(c), y: cy(c) });
+const HOME = { Ш: ['a3', HERO], Б: ['b4', HERO], Р: ['e3', FOE] };              // before the fight
+const R2 = { Ш: ['e2', HERO], Б: ['e4', HERO], Р: ['e3', FOE] };                // round 2: the bandit is flanked
+const R2M = { ...R2, Н: ['f1', FOE] };                                          // … and the mercenary has come
+const MERC_REACH = ['e1', 'e2', 'f2', 'g1', 'g2'];
+// Draw the board at t0 with tokens at pos {letter: [cell, colour]}. Returns {tk, lay (routes under the tokens), wag, bush}.
+function field(p, t0, pos) {
+  const g = G(p, { o: 0 });
+  for (let i = 0; i < 7; i++) for (let j = 0; j < 5; j++)
+    mk('rect', { x: BX + i * C + 3, y: BY + j * C + 3, width: C - 6, height: C - 6, rx: 8, fill: 'none', stroke: COL.faint, 'stroke-width': 2, 'stroke-dasharray': '6 5' }, g);
+  [...COLS].forEach((s, i) => T(g, s, { x: BX + (i + .5) * C, y: BY - 14, size: 22, fill: COL.dim, weight: 600, anchor: 'middle' }));
+  for (let j = 1; j <= 5; j++) T(g, String(j), { x: BX - 22, y: BY + (j - .5) * C + 8, size: 22, fill: COL.dim, weight: 600, anchor: 'middle' });
+  const bush = ['c4', 'd4'].map(c => {
+    const b = G(g, at(c));
+    mk('rect', { x: -C / 2 + 4, y: -C / 2 + 4, width: C - 8, height: C - 8, rx: 8, fill: TERR, 'fill-opacity': .14, stroke: TERR, 'stroke-width': 2 }, b);
+    [[-14, -18], [14, 6], [-10, 28]].forEach(([x, y]) => { const q = G(b, { x, y }); bushMark(q, .7); });
+    return b;
+  });
+  const wag = G(g, { x: cx('c2'), y: (cy('c2') + cy('c3')) / 2 });
+  mk('rect', { x: -C / 2 + 8, y: -C + 8, width: C - 16, height: 2 * C - 16, rx: 12, fill: mix(COL.board, COL.dim, .3), stroke: COL.dim, 'stroke-width': 3 }, wag);
+  const wl = G(wag, { r: -90 });
+  T(wl, 'повозка', { y: 8, size: 24, fill: COL.chalk, weight: 600, anchor: 'middle' });
+  show(g, t0);
+  const lay = G(p);
+  const tk = {};
+  Object.entries(pos).forEach(([k, [c, colr]], i) => { tk[k] = tok(p, k, colr, cx(c), cy(c), t0 + .2 + i * .1); });
+  return { g, tk, lay, wag, bush };
+}
+// A translucent cell highlight.
+function hlCell(p, c, colr, t0, op = .2) {
+  const r = mk('rect', { x: cx(c) - C / 2 + 4, y: cy(c) - C / 2 + 4, width: C - 8, height: C - 8, rx: 8, fill: colr, 'fill-opacity': op, stroke: colr, 'stroke-width': 2 }, p);
+  put(r, { o: 0 }); show(r, t0, .3);
+  return r;
+}
+// One leg of a route between cell centres, drawn on at t0 (dashed if asked); d shifts the line for a second route.
+function leg(p, a, b, colr, t0, { dash = false, d = 0, w = 5 } = {}) {
+  const e = path(p, `M${cx(a) + d} ${cy(a) + d}L${cx(b) + d} ${cy(b) + d}`, { stroke: colr, 'stroke-width': w, ...(dash ? { 'stroke-dasharray': '12 9' } : {}) });
+  put(e, { o: 0 }); show(e, t0, .35);
+  return e;
+}
+// A small cost label in a cell (upper right), parts [[text, colour], …].
+function tag(p, c, parts, t0, size = 22, dx = 22, dy = -26) {
+  const str = parts.map(q => q[0]).join(''), w = uiW(str, size) + 22, h = size + 14;
+  const g = G(p, { x: cx(c) + dx, y: cy(c) + dy, o: 0, s: .6 });
+  mk('rect', { x: -w / 2, y: -h / 2, width: w, height: h, rx: h / 2, fill: COL.board, stroke: COL.faint, 'stroke-width': 1.5 }, g);
+  const t = T(g, '', { y: size * .36, size, weight: 700, anchor: 'middle' });
+  parts.forEach(([s, c2 = RULE]) => { mk('tspan', { fill: c2 }, t).textContent = s; });
+  pop(g, t0);
+  return g;
+}
+// Move a token through cells, one step every dt seconds from t0.
+function walk(e, cells, t0, dt = .45) { cells.forEach((c, i) => tw(e, at(c), t0 + i * dt, dt * .9)); }
+// A legend row: small token, text.
+function key(p, letter, colr, text, x, y, t0) {
+  tok(p, letter, colr, x, y - 9, t0, 22);
+  return say(p, text, x + 38, y, t0, { size: 25, anchor: 'start' });
+}
+// A grid of n × m small dashed cells (size s) with its top left at (x, y); returns the cell centre function.
+function miniGrid(p, x, y, n, m, s, t0) {
+  const g = G(p, { o: 0 });
+  for (let i = 0; i < n; i++) for (let j = 0; j < m; j++)
+    mk('rect', { x: x + i * s + 2, y: y + j * s + 2, width: s - 4, height: s - 4, rx: 5, fill: 'none', stroke: COL.faint, 'stroke-width': 2, 'stroke-dasharray': '5 4' }, g);
+  show(g, t0);
+  return (i, j) => [x + (i + .5) * s, y + (j + .5) * s];
+}
+// A filled mini cell.
+function miniCell(p, [x, y], s, colr, t0, op = .2) {
+  const r = mk('rect', { x: x - s / 2 + 2, y: y - s / 2 + 2, width: s - 4, height: s - 4, rx: 5, fill: colr, 'fill-opacity': op, stroke: colr, 'stroke-width': 2 }, p);
+  put(r, { o: 0 }); show(r, t0, .3);
+  return r;
+}
+// Twenty faces as a thin strip from x (face width 25): hits from `need` filled with colr.
+function strip(p, x, y, need, colr, t0) {
+  const g = G(p, { o: 0 });
+  for (let f = 1; f <= 20; f++) mk('rect', { x: x + (f - 1) * 25, y, width: 22, height: 22, rx: 3, fill: f >= need ? colr : COL.faint, 'fill-opacity': f >= need ? .7 : .3 }, g);
+  show(g, t0);
+  return g;
+}
+// The flank line on the board: centre of e2 to centre of e4, under the tokens.
+const flankLine = (F, t0) => { const e = path(F.lay, `M${cx('e2')} ${cy('e2')}L${cx('e4')} ${cy('e4')}`, { stroke: RULE, 'stroke-width': 4, 'stroke-dasharray': '12 9' }); put(e, { o: 0 }); show(e, t0); return e; };
+
+/* ---------- beats: [id, title, run(m, D), { ask }?] ---------- */
+const BEATS = [
+  ['intro', 'Движение и позиция на поле', (m, D) => {
+    const g = G(scene, { o: 0, y: 24 });
+    T(g, 'Раздел 4 «Бой» · Глава 10', { x: 800, y: 330, size: 28, fill: COL.dim, anchor: 'middle' });
+    T(g, 'Движение и позиция на поле', { x: 800, y: 440, size: 70, weight: 600, anchor: 'middle' });
+    tw(g, { o: 1, y: 0 }, .2, 1.1, out);
+    const r = say(scene, 'клетки, досягаемость, тиски и укрытие', 800, 560, m('sub'), { size: 34, fill: COL.dim });
+    tw(g, { o: 0, y: -24 }, D - .9, .8); hide(r, D - .9, .8);
+  }],
+  ['table', 'Поле в клетках', (m) => {
+    const p = panel(0);
+    title(p, 'Поле в клетках');
+    const F = field(p, .3, HOME);
+    bubble(p, 'Раз, два, три, четыре, пять — стою рядом', 1200, 200, HERO, m('say'), { size: 24 });
+    // the player's count: two diagonals, then straight; the fifth cell is one too many
+    const P = ['b2', 'c1', 'd1', 'e1', 'e2'], cnt = [3.4, 3.9, 4.6, 5.0, 5.6], ghost = G(p), gl = G(F.lay);
+    P.forEach((c, i) => {
+      leg(gl, i ? P[i - 1] : 'a3', c, HERO, cnt[i] - .2, { dash: true, w: 4 });
+      tag(ghost, c, [[String(i + 1), HERO]], cnt[i]);
+    });
+    bubble(p, 'Вторая диагональ стоит 10 футов', 1200, 320, GMC, m('gm'), { size: 24 });
+    tag(ghost, 'c1', [['10', NO]], m('gm', 4.7), 22, 22, 26);
+    yesNo(ghost, false, cx('e2'), cy('e2'), m('gm', 6.5), 1.6);
+    hide(ghost, m('map', -.3), .5); hide(gl, m('map', -.3), .5);
+    say(p, 'столбцы a–g · строки 1–5 · север сверху', 1200, 430, m('map', 1.6), { size: 24, fill: COL.dim });
+    key(p, 'Ш', HERO, 'Шиппа · a3', XR + 30, 520, m('heroes'));
+    key(p, 'Б', HERO, 'Бронна · b4', XR + 30, 580, m('heroes', .6));
+    key(p, 'Р', FOE, 'разбойник · e3 · КБ 16', XR + 30, 640, m('foe'));
+    grow(F.tk.Ш, 1, m('heroes')); grow(F.tk.Б, 1, m('heroes', .6)); grow(F.tk.Р, 1, m('foe'));
+    L(p, [['повозка', COL.chalk], [' · c2, c3', COL.dim]], XR + 8, 710, m('wagon'), 25);
+    L(p, [['кусты', TERR], [' · c4, d4', COL.dim]], XR + 8, 770, m('bush'), 25);
+    grow(F.wag, 1, m('wagon')); F.bush.forEach(b => grow(b, 1, m('bush')));
+  }],
+  ['speed', 'Клетки и Скорость', (m) => {
+    const p = panel(0);
+    title(p, 'Клетки и Скорость');
+    const F = field(p, .3, HOME);
+    hlCell(p, 'g1', RULE, .6, .25);
+    say(p, '5 фт', cx('g1'), cy('g1') + 9, .7, { size: 24, fill: RULE, weight: 700 });
+    L(p, [['1 клетка = ', COL.chalk], ['5 футов', RULE]], XR, 200, .6, 30);
+    L(p, [['Скорость', HERO], [' ÷ 5 = клеток за одно Перемещение', COL.chalk]], XR, 280, m('spd'), 27);
+    const count = (who, cells, t0) => cells.forEach((c, i) => {
+      leg(F.lay, i ? cells[i - 1] : who, c, HERO, t0 + i * .35, { dash: true, w: 4 });
+      tag(p, c, [[String(i + 1), HERO]], t0 + i * .35 + .2);
+    });
+    count('a3', ['a4', 'a5', 'b5', 'c5', 'd5'], m('ship', .4));
+    L(p, [['Шиппа: ', HERO], ['25 ÷ 5 = 5 клеток', COL.chalk]], XR, 400, m('ship'), 28);
+    count('b4', ['b3', 'b2', 'b1', 'c1'], m('bron', .4));
+    L(p, [['Бронна: ', HERO], ['20 ÷ 5 = 4 клетки', COL.chalk]], XR, 480, m('bron'), 28);
+  }],
+  ['diag', 'Диагонали', (m) => {
+    const p = panel(0);
+    title(p, 'Диагонали: 5, 10, 5, 10');
+    const F = field(p, .3, HOME);
+    L(p, [['по прямой: каждая клетка ', COL.chalk], ['5', RULE]], XR, 190, .5, 27);
+    // a staircase of four diagonal cells on the right
+    const s = 84, x0 = 960, y0 = 700, cc = k => [x0 + k * s + s / 2, y0 - k * s + s / 2];
+    const stairs = G(p, { o: 0 }), under = G(p);
+    for (let k = 0; k <= 4; k++) mk('rect', { x: x0 + k * s + 2, y: y0 - k * s + 2, width: s - 4, height: s - 4, rx: 6, fill: 'none', stroke: COL.faint, 'stroke-width': 2, 'stroke-dasharray': '6 5' }, stairs);
+    show(stairs, m('d1', -.4));
+    tok(p, 'Ш', HERO, ...cc(0), m('d1', -.4), 28);
+    const top = G(p);
+    [['5', 'd1'], ['10', 'd2'], ['5', 'd3'], ['10', 'd4']].forEach(([v, mk_], i) => {
+      const [x, y] = cc(i + 1), [a, b] = cc(i);
+      const e = path(under, `M${a} ${b}L${x} ${y}`, { stroke: HERO, 'stroke-width': 4, 'stroke-dasharray': '10 8' }); put(e, { o: 0 }); show(e, m(mk_, .1), .3);
+      const r = mk('rect', { x: x - s / 2 + 2, y: y - s / 2 + 2, width: s - 4, height: s - 4, rx: 6, fill: RULE, 'fill-opacity': v === '10' ? .32 : .12 }, under);
+      put(r, { o: 0 }); show(r, m(mk_), .3);
+      say(top, v, x, y + 12, m(mk_), { size: 34, fill: RULE, weight: 700 });
+    });
+    L(p, [['5 + 10 + 5 + 10 = ', COL.chalk], ['30 футов', RULE]], XR, 300, m('sum'), 30);
+    // across the whole turn: one diagonal in the first Stride, the next one already costs 10
+    leg(F.lay, 'a3', 'b2', HERO, m('turn', 4), { dash: true, w: 4 }); walk(F.tk.Ш, ['b2'], m('turn', 4));
+    tag(p, 'b2', [['5', RULE]], m('turn', 4.3));
+    leg(F.lay, 'b2', 'c1', HERO, m('next', .3), { dash: true, w: 4 }); walk(F.tk.Ш, ['c1'], m('next', .3));
+    tag(p, 'c1', [['10', RULE]], m('next', 2.5));
+    L(p, [['Перемещение 1: ', COL.chalk], ['диагональ — 5', RULE]], 70, 730, m('turn', 4));
+    L(p, [['Перемещение 2: ', COL.chalk], ['диагональ уже 2-я за ход — 10', RULE]], 70, 780, m('next'));
+    L(p, [['конец хода → ', COL.chalk], ['счёт с нуля', OK]], 70, 830, m('reset'));
+  }],
+  ['path', 'Путь Шиппы', (m) => {
+    const p = panel(0);
+    title(p, 'Путь Шиппы в обход повозки');
+    const F = field(p, .3, HOME);
+    hlCell(p, 'e2', HERO, .6, .12);
+    const blk = G(p);
+    arrowTo(blk, cx('a3') + 40, cy('a3'), cx('c3') - 70, cy('a3'), NO, m('block'), true);
+    yesNo(blk, false, cx('b3') + 34, cy('b3') - 40, m('block', .5), 1.2);
+    hide(blk, m('s1', -.2), .3);
+    const head = [['шаг', XR], ['как', XR + 150], ['стоит', XR + 420], ['всего', XR + 540]];
+    head.forEach(([s, x]) => say(p, s, x, 190, m('s1', -.3), { size: 22, fill: COL.dim, anchor: 'start' }));
+    hr(p, 206, m('s1', -.3), XR, 1520);
+    const S4 = [['a3', 'b2', '5', '5', '1-я диагональ', 's1'], ['b2', 'c1', '10', '15', '2-я диагональ', 's2'],
+      ['c1', 'd1', '5', '20', 'прямо', 's3'], ['d1', 'e2', '5', '25', '3-я диагональ', 's4']];
+    S4.forEach(([a, b, c, tot, how, mk_], i) => {
+      const t0 = m(mk_), y = 250 + i * 52;
+      leg(F.lay, a, b, HERO, t0); walk(F.tk.Ш, [b], t0 + .1);
+      tag(p, b, [[c, RULE]], t0 + .5);
+      say(p, a + ' → ' + b, XR, y, t0, { size: 25, anchor: 'start' });
+      say(p, how, XR + 150, y, t0 + .1, { size: 25, fill: COL.dim, anchor: 'start' });
+      say(p, c, XR + 420, y, t0 + .2, { size: 25, fill: RULE, weight: 700, anchor: 'start' });
+      say(p, tot, XR + 540, y, t0 + .5, { size: 25, weight: 700, anchor: 'start' });
+    });
+    L(p, [['25 футов = ', COL.chalk], ['одно Перемещение', OK]], XR, 490, m('s4', 2.2), 28);
+    // without diagonals: seven cells
+    const A = ['a3', 'b3', 'b2', 'b1', 'c1', 'd1', 'e1', 'e2'];
+    A.slice(1).forEach((c, i) => leg(F.lay, A[i], c, COL.dim, m('alt', i * .3), { dash: true, d: 10, w: 4 }));
+    L(p, [['без диагоналей: 7 клеток × 5 = ', COL.dim], ['35 футов', COL.chalk]], XR, 590, m('alt', .6), 26);
+    L(p, [['больше 25 → ', COL.dim], ['два Перемещения', NO]], XR, 640, m('two', .5), 26);
+  }],
+  ['q1', 'Быстрая проверка', () => { panel(0); }, { ask: done => quiz(WIDE, [{
+    id: 'c-diag', prompt: ['Клетки и диагонали.'], build: blanks(Q_DIAG),
+  }], done) }],
+  ['stride', 'Перемещение и Шаг', (m) => {
+    const p = panel(0);
+    title(p, 'Перемещение и Шаг');
+    glyph(p, 1, 120, 150, .3, .5);
+    say(p, 'Перемещение', 158, 162, .3, { size: 34, weight: 700, anchor: 'start' });
+    say(p, 'до Скорости · остаток пропадает', 430, 162, m('up'), { size: 26, fill: COL.dim, anchor: 'start' });
+    say(p, 'разорвать нельзя: 3 клетки, Удар, ещё 2 клетки —', 100, 250, m('split'), { size: 26, anchor: 'start' });
+    const tc = turnCells(p, 100, 280, m('split', 1), { w: 220, h: 112, react: false });
+    tc.spend(0, 'Перемещение', m('c1'), '3 клетки'); tc.spend(1, 'Удар', m('c2')); tc.spend(2, 'Перемещение', m('c3'), '2 клетки');
+    say(p, 'все три действия', 100 + 344, 440, m('c3', 1), { size: 24, fill: RULE, weight: 600 });
+    // passing through: an ally, an enemy, stopping in another's cell
+    const row = (y, a, b, txt, ok, t0, stop) => {
+      const s = 76, x = 900, c = i => x + i * s + s / 2;
+      const g = miniGrid(p, x, y - s / 2, 3, 1, s, t0);
+      tok(p, a[0], a[1], c(0), y, t0, 26); tok(p, b[0], b[1], c(1), y, t0, 26);
+      arrowTo(p, c(0) + 30, y - 34, (stop ? c(1) : c(2)) - 8, y - 34, ok ? OK : NO, t0 + .3);
+      [].concat(txt).forEach((q, k, a) => say(p, q, x + 3 * s + 24, y + 9 + (k - (a.length - 1) / 2) * 34, t0 + .4, { size: 25, fill: ok ? OK : NO, weight: 600, anchor: 'start' }));
+    };
+    row(260, ['Ш', HERO], ['Б', HERO], 'сквозь союзника — можно', true, m('ally'));
+    row(400, ['Ш', HERO], ['Р', FOE], ['сквозь врага —', 'только Перекатом'], false, m('enemy'));
+    row(540, ['Ш', HERO], ['Б', HERO], ['закончить ход', 'в чужой клетке — нельзя'], false, m('end'), true);
+    hr(p, 620, m('step', -.3));
+    glyph(p, 1, 120, 690, m('step'), .5);
+    say(p, 'Шаг', 158, 702, m('step'), { size: 34, weight: 700, anchor: 'start' });
+    say(p, '1 клетка, 5 футов', 260, 702, m('step', .6), { size: 26, fill: COL.dim, anchor: 'start' });
+    L(p, [['не провоцирует ответных действий на движение', OK]], 100, 770, m('safe'), 27);
+    L(p, [['в пересечённую местность — ', COL.chalk], ['нельзя', NO]], 100, 830, m('nodiff'), 27);
+    const bg = G(p, { x: 640, y: 820, o: 0 });
+    mk('rect', { x: -40, y: -40, width: 80, height: 80, rx: 8, fill: TERR, 'fill-opacity': .14, stroke: TERR, 'stroke-width': 2 }, bg);
+    bushMark(bg, .9);
+    show(bg, m('nodiff', .3));
+  }],
+  ['prone', 'Лечь, ползти, встать', (m) => {
+    const p = panel(0);
+    title(p, 'Лечь, ползти, встать');
+    const F = field(p, .3, HOME);
+    glyph(p, 1, XR + 20, 200, .4, .45);
+    say(p, 'Распластывание · лечь на землю', XR + 56, 212, .4, { size: 28, weight: 700, anchor: 'start' });
+    // lying: a «лёжа» tag rides on the token (a rotated letter read as another letter)
+    const ly = G(F.tk.Ш, { y: 44, o: 0 });
+    mk('rect', { x: -34, y: -14, width: 68, height: 28, rx: 14, fill: COL.board, stroke: RULE, 'stroke-width': 2 }, ly);
+    T(ly, 'лёжа', { y: 7, size: 18, fill: RULE, weight: 700, anchor: 'middle' });
+    show(ly, m('pr'), .3);
+    pill(p, 'распластан', RULE, XR + 110, 290, m('pr'), 26);
+    L(p, [['застигнут врасплох: ', COL.chalk], ['−2 к КБ', NO]], XR, 360, m('pr', 1.2), 27);
+    L(p, [['его атаки: ', COL.chalk], ['−2', NO]], XR, 410, m('atk'), 27);
+    say(p, 'из движения доступны только два действия:', XR, 490, m('two'), { size: 25, fill: COL.dim, anchor: 'start' });
+    glyph(p, 1, XR + 20, 545, m('crawl'), .45);
+    L(p, [['Ползание', COL.chalk], [' · 5 футов, лёжа', COL.dim]], XR + 56, 557, m('crawl'), 27);
+    walk(F.tk.Ш, ['a4'], m('crawl', 1.2), .8);
+    glyph(p, 1, XR + 20, 615, m('stand'), .45);
+    L(p, [['Вставание', COL.chalk], [' · на ноги', COL.dim]], XR + 56, 627, m('stand'), 27);
+    hide(ly, m('stand', .8), .4);
+    say(p, 'подробно — глава 12', XR, 710, m('ch12'), { size: 24, fill: COL.dim, anchor: 'start' });
+  }],
+  ['leap', 'Прыжок', (m) => {
+    const p = panel(0);
+    title(p, 'Прыжок');
+    field(p, .3, HOME);
+    glyph(p, 1, XR + 20, 200, .4, .45);
+    say(p, 'Прыжок', XR + 56, 212, .4, { size: 30, weight: 700, anchor: 'start' });
+    L(p, [['Скорость от 15 → ', COL.chalk], ['10 футов', RULE]], XR, 280, .8, 27);
+    L(p, [['Скорость от 30 → ', COL.chalk], ['15 футов', RULE]], XR, 330, m('l15'), 27);
+    // Shippa (Speed 25) over one cell: three cells, the middle one is a bush
+    const s = 110, x0 = XR + 20, y0 = 490, c = i => x0 + i * s + s / 2;
+    miniGrid(p, x0, y0, 3, 1, s, m('ship', -.3));
+    const bg = G(p, { x: c(1), y: y0 + s / 2, o: 0 });
+    mk('rect', { x: -s / 2 + 4, y: -s / 2 + 4, width: s - 8, height: s - 8, rx: 8, fill: TERR, 'fill-opacity': .14, stroke: TERR, 'stroke-width': 2 }, bg);
+    bushMark(bg, .9);
+    show(bg, m('ship', -.3));
+    const sh = tok(p, 'Ш', HERO, c(0), y0 + s / 2, m('ship', -.3), 32);
+    const arc = path(p, `M${c(0)} ${y0 + 10}Q${c(1)} ${y0 - 110} ${c(2)} ${y0 + 10}`, { stroke: HERO, 'stroke-width': 4, 'stroke-dasharray': '10 8' });
+    put(arc, { o: 0 }); show(arc, m('ship', .6), .4);
+    prog(q => { const x = c(0) + (c(2) - c(0)) * q, y = y0 + s / 2 - 4 * 110 * q * (1 - q); put(sh, { x, y }); }, m('ship', 1), 1.1);
+    say(p, '10 футов', c(1), y0 - 70, m('ship', .9), { size: 26, fill: RULE, weight: 700 });
+    say(p, 'Шиппа, Скорость 25', c(1), y0 + s + 40, m('ship'), { size: 24, fill: HERO });
+    L(p, [['клетка под прыжком ', COL.chalk], ['не считается', OK]], XR, 700, m('free'), 27);
+  }],
+  ['terrain', 'Пересечённая местность', (m) => {
+    const p = panel(0);
+    title(p, 'Пересечённая местность');
+    const F = field(p, .3, HOME);
+    L(p, [['пересечённая местность', TERR], [': клетка ', COL.chalk], ['+5 футов', TERR]], XR, 190, m('d5'), 27);
+    L(p, [['сильно пересечённая', TERR], [': ', COL.chalk], ['+10', TERR]], XR, 236, m('g10'), 27);
+    L(p, [['диагональ в куст: ', COL.chalk], ['5 или 10', RULE], [' + 5', TERR]], XR, 282, m('diag'), 27);
+    F.bush.forEach(b => grow(b, 1, m('d5', -.3)));
+    const goal = mk('rect', { x: cx('e4') - C / 2 + 4, y: cy('e4') - C / 2 + 4, width: C - 8, height: C - 8, rx: 8, fill: 'none', stroke: HERO, 'stroke-width': 4, 'stroke-dasharray': '10 7' }, p);
+    put(goal, { o: 0 }); show(goal, m('goal'));
+    const gt = say(p, 'цель', cx('e4'), cy('e4') + 9, m('goal'), { size: 22, fill: HERO, weight: 600 });
+    hide(gt, m('p3b', 1), .3);
+    // three ways to e4
+    const way = (cells, costs, t0s, colr) => {
+      const g = G(p), lay = G(F.lay);
+      cells.slice(1).forEach((c, i) => { leg(lay, cells[i], c, colr, t0s[i]); tag(g, c, costs[i], t0s[i] + .4); });
+      return [g, lay];
+    };
+    const w1 = way(['b4', 'c4', 'd4'], [[['5', RULE], ['+5', TERR]], [['5', RULE], ['+5', TERR]]], [m('p1', 1.4), m('p1', 2.7)], HERO);
+    const g1 = tok(w1[1], 'Б', HERO, cx('d4'), cy('d4'), m('p1e'), 30); put(g1, { o: 0 }); tw(g1, { o: .55 }, m('p1e'), .4);
+    L(p, [['напрямик: 10 + 10 = 20 → ', COL.chalk], ['в кустах', NO]], XR, 370, m('p1', 1.4), 26);
+    say(p, 'до цели ещё одно Перемещение', XR, 410, m('p1e', .5), { size: 24, fill: NO, anchor: 'start' });
+    w1.forEach(e => tw(e, { o: .18 }, m('p2', -.3), .4));
+    const w2 = way(['b4', 'c5', 'd4'], [[['5', RULE]], [['10', RULE], ['+5', TERR]]], [m('p2', 1.2), m('p2b')], HERO);
+    L(p, [['наискосок: 5 + 15 = 20 → ', COL.chalk], ['снова в кустах', NO]], XR, 480, m('p2b', .6), 26);
+    w2.forEach(e => tw(e, { o: .18 }, m('p3', -.3), .4));
+    way(['b4', 'c5', 'd5', 'e4'], [[['5', RULE]], [['5', RULE]], [['10', RULE]]], [m('p3', .9), m('p3', 2.1), m('p3b')], OK);
+    walk(F.tk.Б, ['c5', 'd5', 'e4'], m('p3b', 1), .5);
+    L(p, [['в обход: 5 + 5 + 10 = 20 → ', COL.chalk], ['у цели', OK]], XR, 550, m('p3e'), 26);
+    say(p, 'сэкономлено действие — хватит на Удар', XR, 620, m('save'), { size: 26, fill: OK, weight: 600, anchor: 'start' });
+    yesNo(p, false, cx('c4'), cy('c4'), m('nostep', .3), 1.4);
+    L(p, [['Шаг в куст — ', COL.chalk], ['нельзя', NO]], XR, 690, m('nostep'), 26);
+  }],
+  ['q2', 'Быстрая проверка', () => { panel(0); }, { ask: done => quiz(WIDE, [{
+    id: 'c-terr', prompt: ['Цена пути. Кусты — пересечённая местность.'], build: blanks(Q_TERR),
+  }, {
+    id: 'c-terr-tf', prompt: ['Верно или неверно?'], build: grid(Q_TERR_TF, TF, { multi: false, text: true }),
+  }], done) }],
+  ['size', 'Размер и досягаемость', (m) => {
+    const p = panel(0);
+    title(p, 'Размер и досягаемость');
+    const F = field(p, .3, HOME);
+    say(p, 'досягаемость — на сколько дотягивается в ближнем бою', XR, 140, m('reach'), { size: 22, fill: COL.dim, anchor: 'start' });
+    [['размер', XR], ['клетки', XR + 300], ['досягаемость', XR + 430]].forEach(([s, x]) => say(p, s, x, 196, .5, { size: 22, fill: COL.dim, anchor: 'start' }));
+    hr(p, 212, .5, XR, 1520);
+    const R = [['Небольшой · Шиппа', HERO, '1', '5 футов', m('ship')], ['Средний · Бронна', HERO, '1', '5 футов', m('ship', 1)],
+      ['Крупный · огр', FOE, '2 × 2', '10 футов', m('ogre')]];
+    R.forEach(([n, colr, k, r, t0], i) => {
+      const y = 254 + i * 48;
+      say(p, n, XR, y, t0, { size: 25, fill: colr, weight: 600, anchor: 'start' });
+      say(p, k, XR + 300, y, t0 + .2, { size: 25, anchor: 'start' });
+      say(p, r, XR + 430, y, t0 + .3, { size: 25, fill: RULE, weight: 700, anchor: 'start' });
+    });
+    ['a3', 'b3', 'c3', 'a4', 'c4', 'a5', 'b5', 'c5'].forEach((c, i) => hlCell(p, c, HERO, m('ring', .4 + i * .08), .2));
+    grow(F.tk.Б, 1, m('ring'));
+    // the ogre: a 2 × 2 square and two cells of reach all round, corners included
+    const s = 50, gx = XR + 200, gy = 420, cc = miniGrid(p, gx, gy, 6, 6, s, m('ogre', .4));
+    const og = G(p, { o: 0 });
+    mk('rect', { x: gx + 2 * s + 2, y: gy + 2 * s + 2, width: 2 * s - 4, height: 2 * s - 4, rx: 8, fill: mix(COL.board, FOE, .35), stroke: FOE, 'stroke-width': 3 }, og);
+    T(og, 'О', { x: gx + 3 * s, y: gy + 3 * s + 12, size: 34, fill: FOE, weight: 700, anchor: 'middle' });
+    show(og, m('ogre', .6));
+    const corners = [];
+    for (let i = 0; i < 6; i++) for (let j = 0; j < 6; j++) {
+      if (i >= 2 && i <= 3 && j >= 2 && j <= 3) continue;
+      const r = miniCell(p, cc(i, j), s, FOE, m('two', .2), .15);
+      if ((i === 0 || i === 5) && (j === 0 || j === 5)) corners.push(r);
+    }
+    corners.forEach(r => tw(r, { 'a_fill-opacity': .5 }, m('two', 1.6), .4));
+    say(p, '10 футов: две клетки и по диагонали', gx + 3 * s, gy + 6 * s + 40, m('two', 1.6), { size: 24, fill: FOE, weight: 600 });
+    pill(p, 'длинное', RULE, XR + 70, 838, m('long'), 24);
+    say(p, 'оружие — досягаемость дальше', XR + 150, 846, m('long', .4), { size: 24, fill: COL.dim, anchor: 'start' });
+  }],
+  ['reactive', 'Внеочередная атака', (m) => {
+    const p = panel(0);
+    title(p, 'Внеочередная атака');
+    const F = field(p, .3, R2);
+    glyph(p, 'r', XR + 20, 196, .4, .42);
+    say(p, 'Внеочередная атака', XR + 56, 207, .4, { size: 30, weight: 700, anchor: 'start' });
+    say(p, 'существо в зоне досягаемости противника:', XR, 270, m('cond'), { size: 24, fill: COL.dim, anchor: 'start' });
+    L(p, [['• действие «движение» или «манипуляция»', COL.chalk]], XR, 316, m('cond', 4.4), 25);
+    L(p, [['• дистанционная атака', COL.chalk]], XR, 360, m('rng'), 25);
+    L(p, [['• покидает клетку действием движения', COL.chalk]], XR, 404, m('leave'), 25);
+    L(p, [['→ ', RULE], ['Удар ответным действием, вблизи', RULE]], XR, 462, m('hit'), 26);
+    L(p, [['есть: ', COL.chalk], ['Бронна', HERO], [' — воин с 1-го уровня', COL.dim]], XR, 530, m('who'), 25);
+    grow(F.tk.Б, 1, m('who', 3.4));
+    L(p, [['нет: ', COL.chalk], ['разбойник', FOE]], XR, 574, m('ban'), 25);
+    const n = tok(p, 'Н', FOE, cx('f1'), cy('f1'), null);
+    put(n, { s: .6 }); pop(n, m('merc', 1.6));
+    infoCard(p, XR, 620, 640, 'Наёмник · знает ведущий', [['КБ 17 · меч +8'], ['Внеочередная атака', RULE]], FOE, m('stats'));
+    MERC_REACH.forEach((c, i) => hlCell(F.lay, c, FOE, m('stats', 4.4 + i * .08), .14));
+  }],
+  ['provoke', 'Что провоцирует', (m) => {
+    const p = panel(0);
+    title(p, 'Рядом с наёмником');
+    const F = field(p, .3, R2M);
+    MERC_REACH.forEach(c => hlCell(F.lay, c, FOE, .4, .14));
+    say(p, 'провоцирует', XR, 190, m('away', -.3), { size: 28, fill: NO, weight: 700, anchor: 'start' });
+    L(p, [['уйти Перемещением', COL.chalk]], XR, 240, m('away'), 25);
+    L(p, [['пройти мимо', COL.chalk], [' — один удар за Перемещение', COL.dim]], XR, 286, m('past'), 25);
+    L(p, [['выхватить оружие, достать зелье, зарядить пращу', COL.chalk]], XR, 332, m('inter'), 25);
+    say(p, 'манипуляция', XR, 368, m('inter', 2.6), { size: 22, fill: COL.dim, anchor: 'start' });
+    L(p, [['выстрел из пращи', COL.chalk], [' — дистанционная атака', COL.dim]], XR, 414, m('shot'), 25);
+    say(p, 'безопасно', XR, 500, m('safe', -.3), { size: 28, fill: OK, weight: 700, anchor: 'start' });
+    L(p, [['Шаг · Удар рапирой', COL.chalk]], XR, 550, m('safe'), 25);
+    L(p, [['толчок отбросил', COL.chalk], [' — вынужденное перемещение', COL.dim]], XR, 596, m('forced'), 25);
+    const away = G(p);
+    arrowTo(away, cx('e2') - 38, cy('e2') - 10, cx('c1') + 26, cy('c1') + 8, NO, m('away', .3), true);
+    grow(F.tk.Н, 1, m('away', 1.4));
+    hide(away, m('safe', -.3), .3);
+    arrowTo(p, cx('e2') - 38, cy('e2'), cx('d2') + 10, cy('d2'), OK, m('safe', .3));
+  }],
+  ['escape', 'Уйти от наёмника', (m) => {
+    const p = panel(0);
+    title(p, 'Уйти от наёмника');
+    const F = field(p, .3, R2M);
+    MERC_REACH.forEach(c => hlCell(F.lay, c, FOE, .4, .14));
+    // a Stride straight away: the mercenary strikes
+    const bad = G(F.lay), W = ['e2', 'd1', 'c1', 'b1'];
+    W.slice(1).forEach((c, i) => leg(bad, W[i], c, NO, 1.2 + i * .35, { dash: true, w: 4 }));
+    walk(F.tk.Ш, W.slice(1), 2.2, .5);
+    grow(F.tk.Н, 1, m('atk'));
+    say(p, 'Внеочередная атака: меч +8', XR, 200, m('atk'), { size: 26, fill: FOE, weight: 700, anchor: 'start' });
+    roll(p, 12, XR, 250, [['12 + 8 = 20 ≥ КБ Шиппы 18 → ', COL.chalk], ['попадание', NO]], m('tot'));
+    // Step first, then Stride
+    tw(bad, { o: .15 }, m('step', -.3), .3);
+    tw(F.tk.Ш, at('e2'), m('step', -.3), .3);
+    leg(F.lay, 'e2', 'd2', OK, m('step', 1.6), { w: 5 });
+    walk(F.tk.Ш, ['d2'], m('step', 1.7), .5);
+    hlCell(F.lay, 'd2', OK, m('step', 2.2), .18);
+    const W2 = ['d2', 'd1', 'c1', 'b1'];
+    W2.slice(1).forEach((c, i) => leg(F.lay, W2[i], c, OK, m('then', .3 + i * .3), { dash: true, w: 4 }));
+    walk(F.tk.Ш, W2.slice(1), m('then', .5), .4);
+    L(p, [['Шаг, потом Перемещение: ', COL.chalk], ['удара нет', OK]], XR, 330, m('then', 1.2), 26);
+    const tc = turnCells(p, XR, 370, m('cost', -.2), { w: 190, h: 100, react: false });
+    tc.spend(0, 'Шаг', m('cost', .2)); tc.spend(1, 'Перемещение', m('cost', .6));
+    say(p, 'безопасность — одно действие', XR, 510, m('cost', 1), { size: 24, fill: RULE, weight: 600, anchor: 'start' });
+    // the ogre: reach 10, a Step still ends inside
+    const s = 76, x0 = XR, y0 = 580, c = i => x0 + i * s + s / 2;
+    miniGrid(p, x0, y0, 5, 1, s, m('ogre'));
+    [1, 2].forEach(i => miniCell(p, [c(i), y0 + s / 2], s, FOE, m('ogre', .3), .15));
+    tok(p, 'О', FOE, c(0), y0 + s / 2, m('ogre'), 28);
+    const sh = tok(p, 'Ш', HERO, c(1), y0 + s / 2, m('ogre'), 28);
+    tw(sh, { x: c(2) }, m('ogre', 2.2), .5);
+    say(p, 'огр: досягаемость 10 футов', XR, y0 + s + 44, m('ogre', .3), { size: 24, fill: FOE, weight: 600, anchor: 'start' });
+    say(p, 'после Шага Шиппа ещё в его зоне', XR, y0 + s + 84, m('ogre', 5), { size: 24, fill: NO, anchor: 'start' });
+  }],
+  ['q3', 'Быстрая проверка', () => { panel(0); }, { ask: done => quiz(WIDE, [{
+    id: 'c-prov', prompt: ['Шиппа рядом с наёмником. Провоцирует ли это его Внеочередную атаку?'], build: grid(Q_PROV, YN, { multi: false, text: true }),
+  }, {
+    id: 'c-reach', prompt: ['Досягаемость.'], build: blanks(Q_REACH),
+  }], done) }],
+  ['flank', 'Взятие в тиски', (m) => {
+    const p = panel(0);
+    title(p, 'Взятие в тиски');
+    const F = field(p, .3, R2M);
+    L(p, [['враг ', COL.chalk], ['застигнут врасплох', RULE], [': ', COL.chalk], ['−2 к КБ', NO]], XR, 190, m('off'), 27);
+    say(p, 'против атак ближнего боя тех, кто взял его в тиски', XR, 228, m('off', 1), { size: 22, fill: COL.dim, anchor: 'start' });
+    say(p, '1. линия от центра к центру через противоположные', XR, 290, m('c1'), { size: 24, anchor: 'start' });
+    say(p, 'стороны или углы клетки врага', XR + 26, 322, m('c1'), { size: 24, anchor: 'start' });
+    // two small 3 × 3 examples: through sides, through corners
+    const s = 52, ex = (x, a, b, lab, t0) => {
+      const cc = miniGrid(p, x, 350, 3, 3, s, t0);
+      const [x1, y1] = cc(...a), [x2, y2] = cc(...b);
+      const e = path(p, `M${x1} ${y1}L${x2} ${y2}`, { stroke: RULE, 'stroke-width': 3, 'stroke-dasharray': '8 6' }); put(e, { o: 0 }); show(e, t0 + .5);
+      tok(p, 'Р', FOE, ...cc(1, 1), t0, 20); tok(p, 'Ш', HERO, ...cc(...a), t0, 20); tok(p, 'Б', HERO, ...cc(...b), t0, 20);
+      say(p, lab, x + 1.5 * s, 350 + 3 * s + 30, t0 + .3, { size: 22, fill: COL.dim });
+    };
+    ex(XR + 60, [1, 0], [1, 2], 'стороны', m('c1', 3));
+    ex(XR + 300, [0, 0], [2, 2], 'углы', m('corner'));
+    say(p, '2. враг в досягаемости у обоих', XR, 580, m('c2'), { size: 24, anchor: 'start' });
+    say(p, '3. оба могут бить вблизи: оружие или кулак', XR, 622, m('c3'), { size: 24, anchor: 'start' });
+    grow(F.tk.Б, 1, m('ex')); grow(F.tk.Ш, 1, m('ex', 1.6));
+    const fl = path(F.lay, `M${cx('e2')} ${cy('e2')}L${cx('e4')} ${cy('e4')}`, { stroke: RULE, 'stroke-width': 4, 'stroke-dasharray': '12 9' }, { d: 0 });
+    draw(fl, m('line'), .8);
+    const x1 = cx('e3') - C / 2 + 8, x2 = cx('e3') + C / 2 - 8;
+    [cy('e3') - C / 2 + 3, cy('e3') + C / 2 - 3].forEach(y => draw(path(p, `M${x1} ${y}H${x2}`, { stroke: RULE, 'stroke-width': 6 }, { d: 0 }), m('line', 1.2), .5));
+    box(p, XR, 680, 640, 100, FOE, m('ac', -.2));
+    L(p, [['разбойник в тисках: ', FOE], ['КБ 16 − 2 = ', COL.chalk], ['14', OK]], XR + 30, 742, m('ac'), 30);
+  }],
+  ['odds', 'Что дают тиски', (m) => {
+    const p = panel(0);
+    title(p, 'Что дают тиски рапире');
+    const F = field(p, .3, R2M);
+    flankLine(F, .4);
+    say(p, 'рапира Шиппы: попадает против КБ 16 и КБ 14', XR, 170, .5, { size: 24, fill: COL.dim, anchor: 'start' });
+    const R = [['1-й удар +6', 10, 8, '11 → 13 из 20', 'r1'], ['2-й удар +1', 15, 13, '6 → 8 из 20', 'r2'], ['3-й удар −4', 20, 18, '1 → 3 из 20', 'r3']];
+    R.forEach(([lab, n16, n14, txt, mk_], i) => {
+      const y = 230 + i * 175, t0 = m(mk_);
+      say(p, lab, XR, y, t0, { size: 26, fill: HERO, weight: 700, anchor: 'start' });
+      say(p, txt, 1520, y, t0 + 1.4, { size: 25, fill: OK, weight: 600, anchor: 'end' });
+      say(p, 'КБ 16', XR, y + 42, t0 + .2, { size: 21, fill: COL.dim, anchor: 'start' });
+      strip(p, XR + 90, y + 24, n16, COL.dim, t0 + .2);
+      say(p, 'КБ 14', XR, y + 82, t0 + .8, { size: 21, fill: OK, weight: 600, anchor: 'start' });
+      strip(p, XR + 90, y + 64, n14, OK, t0 + .8);
+    });
+    L(p, [['Бронна, меч +9 против 14: ', HERO], ['на 5 и выше · 16 из 20', OK]], XR, 790, m('bron'), 26);
+  }],
+  ['notes', 'Три тонкости', (m) => {
+    const p = panel(0);
+    title(p, 'Три тонкости');
+    const F = field(p, .3, R2M);
+    const fl = flankLine(F, .4);
+    infoCard(p, XR, 120, 650, 'Финт + тиски', [['одно состояние: −2 один раз, не −4']], RULE, m('feint'));
+    infoCard(p, XR, 272, 650, 'Выстрел из пращи', [['КБ 16: −2 только против ближнего боя']], RULE, m('shot'));
+    infoCard(p, XR, 424, 650, 'Праща в руке', [['тиски держит: можно ударить кулаком']], HERO, m('fist'));
+    infoCard(p, XR, 576, 650, 'Враги тоже', [['наёмник и разбойник с двух сторон:'], ['КБ Шиппы 18 − 2 = 16', NO]], FOE, m('foes'));
+    // the mercenary steps to e1: Shippa between two enemies
+    tw(fl, { o: .2 }, m('foes', 2), .4);
+    walk(F.tk.Н, ['e1'], m('foes', 2.4), .6);
+    const fe = path(F.lay, `M${cx('e1')} ${cy('e1')}L${cx('e3')} ${cy('e3')}`, { stroke: FOE, 'stroke-width': 4, 'stroke-dasharray': '12 9' }, { d: 0 });
+    draw(fe, m('foes', 3.2), .6);
+    grow(F.tk.Ш, 1, m('foes', 4));
+  }],
+  ['cover', 'Укрытие', (m) => {
+    const p = panel(0);
+    title(p, 'Укрытие');
+    const F = field(p, .3, HOME);
+    [['укрытие', XR], ['бонус', XR + 170], ['Спрятаться', XR + 530]].forEach(([s, x]) => say(p, s, x, 176, .5, { size: 22, fill: COL.dim, anchor: 'start' }));
+    hr(p, 192, .5, XR, 1520);
+    [['частичное', '+1 к КБ', 'l1', false], ['обычное', '+2: КБ, Реакция, Скрытность', 'l2', true], ['надёжное', '+4: КБ, Реакция, Скрытность', 'l3', true]].forEach(([n, b, mk_, ok], i) => {
+      const y = 234 + i * 48;
+      say(p, n, XR, y, m(mk_), { size: 25, weight: 600, anchor: 'start' });
+      say(p, b, XR + 170, y, m(mk_, .3), { size: 25, fill: RULE, weight: 600, anchor: 'start' });
+      yesNo(p, ok, XR + 590, y - 9, m('hide', i ? 2 : 0), .9);
+    });
+    say(p, 'сомнения → линия от центра атакующего к центру цели', XR, 400, m('line'), { size: 23, fill: COL.dim, anchor: 'start' });
+    L(p, [['задевает препятствие → ', COL.chalk], ['обычное', RULE]], XR, 446, m('wag'), 26);
+    L(p, [['через существо → ', COL.chalk], ['частичное', RULE]], XR, 492, m('cr'), 26);
+    const ln = path(F.lay, `M${cx('a3')} ${cy('a3')}L${cx('e3')} ${cy('e3')}`, { stroke: HERO, 'stroke-width': 4, 'stroke-dasharray': '12 9' }, { d: 0 });
+    draw(ln, m('ex', 2), .9);
+    hr(p, 530, m('ex', -.3), XR, 1520);
+    L(p, [['праща Шиппы → разбойник', HERO], [' · 20 футов', COL.dim]], XR, 580, m('ex'), 26);
+    grow(F.wag, 1, m('thru'));
+    L(p, [['обычное укрытие: КБ 16 + 2 = ', COL.chalk], ['18', RULE]], XR, 630, m('thru', 1), 26);
+    L(p, [['праща +6: на кубике ', COL.chalk], ['12+', OK], [' · 9 из 20 вместо 11', COL.dim]], XR, 680, m('need'), 26);
+  }],
+  ['takecover', 'Действие Укрытие', (m) => {
+    const p = panel(0);
+    title(p, 'Действие Укрытие');
+    const F = field(p, .3, HOME);
+    const ln = path(F.lay, `M${cx('a3')} ${cy('a3')}L${cx('e3')} ${cy('e3')}`, { stroke: HERO, 'stroke-width': 4, 'stroke-dasharray': '12 9' }); put(ln, { o: 0 }); show(ln, .4);
+    glyph(p, 1, XR + 20, 190, .4, .45);
+    L(p, [['Укрытие', COL.chalk], [' · прижаться или пригнуться', COL.dim]], XR + 56, 202, .4, 28);
+    L(p, [['обычное → надёжное: ', COL.chalk], ['+2 → +4', RULE]], XR, 270, m('up'), 26);
+    L(p, [['лёжа, против дистанционных: ', COL.chalk], ['+4', RULE]], XR, 320, m('prone'), 26);
+    L(p, [['но застигнут врасплох ', COL.chalk], ['−2', NO], [' → итого ', COL.chalk], ['+2', RULE]], XR, 370, m('net'), 26);
+    say(p, 'кончается: сошёл с места, атаковал, потерял сознание', XR, 424, m('end'), { size: 22, fill: COL.dim, anchor: 'start' });
+    const ring = put(mk('circle', { cx: cx('e3'), cy: cy('e3'), r: 44, fill: 'none', stroke: RULE, 'stroke-width': 4 }, p), { o: 0 });
+    show(ring, m('ban'));
+    box(p, XR, 470, 640, 150, RULE, m('ban', -.2));
+    L(p, [['разбойник за повозкой: КБ 16 + 4 = ', COL.chalk], ['20', RULE]], XR + 28, 524, m('ban'), 26);
+    L(p, [['праща +6: на кубике ', COL.chalk], ['14+', OK], [' · 7 из 20', COL.dim]], XR + 28, 580, m('need'), 26);
+    L(p, [['Шиппа: ', HERO], ['первый выстрел заканчивает Укрытие', COL.chalk]], XR, 680, m('ship'), 26);
+  }],
+  ['q4', 'Быстрая проверка', () => { panel(0); }, { ask: done => quiz(WIDE, [{
+    id: 'c-fc', prompt: ['Разбойник: КБ 16. Шиппа: рапира и праща +6.'], build: blanks(Q_FC),
+  }], done) }],
+  ['turn', 'Ход Шиппы на поле', (m) => {
+    const p = panel(0);
+    title(p, 'Ход Шиппы во втором раунде');
+    const F = field(p, .3, R2M);
+    const fl = flankLine(F, .4);
+    const shade = MERC_REACH.map(c => hlCell(F.lay, c, FOE, m('merc'), .14));
+    grow(F.tk.Н, 1, m('merc'));
+    const tc = turnCells(p, XR, 130, .5, { w: 200, h: 100, react: false });
+    tc.spend(0, 'Удар', m('a1'), 'рапира +6');
+    roll(p, 11, XR, 300, [['11 + 6 = 17 ≥ КБ 14 → ', COL.chalk], ['попадание', OK]], m('r1'));
+    L(p, [['d6: 5 → ', COL.chalk], ['5 урона', NO]], XR + 38, 344, m('d1'), 25);
+    tc.spend(1, 'Удар', m('a2'), '+1');
+    roll(p, 10, XR, 410, [['10 + 1 = 11 < 14 → ', COL.chalk], ['промах', NO]], m('r2'));
+    tc.spend(2, 'Шаг', m('a3'), 'в d2');
+    leg(F.lay, 'e2', 'd2', OK, m('a3', .4));
+    walk(F.tk.Ш, ['d2'], m('a3', .6), .5);
+    tw(fl, { o: 0 }, m('a3', .8), .4);
+    shade.forEach(r => tw(r, { o: .5 }, m('out'), .4));
+    L(p, [['вне досягаемости наёмника · ', OK], ['Шаг не провоцирует', COL.chalk]], XR, 490, m('out'), 25);
+    box(p, XR, 530, 640, 190, RULE, m('order', -.2));
+    say(p, 'Шаг первым:', XR + 28, 576, m('order'), { size: 26, fill: RULE, weight: 700, anchor: 'start' });
+    say(p, 'линия d2 — e4 не через противоположные стороны', XR + 28, 620, m('order', .6), { size: 23, anchor: 'start' });
+    L(p, [['удары по КБ 16: на ', COL.chalk], ['10+ и 15+', NO], [' вместо 8+ и 13+', COL.dim]], XR + 28, 670, m('order', 3), 24);
+    const bad = path(F.lay, `M${cx('d2')} ${cy('d2')}L${cx('e4')} ${cy('e4')}`, { stroke: NO, 'stroke-width': 4, 'stroke-dasharray': '12 9' }, { d: 0 });
+    draw(bad, m('order', .6), .6);
+    say(p, 'наёмнику сначала придётся подойти', XR, 780, m('merc2'), { size: 24, fill: COL.dim, anchor: 'start' });
+  }],
+  ['sheet', 'Что записать на лист', (m) => {
+    const p = panel(0);
+    const sh = charSheet(p, .3);
+    SHEET1.forEach(([k, v, s]) => sh.fill(k, v, s));
+    say(p, 'Что записать рядом с размером', 560, 70, .3, { size: 28, weight: 600 });
+    box(p, 60, 120, 1000, 330, HERO, m('size', -.2));
+    L(p, [['у размера: ', COL.dim], ['Небольшая, досягаемость 5 футов', COL.chalk]], 100, 230, m('size'), 30);
+    L(p, [['Прыжок: ', COL.dim], ['10 футов', COL.chalk]], 100, 330, m('leap'), 30);
+    sh.flash('size', m('size'));
+    box(p, 60, 490, 1000, 300, NO, m('list', -.2));
+    say(p, 'провоцируют Внеочередную атаку:', 100, 550, m('list'), { size: 28, fill: NO, weight: 700, anchor: 'start' });
+    say(p, 'выхватить оружие, достать зелье, зарядить пращу,', 100, 600, m('list', .8), { size: 27, anchor: 'start' });
+    say(p, 'выстрелить, уйти Перемещением', 100, 642, m('list', .8), { size: 27, anchor: 'start' });
+    L(p, [['выход: ', COL.chalk], ['сначала Шаг', OK]], 100, 730, m('list', 3.4), 32);
+  }],
+  ['wrap', 'Итоги', (m) => {
+    const p = panel(0);
+    numbered(p, [['Клетка — 5 футов; диагонали за ход 5, 10, 5, 10; пересечённая +5.', 'w1'],
+      ['Перемещение из досягаемости врага провоцирует его атаку, Шаг — нет.', 'w2'],
+      ['Тиски: двое с разных сторон — враг получает −2 к КБ против ударов вблизи.', 'w3'],
+      ['Укрытие: частичное +1, обычное +2, надёжное +4 к КБ.', 'w4']], m, 220, 140, 29);
+  }],
+  ['final1', 'Практика главы', () => { panel(0); }, { ask: done => quiz(SCREEN, [{
+    id: 'p-tf', prompt: ['Верно или неверно?'], build: grid(P_TF, TF, { multi: false, text: true }),
+  }], done, 'Практика главы   1 из 3') }],
+  ['final2', 'Практика главы', () => {}, { ask: done => quiz(SCREEN, [{
+    id: 'p-move', prompt: ['Движение. Шиппа: Скорость 25, Бронна: Скорость 20.'], build: blanks(P_MOVE),
+  }], done, 'Практика главы   2 из 3') }],
+  ['final3', 'Практика главы', () => {}, { ask: done => quiz(SCREEN, [{
+    id: 'p-ac', prompt: ['Класс брони. Наёмник: КБ 17. Шиппа: КБ 18.'], build: blanks(P_AC),
+  }], done, 'Практика главы   3 из 3') }],
+  ['finish', 'Готово', () => {}, { ask: finishCard }],
+].map(([id, title, run, extra]) => ({ id, title, run, ...extra }));
+
+/* ---------- Shippa's sheet, page 1, as after chapter 6 ---------- */
+const SHEET1 = [['name', 'Шиппа'], ['lvl', '1'], ['anc', 'гоблин'], ['her', 'небьющийся гоблин'], ['bg', 'трактирщик'], ['cls', 'бард'],
+  ['a0', '0'], ['a1', '+3'], ['a2', '+2'], ['a3', '0'], ['a4', '0'], ['a5', '+4'], ['hp', '20', '10+8+2'], ['ac', '18', '10+3+3+2'],
+  ['per', '+5', 'эксперт'], ['will', '+5', 'эксперт'], ['fort', '+5', 'изучен'], ['ref', '+6', 'изучен'],
+  ['sk0', 'Дипломатия', 'изучен · +7'], ['sk1', 'Знание (выпивка)', 'изучен · +3'], ['sk2', 'Оккультизм', 'изучен · +3'], ['sk3', 'Исполнение', 'изучен · +7'],
+  ['sk4', 'Обман, Общество, Религия, Скрытность', ''], ['ft_anc', 'Гоблинская песня'], ['ft_skill', 'Неформальное общение'],
+  ['ft_cls', 'Продолжительная композиция'], ['size', 'Небольшой'], ['spd', '25 футов'], ['sense', 'ночное зрение'], ['lang', 'всеобщий, гоблинский'], ['prof', 'изучен']];
+
+/* ---------- question data ---------- */
+const YN = [['y', 'Да', null, 'Y'], ['n', 'Нет', null, 'N']];
+const Q_DIAG = [
+  { parts: ['Шиппа, Скорость 25 футов. Клеток за одно Перемещение: ', { box: '5' }], why: '25 ÷ 5 = 5.', hint: 'Одна клетка — 5 футов.' },
+  { parts: ['Бронна, Скорость 20 футов. Клеток: ', { box: '4' }], why: '20 ÷ 5 = 4.', hint: 'Одна клетка — 5 футов.' },
+  { parts: ['Три клетки по диагонали подряд, первые за ход. Футов: ', { box: '20' }], why: '5 + 10 + 5 = 20.', hint: 'Первая 5, вторая 10, третья снова 5.' },
+  { parts: ['В первом Перемещении Шиппа прошла одну диагональ. Первая диагональ второго Перемещения стоит футов: ', { box: '10' }], why: 'Диагонали считают за весь ход: она уже вторая.', hint: 'Счёт диагоналей не обнуляется между Перемещениями.' },
+];
+const Q_TERR = [
+  { parts: ['Одна клетка кустов по прямой. Футов: ', { box: '10' }], why: '5 + 5 = 10.', hint: 'Пересечённая местность: +5 к клетке.' },
+  { parts: ['Вторая диагональ за ход ведёт в кусты. Футов: ', { box: '15' }], why: '10 + 5 = 15.', hint: 'Цена второй диагонали плюс 5.' },
+  { parts: ['Одна клетка сильно пересечённой местности по прямой. Футов: ', { box: '15' }], why: '5 + 10 = 15.', hint: 'Сильно пересечённая: +10.' },
+  { parts: ['Обход Бронны: диагональ, прямо, вторая диагональ. Всего футов: ', { box: '20' }], why: '5 + 5 + 10 = 20 — ровно её Скорость.', hint: 'Диагонали 5 и 10.' },
+];
+const Q_TERR_TF = [
+  { parts: ['Шагнуть в пересечённую местность можно.'], ans: ['f'], why: 'Шаг в пересечённую местность запрещён.' },
+  { parts: ['Неистраченный остаток Скорости переходит на следующее Перемещение.'], ans: ['f'], why: 'Остаток пропадает.' },
+  { parts: ['Сквозь клетку союзника проходить можно.'], ans: ['t'], why: 'Сквозь союзника можно, сквозь врага — только Перекатом.' },
+];
+const Q_PROV = [
+  { parts: ['Шиппа уходит от него Перемещением.'], ans: ['y'], why: 'Она покидает клетку в его досягаемости.' },
+  { parts: ['Шиппа делает Шаг.'], ans: ['n'], why: 'Шаг не провоцирует.' },
+  { parts: ['Шиппа достаёт зелье.'], ans: ['y'], why: 'Это манипуляция.' },
+  { parts: ['Шиппа стреляет из пращи.'], ans: ['y'], why: 'Дистанционная атака.' },
+  { parts: ['Шиппа бьёт его рапирой.'], ans: ['n'], why: 'Удар рапирой безопасен.' },
+  { parts: ['Толчок разбойника отбросил Шиппу от наёмника.'], ans: ['n'], why: 'Вынужденное перемещение не провоцирует.' },
+];
+const Q_REACH = [
+  { parts: ['Шиппа и Бронна дотягиваются на футов: ', { box: '5' }], why: 'Небольшие и Средние — 5 футов, любая соседняя клетка.', hint: 'Одна соседняя клетка.' },
+  { parts: ['Досягаемость 10 футов накрывает по диагонали клеток: ', { box: '2' }], why: 'Две клетки даже по диагонали — исключение из счёта диагоналей.', hint: 'Как по прямой.' },
+];
+const Q_FC = [
+  { parts: ['Разбойник в тисках у Шиппы и Бронны. КБ против их ударов рапирой и мечом: ', { box: '14' }], why: '16 − 2 = 14.', hint: 'Застигнут врасплох: −2.' },
+  { parts: ['Первый удар рапирой по нему попадает, если на кубике не меньше: ', { box: '8' }], why: '8 + 6 = 14.', hint: '14 − 6.' },
+  { parts: ['Шиппа стреляет в него из пращи, укрытия нет. КБ: ', { box: '16' }], why: 'Тиски дают −2 только против ближнего боя.', hint: 'Против выстрела тиски не помогают.' },
+  { parts: ['Линия выстрела задевает повозку. КБ: ', { box: '18' }], why: 'Обычное укрытие: 16 + 2 = 18.', hint: 'Препятствие — обычное укрытие.' },
+  { parts: ['Разбойник сделал Укрытие за повозкой. КБ против пращи: ', { box: '20' }], why: 'Обычное стало надёжным: 16 + 4 = 20.', hint: 'Надёжное укрытие: +4.' },
+];
+const P_TF = [
+  { parts: ['Четыре клетки по диагонали подряд стоят 20 футов.'], ans: ['f'], why: '5 + 10 + 5 + 10 = 30.' },
+  { parts: ['Счёт диагоналей обнуляется в конце хода.'], ans: ['t'], why: 'Диагонали считают за весь ход, в конце хода — с нуля.' },
+  { parts: ['Шаг рядом с наёмником провоцирует Внеочередную атаку.'], ans: ['f'], why: 'Шаг не провоцирует.' },
+  { parts: ['Достать зелье рядом с наёмником безопасно.'], ans: ['f'], why: 'Это манипуляция, она провоцирует.' },
+  { parts: ['Тиски дают −2 к КБ врага и против выстрелов.'], ans: ['f'], why: 'Только против атак ближнего боя.' },
+  { parts: ['За частичным укрытием можно Спрятаться.'], ans: ['f'], why: 'Только за обычным и надёжным.' },
+  { parts: ['Досягаемость 10 футов накрывает две клетки и по диагонали.'], ans: ['t'], why: 'Исключение из счёта диагоналей.' },
+];
+const P_MOVE = [
+  { parts: ['Бронна делает два Перемещения. Клеток всего: ', { box: '8' }], why: '20 ÷ 5 = 4, и ещё 4.', hint: 'По 4 клетки за Перемещение.' },
+  { parts: ['Пять клеток по диагонали подряд. Футов: ', { box: '35' }], why: '5 + 10 + 5 + 10 + 5 = 35.', hint: '5, 10, 5, 10, 5.' },
+  { parts: ['Третья диагональ за ход ведёт в кусты. Футов: ', { box: '10' }], why: 'Третья диагональ — 5, кусты +5.', hint: 'Нечётные диагонали стоят 5.' },
+  { parts: ['Прыжок героя со Скоростью 30. Футов: ', { box: '15' }], why: 'Скорость от 30 — 15 футов.', hint: 'Скорость от 15 — 10 футов, от 30 — больше.' },
+  { parts: ['Ползание сдвигает лежащего героя на футов: ', { box: '5' }], why: 'Одна клетка, и герой остаётся лежать.', hint: 'Как Шаг.' },
+];
+const P_AC = [
+  { parts: ['Наёмник в тисках у Шиппы и Бронны. КБ против их ударов: ', { box: '15' }], why: '17 − 2 = 15.', hint: 'Тиски: −2.' },
+  { parts: ['Шиппа стреляет в наёмника, линия задевает повозку. КБ: ', { box: '19' }], why: 'Обычное укрытие: 17 + 2 = 19.', hint: 'Повозка — обычное укрытие.' },
+  { parts: ['Линию выстрела перекрывает Бронна. КБ наёмника: ', { box: '18' }], why: 'Существо на линии — частичное укрытие: 17 + 1 = 18.', hint: 'Через существо — частичное.' },
+  { parts: ['Шиппа легла и сделала Укрытие. Её КБ против стрел: ', { box: '20' }], why: '18 + 4 − 2 = 20.', hint: 'Надёжное +4, застигнута врасплох −2.' },
+  { parts: ['Шиппа лежит. Её КБ против меча врага рядом: ', { box: '16' }], why: 'Распластана — застигнута врасплох: 18 − 2 = 16.', hint: 'Лёжа она застигнута врасплох.' },
+];
+boot();
+</script>
+</body>
+</html>

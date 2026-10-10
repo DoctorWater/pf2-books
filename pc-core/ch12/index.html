@@ -1,0 +1,626 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Состояния — Первый герой</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%231d2b27'/%3E%3Ctext x='32' y='45' text-anchor='middle' font-size='48' fill='%23f0b45a'%3E∞%3C/text%3E%3C/svg%3E">
+<link rel="stylesheet" href="../lib/engine.css">
+<link rel="expect" href="#bar" blocking="render"><!-- hold the first frame until the player exists, so the page transition can run -->
+</head>
+<body>
+<script src="../lib/engine.js"></script>
+<script src="../lib/pf.js"></script>
+<script src="audio/ru/timings.js"></script>
+<script>
+'use strict';
+const CHAPTER = { number: 12, title: 'Состояния', minutes: 13, language: 'ru', next: '../ch13/' };
+
+/* ---------- chapter drawing helpers (shared ones: lib/pf.js) ---------- */
+// Heroes HERO, the bandit FOE, rules and dice RULE; penalties and condition cards NO, hits and successes OK.
+const hr = (p, y, t0, x1 = 80, x2 = 1520) => draw(path(p, `M${x1} ${y}H${x2}`, { stroke: COL.faint, 'stroke-width': 2 }, { d: 0 }), t0, .5);
+const box = (p, x, y, w, h, colr, t0) => { const r = mk('rect', { x, y, width: w, height: h, rx: 18, fill: '#22322d', stroke: colr, 'stroke-width': 2.5 }, p); put(r, { o: 0 }); show(r, t0); return r; };
+const title = (p, s, t0 = .2) => say(p, s, 800, 62, t0, { size: 36, weight: 600 });
+const L = (p, parts, x, y, t0, size = 26) => colorLine(p, parts, x, y, t0, { size, anchor: 'start' });   // left-aligned coloured line
+const C0 = COL.chalk, DIM = COL.dim;
+// A d20 with its roll and a coloured sum after it, left-aligned at x (as in ch08–ch09).
+function roll(p, n, x, y, parts, t0, size = 26) {
+  numDie(p, n, x, y - 9, t0, 22);
+  colorLine(p, parts, x + 38, y, t0 + .3, { size, anchor: 'start' });
+}
+// A die outline of `sides` with the rolled number inside, no label (ch09).
+function dieNum(p, sides, n, x, y, t0, size = 44, colr = RULE) {
+  const d = dieShape(p, sides, x, y, colr, t0, size, null, false);
+  T(d, String(n), { y: size * .3, size: size * .8, fill: colr, weight: 700, anchor: 'middle' });
+  return d;
+}
+// A ring with a letter, no name under it (ch09).
+function tok(p, letter, colr, x, y, t0, r = 34) {
+  const g = G(p, { x, y, o: 0 });
+  mk('circle', { r, fill: COL.board, stroke: colr, 'stroke-width': 4 }, g);
+  T(g, letter, { y: r * .36, size: r, fill: colr, weight: 700, anchor: 'middle' });
+  show(g, t0);
+  return g;
+}
+const setText = (e, s, t0) => { prog(() => { e.textContent = s; }, t0, 0); pulse(e, t0, 1.3); };
+// A line through a drawn word (a sum that does not happen).
+const strike = (p, x1, x2, y, t0) => draw(path(p, `M${x1} ${y}L${x2} ${y - 6}`, { stroke: NO, 'stroke-width': 4 }, { d: 0 }), t0, .3);
+
+// A condition card: the name and, for a valued condition, a round counter on the right; left edge x, middle y.
+// set(v, t) changes the counter (at 0 the card fades: the condition is over); end(t) fades the card.
+function cond(p, name, val, x, y, t0, { size = 26, colr = NO } = {}) {
+  const hasV = val != null, h = size + 30, w = uiW(name, size) + (hasV ? 104 : 46);
+  const g = G(p, { x, y, o: 0 });
+  mk('rect', { x: 0, y: -h / 2, width: w, height: h, rx: 12, fill: '#22322d', stroke: colr, 'stroke-width': 2.5 }, g);
+  T(g, name, { x: 22, y: size * .36, size, fill: colr, weight: 600 });
+  let num = null;
+  if (hasV) {
+    mk('circle', { cx: w - 36, cy: 0, r: h / 2 - 5, fill: colr, 'fill-opacity': .28, stroke: colr, 'stroke-width': 2 }, g);
+    num = T(g, String(val), { x: w - 36, y: size * .37, size: size * 1.05, fill: C0, weight: 700, anchor: 'middle' });
+  }
+  if (t0 != null) show(g, t0);
+  return {
+    g, w, num,
+    set(v, t1) { prog(() => { num.textContent = String(v); }, t1, 0); pulse(num, t1, 1.5); if (v === 0) tw(g, { o: 0 }, t1 + 1, .6); },
+    end(t1) { tw(g, { o: 0 }, t1, .6); },
+  };
+}
+// The bandit's card: name, HP and base AC on top, condition cards listed below (add); hp(v, t) updates the HP.
+function foeCard(p, x, y, t0, { hp = 18, w = 440, h = 340, extra = '' } = {}) {
+  box(p, x, y, w, h, FOE, t0);
+  say(p, 'Разбойник', x + 28, y + 50, t0, { size: 28, fill: FOE, weight: 700, anchor: 'start' });
+  const hpT = say(p, 'ПЗ ' + hp, x + w - 28, y + 50, t0, { size: 30, fill: FOE, weight: 700, anchor: 'end' });
+  say(p, 'КБ 16' + extra, x + 28, y + 100, t0, { size: 25, anchor: 'start' });
+  say(p, 'состояния:', x + 28, y + 150, t0, { size: 21, fill: DIM, anchor: 'start' });
+  let n = 0;
+  const C = {};
+  return {
+    C,
+    hp(v, t1) { setText(hpT, 'ПЗ ' + v, t1); },
+    add(key, name, val, t1) { return (C[key] = cond(p, name, val, x + 28, y + 196 + n++ * 64, t1, { size: 24 })); },
+  };
+}
+// A row of n action cells from x (top y); lose(i, t) crosses cell i, note(i, s, t) writes under it.
+function actRow(p, x, y, n, t0, { w = 110, h = 76, gap = 10, colr = RULE, extra = -1 } = {}) {
+  const X = i => x + i * (w + gap), cells = [];
+  for (let i = 0; i < n; i++) {
+    const g = G(p, { o: 0 }), c = i === extra ? OK : colr;
+    mk('rect', { x: X(i), y, width: w, height: h, rx: 12, fill: c, 'fill-opacity': .18, stroke: c, 'stroke-width': 2.5 }, g);
+    const gl = glyph(g, 1, X(i) + w / 2, y + h / 2, 0, .5, c);
+    show(g, t0 + i * .12);
+    cells.push({ g, gl });
+  }
+  return {
+    X, w,
+    lose(i, t1) {
+      const a = X(i) + 18, b = X(i) + w - 18;
+      draw(path(cells[i].g, `M${a} ${y + 12}L${b} ${y + h - 12}M${b} ${y + 12}L${a} ${y + h - 12}`, { stroke: NO, 'stroke-width': 5 }, { d: 0 }), t1, .4);
+      tw(cells[i].gl, { o: .3 }, t1, .3);
+    },
+  };
+}
+// Twenty small d20 faces in a row from x0; faces from..20 are filled (succeed), the rest red.
+function strip(p, x0, y, from, t0, { w = 34, gap = 4, h = 40, label = true } = {}) {
+  const g = G(p, { o: 0 });
+  for (let f = 1; f <= 20; f++) {
+    const ok = f >= from, c = ok ? OK : NO;
+    mk('rect', { x: x0 + (f - 1) * (w + gap), y, width: w, height: h, rx: 5, fill: c, 'fill-opacity': ok ? .45 : .18, stroke: c, 'stroke-width': 1.5 }, g);
+    if (label) T(g, String(f), { x: x0 + (f - 1) * (w + gap) + w / 2, y: y + h * .66, size: 17, fill: C0, weight: 600, anchor: 'middle' });
+  }
+  show(g, t0);
+  return { g, X: f => x0 + (f - 1) * (w + gap), w, h };
+}
+
+// Pills in a row from the left edge x (ch09's pillRow, left-aligned).
+function pillsFrom(p, items, x, y, size, colr, t0s) {
+  return items.map((s, i) => { const w = s.length * size * .56 + 44, g = pill(p, s, colr, x + w / 2, y, t0s[i], size); x += w + 16; return g; });
+}
+
+const PPL = { b: ['Бронна', HERO], t: ['Тиль', HERO], r: ['Разбойник', FOE], s: ['Шиппа', HERO] };
+const ORDER = ['b', 't', 'r', 's'];
+
+/* ---------- beats: [id, title, run(m, D), { ask }?] ---------- */
+const BEATS = [
+  ['intro', 'Состояния', (m, D) => {
+    const g = G(scene, { o: 0, y: 24 });
+    T(g, 'Раздел 4 «Бой» · Глава 12', { x: 800, y: 330, size: 28, fill: DIM, anchor: 'middle' });
+    T(g, 'Состояния', { x: 800, y: 440, size: 70, weight: 600, anchor: 'middle' });
+    tw(g, { o: 1, y: 0 }, .2, 1.1, out);
+    const r = say(scene, 'испуг, падение, огонь — и когда это проходит', 800, 560, Math.max(m('sub'), 1.1), { size: 34, fill: DIM });
+    tw(g, { o: 0, y: -24 }, D - .9, .8); hide(r, D - .9, .8);
+  }],
+  ['table', 'За столом', (m) => {
+    const p = panel(0);
+    title(p, 'За столом');
+    who(p, 'Шиппа', HERO, 200, 430, .3, 56);
+    bubble(p, 'Сюда уже бежит стража!', 300, 260, HERO, .6, { size: 26, side: 'left' });
+    who(p, 'Разбойник', FOE, 560, 430, .4, 56);
+    who(p, 'Ведущий', GMC, 920, 430, m('gm', -.4), 56);
+    bubble(p, 'Успех. Испуг 1', 920, 260, GMC, m('gm'), { size: 26 });
+    cond(p, 'испуг', 1, 478, 600, m('gm', 1.6));
+    who(p, 'Бронна', HERO, 1320, 430, m('ask', -.3), 56);
+    bubble(p, 'А мне что это даёт?', 1320, 260, HERO, m('ask', .2), { size: 26, side: 'right' });
+    colorLine(p, [['все проверки и СЛ разбойника ', C0], ['−1', NO]], 1060, 590, m('ans', 1.4), { size: 30 });
+    say(p, 'до конца его следующего хода', 1060, 636, m('ans', .4), { size: 24, fill: DIM });
+    colorLine(p, [['КБ 16 → 15: ', C0], ['по нему легче попасть', OK]], 1060, 690, m('ans', 4.4), { size: 28 });
+    pill(p, 'состояние', RULE, 565, 690, m('cond', .6), 26);
+    say(p, 'в книге правил их почти полсотни · для первых боёв хватит дюжины', 800, 800, m('dozen', -1.2), { size: 25, fill: DIM });
+  }],
+  ['how', 'Как устроено состояние', (m) => {
+    const p = panel(0);
+    title(p, 'Как устроено состояние');
+    say(p, 'состояние держится, пока…', 800, 128, .3, { size: 26, fill: DIM });
+    [['кончился срок', 'названный в эффекте', 0], ['его сняли', 'навык, заклинание', 'rem'], ['сработало его правило', 'из описания состояния', 'own']].forEach(([a, b, mark], i) => {
+      const x = 100 + i * 480, t0 = mark ? m(mark) : .5;
+      box(p, x, 160, 440, 110, RULE, t0);
+      say(p, a, x + 220, 206, t0, { size: 28, weight: 700 });
+      say(p, b, x + 220, 246, t0 + .2, { size: 22, fill: DIM });
+    });
+    hr(p, 310, m('val', -.3));
+    say(p, 'значение состояния', 100, 370, m('val'), { size: 26, fill: RULE, weight: 600, anchor: 'start' });
+    const c = cond(p, 'испуг', 2, 100, 440, m('val', .5), { size: 30 });
+    const pen = L(p, [['→ ', DIM], ['−2', NO], [' ко всем проверкам и СЛ', C0]], 100 + c.w + 30, 450, m('val', 3.2), 30);
+    c.set(1, m('zero', .2)); c.set(0, m('zero', 1.2));
+    tw(pen, { o: 0 }, m('zero', 2.2), .6);
+    L(p, [['значение 0 → ', C0], ['состояние закончилось', OK]], 100, 520, m('zero', 2), 28);
+    hr(p, 570, m('kind', -.3));
+    box(p, 100, 600, 660, 170, NO, m('kind'));
+    say(p, 'штраф состояния', 130, 650, m('kind'), { size: 30, fill: NO, weight: 700, anchor: 'start' });
+    say(p, 'почти все состояния', 130, 710, m('kind', .5), { size: 26, anchor: 'start' });
+    box(p, 840, 600, 660, 170, NO, m('circ'));
+    say(p, 'ситуативный штраф', 870, 650, m('circ'), { size: 30, fill: NO, weight: 700, anchor: 'start' });
+    say(p, 'застигнут врасплох, распластанность', 870, 710, m('circ', 2), { size: 26, anchor: 'start' });
+    say(p, 'вид штрафа важен, когда состояний несколько', 800, 830, m('need'), { size: 26, fill: RULE, weight: 600 });
+  }],
+  ['fright', 'Испуг', (m) => {
+    const p = panel(0);
+    title(p, 'Испуг');
+    cond(p, 'испуг', 'N', 100, 150, .3, { size: 30 });
+    L(p, [['штраф ', C0], ['−N', NO], [' ко всем своим проверкам и СЛ', C0]], 100, 240, .6, 28);
+    pillsFrom(p, ['атаки', 'испытания', 'навыки', 'Внимание'], 100, 310, 22, RULE, [0, 1, 2, 3].map(i => m('list', i * .6)));
+    L(p, [['КБ', C0], [' — тоже СЛ: падает и он', DIM]], 100, 400, m('ac'), 28);
+    L(p, [['в конце каждого своего хода: ', C0], ['значение − 1', RULE]], 100, 470, m('tick'), 28);
+    // the bandit's numbers with fright 0, 1, 2
+    box(p, 800, 110, 700, 370, FOE, m('tab', -.3));
+    say(p, 'Разбойник', 830, 160, m('tab', -.3), { size: 26, fill: FOE, weight: 700, anchor: 'start' });
+    const cols = [1110, 1260, 1410];
+    ['без испуга', 'испуг 1', 'испуг 2'].forEach((s, i) => say(p, s, cols[i], 160, i ? m(['', 'f1', 'f2'][i]) : m('tab'), { size: 22, fill: i ? NO : DIM, weight: 600 }));
+    const R = [['Дубинка', ['+7', '+6', '+5']], ['КБ', ['16', '15', '14']], ['СЛ Реакции', ['15', '14', '13']], ['СЛ Воли', ['12', '11', '10']]];
+    R.forEach(([n, v], r) => {
+      const y = 230 + r * 64;
+      say(p, n, 830, y, m('tab', r * .6), { size: 26, anchor: 'start' });
+      v.forEach((s, i) => say(p, s, cols[i], y, i ? m(['', 'f1', 'f2'][i], .3 + r * .15) : m('tab', .3 + r * .6), { size: 28, fill: i ? NO : C0, weight: 700 }));
+    });
+    hr(p, 560, m('dem', -.3));
+    L(p, [['Деморализация', HERO], [' (глава 7): ', DIM], ['успех → испуг 1', OK], [' · ', DIM], ['крит. успех → испуг 2', OK]], 100, 640, m('dem'), 30);
+  }],
+  ['tick', 'Когда испуг спадает', (m) => {
+    const p = panel(0);
+    title(p, 'Когда испуг спадает');
+    const W = 96, cx = (r, i) => 300 + (r * 4 + i) * 104 + W / 2, yT = 205;
+    for (let r = 0; r < 3; r++) {
+      say(p, 'раунд ' + (r + 1), (cx(r, 0) + cx(r, 3)) / 2, 140, .3, { size: 22, fill: DIM, weight: 600 });
+      if (r) draw(path(p, `M${cx(r, 0) - 52} 120V660`, { stroke: COL.faint, 'stroke-width': 2 }, { d: 0 }), .3, .4);
+    }
+    const cur = put(mk('rect', { x: -46, y: -40, width: 92, height: 80, rx: 14, fill: 'none', stroke: RULE, 'stroke-width': 4 }, p), { x: cx(0, 3), y: yT, o: 0 });
+    for (let r = 0; r < 3; r++) ORDER.forEach((k, i) => tok(p, PPL[k][0][0], PPL[k][1], cx(r, i), yT, m('ord', i * .5), 28));
+    const go = (r, i, t1) => tw(cur, { x: cx(r, i), o: 1 }, t1, .4);
+    // one row of fright values; a cell holds the value during that turn, a note under it what the turn sees
+    const cell = (y, r, i, v, note, t1, tEnd) => {
+      const g = G(p, { o: 0 }), x = cx(r, i) - W / 2;
+      if (v) mk('rect', { x, y, width: W, height: 74, rx: 10, fill: NO, 'fill-opacity': .14 + .14 * v, stroke: NO, 'stroke-width': 2 }, g);
+      else mk('rect', { x, y, width: W, height: 74, rx: 10, fill: 'none', stroke: COL.faint, 'stroke-width': 2, 'stroke-dasharray': '6 5' }, g);
+      T(g, String(v), { x: x + W / 2, y: y + 50, size: 36, fill: v ? C0 : DIM, weight: 700, anchor: 'middle' });
+      if (note) T(g, note, { x: x + W / 2, y: y + 108, size: 21, fill: note[0] === 'К' ? RULE : FOE, weight: 600, anchor: 'middle' });
+      if (tEnd != null) {   // the value drops at the end of the bandit's turn
+        const b = G(p, { x: x + W, y: y + 4, o: 0 });
+        mk('circle', { r: 17, fill: NO }, b);
+        T(b, '−1', { y: 7, size: 18, fill: COL.board, weight: 700, anchor: 'middle' });
+        show(b, tEnd); pulse(b, tEnd, 1.4);
+      }
+      show(g, t1);
+    };
+    const yA = 300, yB = 500;
+    say(p, 'итог 14', 100, yA + 30, m('r1'), { size: 26, anchor: 'start' });
+    say(p, 'испуг 1', 100, yA + 66, m('r1', .3), { size: 26, fill: NO, weight: 600, anchor: 'start' });
+    go(0, 3, m('r1')); cell(yA, 0, 3, 1, '', m('r1', 2.6));
+    go(1, 0, m('b2')); cell(yA, 1, 0, 1, 'КБ 15', m('b2', .3)); cell(yA, 1, 1, 1, 'КБ 15', m('b2', .8));
+    go(1, 2, m('r2')); cell(yA, 1, 2, 1, '+6', m('r2', .3), m('end', .3));
+    go(1, 3, m('s2')); cell(yA, 1, 3, 0, 'КБ 16', m('s2', .3));
+    say(p, 'итог 23', 100, yB + 30, m('alt'), { size: 26, anchor: 'start' });
+    say(p, 'испуг 2', 100, yB + 66, m('alt', .3), { size: 26, fill: NO, weight: 600, anchor: 'start' });
+    go(0, 3, m('alt')); cell(yB, 0, 3, 2, '', m('alt', 1.6));
+    go(1, 0, m('alt2')); cell(yB, 1, 0, 2, 'КБ 14', m('alt2', .3)); cell(yB, 1, 1, 2, 'КБ 14', m('alt2', .6)); cell(yB, 1, 2, 2, '+5', m('alt2', 1), m('alt3', .2));
+    go(1, 3, m('alt3')); cell(yB, 1, 3, 1, 'КБ 15', m('alt3', .8)); cell(yB, 2, 0, 1, 'КБ 15', m('alt3', 1.3)); cell(yB, 2, 1, 1, 'КБ 15', m('alt3', 1.7));
+    go(2, 2, m('alt4')); cell(yB, 2, 2, 1, '+6', m('alt4', .3), m('alt4', 1.2)); cell(yB, 2, 3, 0, 'КБ 16', m('alt4', 1.6));
+    tw(cur, { o: 0 }, m('who', -.2), .3);
+    say(p, 'значение − 1 в конце хода испуганного, а не того, кто напугал', 800, 730, m('who'), { size: 28, fill: RULE, weight: 600 });
+    say(p, 'больше всех выигрывают Бронна и Тиль: они ходят перед разбойником', 800, 785, m('who', 4.6), { size: 25, fill: DIM });
+  }],
+  ['q1', 'Быстрая проверка', () => { panel(0); }, { ask: done => quiz(WIDE, [{
+    id: 'c-fr', prompt: ['Разбойник: КБ 16, дубинка +7.'], build: blanks(Q_FR),
+  }, {
+    id: 'c-fr-tf', prompt: ['Верно или неверно?'], build: grid(Q_FR_TF, TF, { multi: false, text: true }),
+  }], done) }],
+  ['offguard', 'Застигнут врасплох', (m) => {
+    const p = panel(0);
+    title(p, 'Застигнут врасплох');
+    cond(p, 'застигнут врасплох', null, 100, 160, .3, { size: 30 });
+    L(p, [['−2 к КБ', NO]], 100, 260, .6, 34);
+    pill(p, 'ситуативный', NO, 340, 250, .9, 24);
+    L(p, [['атаки, испытания, навыки — ', C0], ['без изменений', OK]], 100, 340, m('only'), 26);
+    // who gains after Shippa's Feint
+    tok(p, 'Р', FOE, 1230, 360, m('narrow'), 38);
+    tok(p, 'Ш', HERO, 960, 360, m('narrow', .3), 34);
+    arrowTo(p, 1000, 360, 1186, 360, OK, m('narrow', .8));
+    say(p, 'Шиппа: КБ 14', 1090, 430, m('narrow', 1.4), { size: 24, fill: OK, weight: 700 });
+    say(p, 'следующая атака вблизи', 1090, 462, m('narrow', 2.2), { size: 20, fill: DIM });
+    tok(p, 'Б', HERO, 1230, 170, m('others'), 34);
+    arrowTo(p, 1230, 208, 1230, 316, DIM, m('others', .2));
+    say(p, 'Бронна: КБ 16', 1270, 268, m('others', .5), { size: 24, fill: DIM, weight: 700, anchor: 'start' });
+    tok(p, 'Т', HERO, 1460, 360, m('others', .4), 34);
+    arrowTo(p, 1422, 360, 1274, 360, DIM, m('others', .6));
+    say(p, 'Тиль: КБ 16', 1460, 430, m('others', .9), { size: 24, fill: DIM, weight: 700 });
+    say(p, 'после Финта', 1230, 120, m('narrow'), { size: 22, fill: DIM });
+    L(p, [['сказано просто «застигнут врасплох» → ', C0], ['против всех атак', NO]], 100, 560, m('all'), 28);
+    hr(p, 620, m('src', -.3));
+    say(p, 'делают:', 100, 700, m('src'), { size: 26, fill: DIM, anchor: 'start' });
+    pill(p, 'Финт', HERO, 300, 690, m('src', .6), 26);
+    pill(p, 'Лазание', HERO, 470, 690, m('src', 1.2), 26);
+    pill(p, 'взятие в тиски', HERO, 720, 690, m('src', 1.8), 26);
+    say(p, 'входит в:', 100, 800, m('in'), { size: 26, fill: DIM, anchor: 'start' });
+    cond(p, 'распластанность', null, 240, 790, m('in', 1.4), { size: 24 });
+    cond(p, 'захват', null, 540, 790, m('in', 2.4), { size: 24 });
+  }],
+  ['prone', 'Распластанность', (m) => {
+    const p = panel(0);
+    title(p, 'Распластанность');
+    draw(path(p, 'M100 420H540', { stroke: COL.dim, 'stroke-width': 3 }, { d: 0 }), .3, .4);
+    const r = tok(p, 'Р', FOE, 320, 380, .3, 38);
+    put(r, { r: -90 });
+    say(p, 'лежит на земле', 320, 470, .6, { size: 24, fill: DIM });
+    const x = 640, pill2 = (y, t0) => pill(p, 'ситуативный', NO, 1390, y - 9, t0, 22);
+    L(p, [['застигнут врасплох: ', C0], ['−2 к КБ', NO]], x, 180, m('off'), 28); pill2(180, m('off', 1));
+    L(p, [['проверки атаки ', C0], ['−2', NO]], x, 250, m('atk'), 28); pill2(250, m('atk', .8));
+    L(p, [['движение: только ', C0], ['Вставание', HERO], [' и ', C0], ['Ползание', HERO], [' · 5 футов', DIM]], x, 320, m('move'), 28);
+    glyph(p, 1, x + 20, 380, m('stand'), .45);
+    L(p, [['Вставание', HERO], [' — 1 действие, ', C0], ['распластанность снята', OK]], x + 56, 390, m('stand'), 28);
+    tw(r, { r: 0, y: 360 }, m('stand', 2.4), .6, out);
+    hr(p, 520, m('trip', -.3));
+    L(p, [['Сбивание с ног', HERO], [': Атлетика против ', C0], ['СЛ Реакции', FOE]], 100, 600, m('trip'), 32);
+    pill(p, 'атака', RULE, 160, 690, m('atr'), 26);
+    pill(p, 'свободная рука', RULE, 380, 690, m('atr', 1.4), 26);
+    who(p, 'Бронна', HERO, 760, 690, m('atr', 2.6), 40);
+    say(p, 'щит — за спиной', 830, 700, m('atr', 3), { size: 26, fill: DIM, anchor: 'start' });
+  }],
+  ['trip', 'Стычка: Бронна', (m) => {
+    const p = panel(0);
+    title(p, 'Стычка: Бронна');
+    who(p, 'Бронна', HERO, 150, 170, .3, 40);
+    const tc = turnCells(p, 260, 120, .4, { w: 210, h: 100, react: false });
+    const fc = foeCard(p, 1060, 110, .4, { extra: ' · СЛ Реакции 15' });
+    fc.add('fr', 'испуг', 1, .6);
+    L(p, [['СЛ Реакции 15 ', C0], ['− 1', NO], [' (испуг) = 14', C0]], 100, 300, m('dc'), 26);
+    tc.spend(0, 'Сбивание с ног', m('t1'), 'Атлетика +7');
+    roll(p, 7, 100, 360, [['7 + 7 = 14 ≥ 14 → ', C0], ['успех', OK]], m('t1', 2.6));
+    fc.add('pr', 'распластанность', null, m('ok', .3));
+    say(p, 'без испуга: 14 < 15 — провал', 138, 412, m('nof'), { size: 24, fill: DIM, anchor: 'start' });
+    hr(p, 450, m('t2', -.3), 100, 1000);
+    tc.spend(1, 'Удар', m('t2'), 'меч, 2-я атака');
+    L(p, [['+9 ', C0], ['− 5', NO], [' = +4', C0]], 100, 510, m('t2', 3), 26);
+    L(p, [['КБ 16 ', C0], ['− 1', NO], [' (испуг) ', DIM], ['− 2', NO], [' (распластанность) = 13', C0]], 100, 566, m('ac'), 26);
+    roll(p, 10, 100, 630, [['10 + 4 = 14 ≥ 13 → ', C0], ['попадание', OK]], m('hit'));
+    dieNum(p, 8, 2, 120, 700, m('dmg'), 30);
+    L(p, [['2 + 4 = ', C0], ['6 урона', NO]], 170, 712, m('dmg', 1.2), 28);
+    fc.hp(12, m('dmg', 2.6));
+  }],
+  ['ignite', 'Стычка: Тиль и ход разбойника', (m) => {
+    const p = panel(0);
+    title(p, 'Стычка: Тиль и ход разбойника');
+    const fc = foeCard(p, 1060, 110, .3, { hp: 12, h: 420 });
+    fc.add('fr', 'испуг', 1, .4); fc.add('pr', 'распластанность', null, .4);
+    who(p, 'Тиль', HERO, 150, 170, .3, 40);
+    L(p, [['«Поджигание»: атака заклинанием +7 против КБ ', C0], ['13', NO]], 230, 180, .5, 26);
+    roll(p, 16, 100, 290, [['16 + 7 = 23 ≥ 13 + 10 → ', C0], ['критическое попадание', OK]], m('r', .5));
+    say(p, 'против КБ 16 — обычное попадание', 138, 338, m('vs'), { size: 24, fill: DIM, anchor: 'start' });
+    L(p, [['2d4: 1 + 2 = 3, ', C0], ['× 2 = 6 урона', NO]], 100, 394, m('d'), 26);
+    fc.hp(6, m('d', 4));
+    L(p, [['и цель горит: ', C0], ['1d4 продолжительного урона огнём', NO]], 100, 446, m('pers', 1.5), 26);
+    fc.add('fire', 'огонь 1d4', null, m('pers', 3));
+    hr(p, 488, m('turn', -.3), 100, 1000);
+    L(p, [['Ход разбойника', FOE], [' · встанет — Бронна ответит Внеочередной атакой', DIM]], 100, 540, m('turn'), 23);
+    L(p, [['бьёт лёжа: +7 ', C0], ['− 1 − 2', NO], [' = +4 против КБ 18', C0]], 100, 596, m('atk'), 26);
+    roll(p, 13, 100, 652, [['13 + 4 = 17 < 18 → ', C0], ['промах', NO], [' · без штрафов 20', DIM]], m('miss'));
+    const tc = turnCells(p, 100, 710, m('atk', -.3), { w: 200, h: 96, react: false });
+    tc.spend(0, 'Удар', m('atk'), 'лёжа');
+    tc.span(1, 2, 'сбить огонь', m('fire'));
+  }],
+  ['q2', 'Быстрая проверка', () => { panel(0); }, { ask: done => quiz(WIDE, [{
+    id: 'c-pr', prompt: ['Распластанность.'], build: blanks(Q_PR),
+  }], done) }],
+  ['persist', 'Продолжительный урон', (m) => {
+    const p = panel(0);
+    title(p, 'Продолжительный урон');
+    const steps = [['конец своего хода', 0], ['урон: бросок заново', 'end'], ['чистая проверка СЛ 15', 'flat'], ['успех — конец', 'flat']];
+    steps.forEach(([s, mark], i) => {
+      const x = 100 + i * 360, t0 = mark ? m(mark, i === 3 ? 4 : i === 2 ? .3 : .6) : m('end', -.3);
+      box(p, x, 120, 310, 80, i === 3 ? OK : RULE, t0);
+      say(p, s, x + 155, 170, t0, { size: 24, fill: i === 3 ? OK : C0, weight: 600 });
+      if (i) arrowTo(p, x - 46, 160, x - 6, 160, DIM, t0);
+    });
+    const fc = foeCard(p, 1060, 240, .3, { hp: 6, h: 400 });
+    const fr = fc.add('fr', 'испуг', 1, .4); fc.add('pr', 'распластанность', null, .4);
+    const fire = fc.add('fire', 'огонь 1d4', null, .4);
+    const tc = turnCells(p, 100, 250, m('help', -.4), { w: 200, h: 96, react: false });
+    tc.spend(0, 'Удар', m('help', -.4), 'лёжа');
+    tc.span(1, 2, 'катается по земле', m('help'), 'помощь в восстановлении');
+    say(p, 'лишняя чистая проверка сразу', 100, 400, m('help', 4), { size: 24, fill: RULE, anchor: 'start' });
+    roll(p, 9, 100, 460, [['9 < 15 → ', C0], ['горит', NO]], m('h1'));
+    dieNum(p, 4, 3, 118, 518, m('dmg'), 26);
+    L(p, [['конец хода: ', C0], ['3 урона огнём', NO]], 160, 528, m('dmg', .3), 26);
+    fc.hp(3, m('dmg', 2.4));
+    roll(p, 16, 100, 590, [['16 ≥ 15 → ', C0], ['огонь погас', OK]], m('f2', 1));
+    fire.end(m('f2', 2.4));
+    L(p, [['испуг 1 − 1 = ', C0], ['0', OK]], 138, 646, m('fr'), 26);
+    fr.set(0, m('fr', 2.4));
+    hr(p, 690, m('odds', -.3));
+    const st = strip(p, 100, 720, 15, m('odds'));
+    say(p, '6 из 20 · огонь горит в среднем 3–4 хода', 100, 800, m('odds', 2), { size: 24, anchor: 'start' });
+    const wb = put(mk('rect', { x: st.X(10) - 5, y: 714, width: st.X(20) + st.w - st.X(10) + 10, height: 52, rx: 8, fill: 'none', stroke: OK, 'stroke-width': 3, 'stroke-dasharray': '8 6' }, p), { o: 0 });
+    show(wb, m('water'));
+    say(p, 'ведро воды: СЛ 10', st.X(10), 836, m('water', .3), { size: 24, fill: OK, weight: 600, anchor: 'start' });
+    L(p, [['огонь 1', NO], [' + огонь 3 → ', C0], ['огонь 3', NO]], 1060, 740, m('same'), 28);
+    say(p, 'один тип: больший заменяет', 1060, 790, m('same', 1), { size: 22, fill: DIM, anchor: 'start' });
+  }],
+  ['actions', 'Лишние и потерянные действия', (m) => {
+    const p = panel(0);
+    title(p, 'Лишние и потерянные действия');
+    const x0 = 560, lab = (s, y, t0, colr = C0) => say(p, s, 100, y + 48, t0, { size: 26, fill: colr, weight: 600, anchor: 'start' });
+    lab('обычный ход', 120, .3, DIM);
+    actRow(p, x0, 120, 3, .3);
+    lab('замедление 1', 225, m('slow'));
+    actRow(p, x0, 225, 3, m('slow', .2)).lose(2, m('slow', 4));
+    lab('ускорение', 330, m('quick'));
+    actRow(p, x0, 330, 4, m('quick', .2), { extra: 3 });
+    say(p, 'заклинание «ускорение»:', 1060, 362, m('quick', 3.6), { size: 22, fill: DIM, anchor: 'start' });
+    say(p, 'только Удар или Перемещение', 1060, 394, m('quick', 4.4), { size: 22, fill: OK, weight: 600, anchor: 'start' });
+    // stunned 4: three actions lost in the first turn, one in the second
+    const sc = cond(p, 'шок', 4, 100, 518, m('stun'), { size: 26 });
+    say(p, 'шок 4', 100, 527, m('s4b', 3.2), { size: 26, fill: C0, weight: 600, anchor: 'start' });
+    say(p, 'ход 1', x0 + 175, 460, m('s4', -.3), { size: 22, fill: DIM, weight: 600 });
+    const t1 = actRow(p, x0, 480, 3, m('s4', -.3));
+    [0, 1, 2].forEach(i => t1.lose(i, m('s4', .8 + i * .3)));
+    sc.set(1, m('s4', 3.4));
+    say(p, 'ход 2', x0 + 575, 460, m('s4b', -.3), { size: 22, fill: DIM, weight: 600 });
+    const t2 = actRow(p, x0 + 400, 480, 3, m('s4b', -.3));
+    t2.lose(0, m('s4b', 1));
+    sc.set(0, m('s4b', 1.6));
+    say(p, 'действия считают в начале хода', 800, 620, m('start'), { size: 26, fill: RULE, weight: 600 });
+    lab('ускорение + замедление 1', 650, m('both', 2), C0);
+    const b = actRow(p, x0, 650, 4, m('both', 2.4), { extra: 3 });
+    say(p, '3 + 1 − 1 = 3', 1060, 698, m('both', 7), { size: 28, weight: 700, anchor: 'start' });
+    b.lose(3, m('pick'));
+    say(p, 'выбираете вы: теряется действие ускорения', x0, 780, m('pick', .6), { size: 22, fill: DIM, anchor: 'start' });
+  }],
+  ['q3', 'Быстрая проверка', () => { panel(0); }, { ask: done => quiz(WIDE, [{
+    id: 'c-pd', prompt: ['Продолжительный урон и действия.'], build: blanks(Q_PD),
+  }], done) }],
+  ['same', 'Одинаковые состояния не складываются', (m) => {
+    const p = panel(0);
+    title(p, 'Одинаковые состояния не складываются');
+    say(p, 'одно состояние — один раз', 100, 150, .4, { size: 28, weight: 600, anchor: 'start' });
+    L(p, [['срок — ', C0], ['более долгий', RULE]], 100, 205, m('long'), 28);
+    L(p, [['значение — ', C0], ['бóльшее', RULE]], 100, 260, m('val'), 28);
+    L(p, [['снять — ', C0], ['целиком', RULE]], 100, 315, m('rm'), 28);
+    // six rounds: slowed 2 for one round, slowed 1 for six
+    const X = i => 720 + i * 128, cw = 120;
+    for (let i = 0; i < 6; i++) say(p, String(i + 1), X(i) + cw / 2, 140, m('ex', -.3), { size: 22, fill: DIM });
+    say(p, 'раунд', X(0) - 20, 140, m('ex', -.3), { size: 22, fill: DIM, anchor: 'end' });
+    const bar = (i, j, y, s, op, t0) => {
+      const g = G(p, { o: 0 });
+      mk('rect', { x: X(i), y, width: X(j) + cw - X(i), height: 44, rx: 10, fill: NO, 'fill-opacity': op, stroke: NO, 'stroke-width': 2 }, g);
+      T(g, s, { x: X(i) + 14, y: y + 30, size: 22, fill: C0, weight: 600 });
+      show(g, t0);
+    };
+    bar(0, 0, 160, 'зам. 2', .5, m('ex', 1));
+    bar(0, 5, 216, 'замедление 1 · 6 раундов', .25, m('ex', 3.6));
+    say(p, 'итог', X(0) - 20, 318, m('r1'), { size: 22, fill: DIM, anchor: 'end' });
+    say(p, '2', X(0) + cw / 2, 320, m('r1'), { size: 36, fill: NO, weight: 700 });
+    for (let i = 1; i < 6; i++) say(p, '1', X(i) + cw / 2, 320, m('r2', .2 + i * .15), { size: 36, fill: NO, weight: 700 });
+    say(p, '3', X(0) + cw / 2, 372, m('r2', 2), { size: 30, fill: DIM, weight: 700 });
+    strike(p, X(0) + cw / 2 - 20, X(0) + cw / 2 + 20, 362, m('r2', 2.2));
+    hr(p, 420, m('flank', -.3));
+    tok(p, 'Ш', HERO, 180, 600, m('flank', 3.5), 34);
+    const r = tok(p, 'Р', FOE, 340, 600, m('flank'), 34);
+    put(r, { r: -90 });
+    tok(p, 'Б', HERO, 500, 600, m('flank', 3.6), 34);
+    say(p, 'лежит · в тисках', 340, 670, m('flank', 4.5), { size: 22, fill: DIM });
+    pill(p, 'распластанность', RULE, 760, 510, m('flank', 1.6), 24);
+    pill(p, 'взятие в тиски', RULE, 760, 690, m('flank', 5.5), 24);
+    arrowTo(p, 900, 520, 1010, 580, DIM, m('ac'));
+    arrowTo(p, 880, 680, 1010, 620, DIM, m('ac'));
+    cond(p, 'застигнут врасплох', null, 1030, 600, m('ac', .4), { size: 26 });
+    L(p, [['КБ 16 ', C0], ['− 2', NO], [' = 14', C0]], 1040, 700, m('ac', 3), 30);
+    say(p, 'КБ 12', 1300, 700, m('ac', 6.5), { size: 28, fill: DIM, weight: 700, anchor: 'start' });
+    strike(p, 1294, 1390, 690, m('ac', 6.8));
+    say(p, 'состояние одно, хоть источников и два', 800, 820, m('one'), { size: 28, fill: RULE, weight: 600 });
+  }],
+  ['kinds', 'Штрафы разных видов', (m) => {
+    const p = panel(0);
+    title(p, 'Штрафы разных видов');
+    say(p, 'из штрафов одного вида считается только бóльший', 800, 135, .4, { size: 30, fill: RULE, weight: 600 });
+    // one slot per kind of penalty: only the biggest penalty of the kind counts
+    const slot = (x, s, t0) => {
+      box(p, x, 190, 560, 240, NO, t0);
+      say(p, s, x + 280, 230, t0, { size: 26, fill: NO, weight: 700 });
+    };
+    slot(140, 'штраф состояния', .4);
+    slot(900, 'ситуативный штраф', .4);
+    const fr = cond(p, 'испуг', 2, 170, 290, .7, { size: 26 });
+    say(p, '−2', 170 + fr.w / 2, 354, .9, { size: 30, fill: NO, weight: 700 });
+    const sk = cond(p, 'тошнота', 1, 390, 520, m('sick'), { size: 26 });
+    const note = say(p, 'как испуг, но сама не проходит', 390 + sk.w + 20, 528, m('sick', 1.5), { size: 22, fill: DIM, anchor: 'start' });
+    tw(sk.g, { y: 290 }, m('ex', 1), .6); tw(note, { o: 0 }, m('ex', 1), .4);
+    const xs = 390 + sk.w / 2;
+    say(p, '−1', xs, 354, m('ex', 1.8), { size: 30, fill: DIM, weight: 700 });
+    strike(p, xs - 24, xs + 24, 344, m('ex', 2));
+    L(p, [['итог ', C0], ['−2', NO], [', а не −3', DIM]], 170, 410, m('ex', 3), 26);
+    say(p, '+', 800, 320, m('mix'), { size: 60, fill: C0, weight: 700 });
+    say(p, 'разные виды', 800, 470, m('mix', .4), { size: 24, fill: OK, weight: 600 });
+    say(p, 'складываются', 800, 502, m('mix', .4), { size: 24, fill: OK, weight: 600 });
+    const og = cond(p, 'застигнут врасплох', null, 930, 290, m('prone', .6), { size: 26 });
+    say(p, '−2', 930 + og.w / 2, 354, m('prone', 1.2), { size: 30, fill: NO, weight: 700 });
+    say(p, 'разбойник распластан', 930 + og.w + 18, 298, m('prone', .3), { size: 20, fill: DIM, anchor: 'start' });
+    L(p, [['КБ 16 ', C0], ['− 2', NO], [' (испуг) ', DIM], ['− 2', NO], [' (застигнут врасплох) = 12', C0]], 140, 610, m('ac'), 30);
+    L(p, [['дубинка +7 ', C0], ['− 2', NO], [' (испуг) ', DIM], ['− 2', NO], [' (распластанность) = +3', C0]], 140, 680, m('club'), 30);
+  }],
+  ['grapple', 'Захват', (m) => {
+    const p = panel(0);
+    title(p, 'Захват');
+    L(p, [['Захват', HERO], [' (глава 7): Атлетика против ', C0], ['СЛ Стойкости', FOE]], 100, 140, .4, 28);
+    pill(p, 'атака', RULE, 900, 131, m('b', -.6), 24);
+    roll(p, 9, 100, 210, [['Бронна: 9 + 7 = 16 ≥ 14 → ', C0], ['успех', OK]], m('b'));
+    const gc = cond(p, 'захват', null, 100, 290, m('gr'), { size: 28 });
+    say(p, 'до конца следующего хода Бронны', 100 + gc.w + 20, 298, m('gr', .6), { size: 24, fill: DIM, anchor: 'start' });
+    L(p, [['застигнут врасплох: ', C0], ['КБ 14', NO]], 130, 370, m('off'), 26);
+    L(p, [['неподвижность: ', C0], ['ни Перемещения, ни Шага', NO]], 130, 425, m('imm'), 26);
+    L(p, [['манипуляция: ', C0], ['чистая проверка СЛ 5', NO]], 130, 480, m('man'), 26);
+    box(p, 860, 250, 640, 260, RULE, m('esc'));
+    glyph(p, 1, 905, 300, m('esc'), .45);
+    say(p, 'Освобождение', 945, 312, m('esc'), { size: 30, fill: HERO, weight: 700, anchor: 'start' });
+    pill(p, 'атака', RULE, 1260, 302, m('esc', 1), 22);
+    L(p, [['против СЛ Атлетики Бронны: ', C0], ['10 + 7 = 17', RULE]], 890, 380, m('esc', 3), 25);
+    L(p, [['Атлетика +6 → на кубике ', C0], ['11+', OK]], 890, 440, m('need'), 26);
+    hr(p, 550, m('crit', -.3));
+    L(p, [['крит. успех Захвата → ', C0], ['обездвиженность', NO]], 100, 620, m('crit'), 28);
+    say(p, 'ещё и не атакует, кроме Освобождения', 100, 668, m('crit', 4), { size: 24, fill: DIM, anchor: 'start' });
+    const ob = cond(p, 'обездвиженность', null, 100, 760, m('over'), { size: 26 });
+    arrowTo(p, 120 + ob.w, 760, 160 + ob.w + 60, 760, NO, m('over', .5));
+    const g2 = cond(p, 'захват', null, 200 + ob.w + 60, 760, m('over', .5), { size: 26 });
+    tw(g2.g, { o: .4 }, m('over', 2), .5);
+    say(p, 'заменяет', 140 + ob.w + 30, 740, m('over', .5), { size: 20, fill: DIM });
+    say(p, 'не работает, но срок идёт', 220 + ob.w + 60 + g2.w, 768, m('over', 2.6), { size: 24, fill: DIM, anchor: 'start' });
+  }],
+  ['attrs', 'Состояния характеристик', (m) => {
+    const p = panel(0);
+    title(p, 'Неуклюжесть, слабость, ошеломление, истощение');
+    const cx = [100, 430, 900];
+    ['состояние', 'штраф ко всему, что от', 'значение 1'].forEach((s, i) => say(p, s, cx[i], 140, .3, { size: 22, fill: DIM, anchor: 'start' }));
+    hr(p, 160, .3);
+    const R = [['Неуклюжесть', 'Ловкости', [['Шиппа: рапира ', C0], ['+5', NO], [', КБ ', C0], ['17', NO]], 'clumsy'],
+      ['Слабость', 'Силы', [['Бронна: меч ', C0], ['+8', NO], [', урон d8 ', C0], ['+ 3', NO]], 'enf'],
+      ['Ошеломление', 'Интеллекта, Мудрости, Харизмы', [['и срыв заклинаний ↓', DIM]], 'stu'],
+      ['Истощение', 'Выносливости', [['Шиппа: максимум ПЗ ', C0], ['19', NO]], 'dr']];
+    R.forEach(([n, a, ex, mark], i) => {
+      const y = 215 + i * 64, t0 = m(mark);
+      say(p, n, cx[0], y, t0, { size: 28, fill: NO, weight: 700, anchor: 'start' });
+      say(p, a, cx[1], y, t0 + .5, { size: 26, anchor: 'start' });
+      L(p, ex, cx[2], y, mark === 'stu' ? m('spell') : t0 + 2.5, 26);
+    });
+    hr(p, 480, m('spell', -.3));
+    L(p, [['ошеломление: при Сотворении заклинания ', C0], ['чистая проверка СЛ 5 + значение', RULE]], 100, 540, m('spell'), 26);
+    say(p, 'иначе заклинание сорвано', 100, 584, m('spell', 4), { size: 24, fill: DIM, anchor: 'start' });
+    strip(p, 100, 620, 6, m('st1'));
+    say(p, 'ошеломление 1: СЛ 6 · срыв на 1–5', 100, 700, m('st1', .6), { size: 24, fill: RULE, weight: 600, anchor: 'start' });
+    L(p, [['утомление: ', C0], ['−1 к КБ и испытаниям', NO], [' до полноценного отдыха', DIM]], 100, 790, m('fat'), 28);
+  }],
+  ['q4', 'Быстрая проверка', () => { panel(0); }, { ask: done => quiz(WIDE, [{
+    id: 'c-st', prompt: ['Штрафы и состояния.'], build: blanks(Q_ST),
+  }], done) }],
+  ['card', 'Карточка состояний', (m) => {
+    const p = panel(0);
+    title(p, 'Карточка Шиппы');
+    const cx = [100, 640, 840, 1090, 1360], head = ['состояние', 'Рапира', 'КБ', 'Атака закл.', 'Внимание'];
+    head.forEach((s, i) => say(p, s, cx[i], 140, .3, { size: 22, fill: DIM, weight: 600, anchor: i ? 'middle' : 'start' }));
+    hr(p, 160, .3);
+    const R = [['без состояний', ['+6', '18', '+7', '+5'], 'r1'], ['испуг 1 или тошнота 1', ['+5', '17', '+6', '+4'], 'r2'],
+      ['застигнута врасплох', ['+6', '16', '+7', '+5'], 'r3'], ['распластана', ['+4', '16', '+5', '+5'], 'r4'],
+      ['испуг 1 и распластана', ['+3', '15', '+4', '+4'], 'r5']];
+    R.forEach(([n, v, mark], r) => {
+      const y = 215 + r * 62, t0 = m(mark);
+      say(p, n, cx[0], y, t0, { size: 26, fill: r ? NO : HERO, weight: 600, anchor: 'start' });
+      v.forEach((s, i) => say(p, s, cx[i + 1], y, t0 + .3 + i * .15, { size: 28, fill: !r || s === R[0][1][i] ? C0 : NO, weight: 700 }));
+    });
+    hr(p, 540, m('coin', -.3));
+    dieNum(p, 6, 1, 170, 640, m('coin'), 44);
+    say(p, 'число сверху —', 250, 630, m('coin', .5), { size: 26, anchor: 'start' });
+    say(p, 'значение состояния', 250, 668, m('coin', .8), { size: 26, fill: RULE, weight: 600, anchor: 'start' });
+    say(p, 'в конце своего хода:', 760, 610, m('end'), { size: 26, fill: DIM, anchor: 'start' });
+    L(p, [['1. продолжительный урон → ', C0], ['чистая проверка СЛ 15', RULE]], 760, 660, m('end', 2.6), 26);
+    L(p, [['2. испуг ', C0], ['− 1', RULE]], 760, 710, m('end', 6), 26);
+  }],
+  ['wrap', 'Итоги', (m) => {
+    const p = panel(0);
+    numbered(p, [['Значение состояния — сила штрафа; испуг −1 в конце хода испуганного.', 'w1'],
+      ['Застигнут врасплох: −2 к КБ; распластанный ещё и атакует с −2.', 'w2'],
+      ['Одинаковые состояния не складываются; из штрафов одного вида — бóльший.', 'w3'],
+      ['Продолжительный урон — в конце хода; шок и замедление отнимают действия.', 'w4']], m, 220, 140, 27);
+  }],
+  ['final1', 'Практика главы', () => { panel(0); }, { ask: done => quiz(SCREEN, [{
+    id: 'p-tf', prompt: ['Верно или неверно?'], build: grid(P_TF, TF, { multi: false, text: true }),
+  }], done, 'Практика главы   1 из 3') }],
+  ['final2', 'Практика главы', () => {}, { ask: done => quiz(SCREEN, [{
+    id: 'p-pen', prompt: ['Разбойник: КБ 16, дубинка +7, СЛ Реакции 15.'], build: blanks(P_PEN),
+  }], done, 'Практика главы   2 из 3') }],
+  ['final3', 'Практика главы', () => {}, { ask: done => quiz(SCREEN, [{
+    id: 'p-dmg', prompt: ['Урон, проверки и действия.'], build: blanks(P_DMG),
+  }], done, 'Практика главы   3 из 3') }],
+  ['finish', 'Готово', () => {}, { ask: finishCard }],
+].map(([id, title, run, extra]) => ({ id, title, run, ...extra }));
+
+/* ---------- question data ---------- */
+const Q_FR = [
+  { parts: ['У разбойника испуг 2. Его КБ: ', { box: '14' }], why: '16 − 2 = 14: КБ — тоже СЛ.', hint: 'Испуг 2 — штраф −2 и к КБ.' },
+  { parts: ['Его дубинка с испугом 2: +', { box: '5' }], why: '7 − 2 = 5.', hint: 'Штраф ко всем проверкам.' },
+  { parts: ['Испуг 2. После конца хода разбойника значение: ', { box: '1' }], why: 'В конце хода испуганного значение −1.', hint: 'Значение снижается на 1 в конце его хода.' },
+];
+const Q_FR_TF = [
+  { parts: ['Испуг снижается в конце хода того, кто напугал.'], ans: ['f'], why: 'В конце хода испуганного.' },
+  { parts: ['Испуганный получает штраф и к КБ.'], ans: ['t'], why: 'КБ — тоже СЛ.' },
+  { parts: ['Когда значение дошло до 0, состояние закончилось.'], ans: ['t'], why: 'Испуг 1 − 1 = 0 — испуга больше нет.' },
+];
+const Q_PR = [
+  { parts: ['Шиппа распластана. Её рапира (обычно +6): +', { box: '4' }], why: '6 − 2 = 4: ситуативный −2 к атакам.', hint: 'Распластанный атакует с −2.' },
+  { parts: ['Её КБ (обычно 18): ', { box: '16' }], why: 'Распластанный застигнут врасплох: 18 − 2.', hint: 'Застигнут врасплох: −2 к КБ.' },
+  { parts: ['Разбойник распластан, у него испуг 1. Его КБ (обычно 16): ', { box: '13' }], why: '16 − 1 − 2 = 13: виды штрафов разные.', hint: 'Испуг −1 и застигнут врасплох −2.' },
+  { parts: ['Сколько действий стоит Вставание: ', { box: '1' }], why: 'Одно действие, и распластанность снята.', hint: 'Вставание снимает распластанность сразу.' },
+];
+const Q_PD = [
+  { parts: ['Продолжительный урон огнём 1d4: на кубике 4, у цели 9 ПЗ. После конца её хода ПЗ: ', { box: '5' }], why: '9 − 4 = 5.', hint: 'Урон приходит в конце хода.' },
+  { parts: ['Чистая проверка СЛ 15: наименьшее число на кубике для успеха: ', { box: '15' }], why: 'Чистая проверка — только кубик: 15 и выше.', hint: 'Без модификаторов.' },
+  { parts: ['Шиппа с замедлением 2. Действий в начале хода: ', { box: '1' }], why: '3 − 2 = 1.', hint: 'На значение меньше трёх.' },
+  { parts: ['Шок 4: в первый ход пропали все 3 действия. Во второй ход можно потратить действий: ', { box: '2' }], why: 'Остался шок 1: пропадает одно, два остаются.', hint: '4 − 3 = 1 действие ещё пропадёт.' },
+];
+const Q_ST = [
+  { parts: ['Испуг 2 и тошнота 1. Штраф ко всем проверкам: −', { box: '2' }], why: 'Оба — штраф состояния, берут больший.', hint: 'Один вид — только больший.' },
+  { parts: ['Разбойник в захвате. Его КБ (обычно 16): ', { box: '14' }], why: 'В захвате он застигнут врасплох: −2.', hint: 'Захват включает «застигнут врасплох».' },
+  { parts: ['Шиппа с неуклюжестью 1. Её КБ (обычно 18): ', { box: '17' }], why: 'КБ считается от Ловкости: 18 − 1.', hint: 'Неуклюжесть — по Ловкости.' },
+  { parts: ['Ошеломление 1. СЛ чистой проверки при Сотворении заклинания: ', { box: '6' }], why: '5 + 1 = 6.', hint: 'СЛ 5 + значение.' },
+];
+const P_TF = [
+  { parts: ['Застигнутый врасплох получает −2 и к проверкам атаки.'], ans: ['f'], why: 'Только −2 к КБ; −2 к атакам — у распластанного.' },
+  { parts: ['Испуг 2 и тошнота 1 вместе дают −3.'], ans: ['f'], why: 'Оба — штраф состояния: берут больший, −2.' },
+  { parts: ['Штраф от испуга и штраф от распластанности складываются.'], ans: ['t'], why: 'Штраф состояния и ситуативный — разные виды.' },
+  { parts: ['Вставание стоит одно действие.'], ans: ['t'], why: 'И сразу снимает распластанность.' },
+  { parts: ['Продолжительный урон приходит в начале хода.'], ans: ['f'], why: 'В конце каждого своего хода.' },
+  { parts: ['Замедление 2 на 1 раунд и замедление 1 на 6 раундов дают в первом раунде замедление 3.'], ans: ['f'], why: 'Берут большее: замедление 2.' },
+  { parts: ['Взятие в тиски лежащего разбойника снижает его КБ ещё на 2.'], ans: ['f'], why: 'Состояние одно: КБ 14, а не 12.' },
+];
+const P_PEN = [
+  { parts: ['Испуг 1, распластан. КБ: ', { box: '13' }], why: '16 − 1 − 2 = 13.', hint: 'Испуг −1, застигнут врасплох −2.' },
+  { parts: ['Испуг 1, распластан. Дубинка: +', { box: '4' }], why: '7 − 1 − 2 = 4.', hint: 'Испуг −1, распластанность −2 к атаке.' },
+  { parts: ['Испуга нет, лежит и в тисках. КБ: ', { box: '14' }], why: 'Застигнут врасплох один раз: 16 − 2.', hint: 'Одно состояние, два источника.' },
+  { parts: ['Испуг 2. СЛ Реакции против Сбивания с ног: ', { box: '13' }], why: '15 − 2 = 13.', hint: 'Испуг снижает и СЛ.' },
+  { parts: ['Испуг 2, тошнота 1, распластан. Дубинка: +', { box: '3' }], why: '7 − 2 (больший штраф состояния) − 2 (ситуативный) = 3.', hint: 'Из штрафов состояния — только больший.' },
+];
+const P_DMG = [
+  { parts: ['Продолжительный урон огнём 1d4: на кубике 2, у цели 7 ПЗ. ПЗ после конца её хода: ', { box: '5' }], why: '7 − 2 = 5.', hint: 'Урон приходит в конце хода.' },
+  { parts: ['Продолжительный урон огнём был 1, пришёл ещё 3. Теперь он: ', { box: '3' }], why: 'Один тип не складывается: больший заменяет.', hint: 'Не 4.' },
+  { parts: ['Шиппа с ускорением и замедлением 1. Действий: ', { box: '3' }], why: '3 + 1 − 1 = 3.', hint: 'Плюс одно, минус одно.' },
+  { parts: ['Ошеломление 2. СЛ чистой проверки при Сотворении заклинания: ', { box: '7' }], why: '5 + 2 = 7.', hint: 'СЛ 5 + значение.' },
+  { parts: ['Разбойник (Атлетика +6) вырывается из захвата Бронны (СЛ 17). Наименьшее число на кубике: ', { box: '11' }], why: '11 + 6 = 17.', hint: '17 − 6.' },
+];
+boot();
+</script>
+</body>
+</html>

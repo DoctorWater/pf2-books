@@ -1,0 +1,634 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Исследование и свободное время — Первый герой</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%231d2b27'/%3E%3Ctext x='32' y='45' text-anchor='middle' font-size='48' fill='%23f0b45a'%3E∞%3C/text%3E%3C/svg%3E">
+<link rel="stylesheet" href="../lib/engine.css">
+<link rel="expect" href="#bar" blocking="render"><!-- hold the first frame until the player exists, so the page transition can run -->
+</head>
+<body>
+<script src="../lib/engine.js"></script>
+<script src="../lib/pf.js"></script>
+<script src="audio/ru/timings.js"></script>
+<script>
+'use strict';
+const CHAPTER = { number: 15, title: 'Исследование и свободное время', minutes: 14, language: 'ru', next: '../ch16/' };
+
+/* ---------- chapter drawing helpers (shared ones: lib/pf.js) ---------- */
+// Modes: exploration EXP, encounter ENC, downtime DOWN (pf.js). Heroes HERO, the bandit FOE, rules and DCs RULE, money MON.
+const MON = COL.int, C0 = COL.chalk, DIM = COL.dim;
+const hr = (p, y, t0, x1 = 80, x2 = 1520) => draw(path(p, `M${x1} ${y}H${x2}`, { stroke: COL.faint, 'stroke-width': 2 }, { d: 0 }), t0, .5);
+const box = (p, x, y, w, h, colr, t0) => { const r = mk('rect', { x, y, width: w, height: h, rx: 18, fill: '#22322d', stroke: colr, 'stroke-width': 2.5 }, p); put(r, { o: 0 }); show(r, t0); return r; };
+const title = (p, s, t0 = .2) => say(p, s, 800, 62, t0, { size: 36, weight: 600 });
+const L = (p, parts, x, y, t0, size = 26) => colorLine(p, parts, x, y, t0, { size, anchor: 'start' });   // left-aligned coloured line
+// A d20 with its roll and a coloured sum after it, left-aligned at x (as in ch08–ch14).
+function roll(p, n, x, y, parts, t0, size = 26) {
+  numDie(p, n, x, y - 9, t0, 22);
+  colorLine(p, parts, x + 38, y, t0 + .3, { size, anchor: 'start' });
+}
+// A ring with a letter, no name (as in ch09–ch14).
+function tok(p, letter, colr, x, y, t0, r = 30) {
+  const g = G(p, { x, y, o: 0 });
+  mk('circle', { r, fill: COL.board, stroke: colr, 'stroke-width': 4 }, g);
+  T(g, letter, { y: r * .36, size: r, fill: colr, weight: 700, anchor: 'middle' });
+  show(g, t0);
+  return g;
+}
+// Pills in a row centred on cx (as in ch07, ch09, ch13, ch14).
+const pw = (s, size) => s.length * size * .56 + 44;
+function pillRow(p, items, cx, y, size, colr, t0s) {
+  const w = items.map(s => pw(s, size)), tot = w.reduce((a, b) => a + b + 18, -18);
+  let x = cx - tot / 2;
+  return items.map((s, i) => { const g = pill(p, s, colr, x + w[i] / 2, y, t0s[i], size); x += w[i] + 18; return g; });
+}
+// A table: cols [[x, anchor], …], a dim header at y0, rows every dy (cells: text or [text, colour]); t0r(i) — when row i appears.
+// hl(i, t, colour) lights row i from behind.
+function table(p, cols, head, rows, y0, dy, t0h, t0r, { size = 26, hsize = 21, x1 = 80, x2 = 1520, fill = () => C0 } = {}) {
+  const back = G(p), Y = i => y0 + 58 + i * dy;
+  head.forEach((s, j) => say(p, s, cols[j][0], y0, t0h, { size: hsize, fill: DIM, weight: 600, anchor: cols[j][1] }));
+  hr(p, y0 + 18, t0h, x1, x2);
+  rows.forEach((r, i) => r.forEach((c, j) => {
+    const [str, colr = fill(i, j)] = [].concat(c);
+    say(p, str, cols[j][0], Y(i), t0r(i) + j * .08, { size, fill: colr, weight: 600, anchor: cols[j][1] });
+  }));
+  return {
+    Y,
+    hl(i, t1, colr = RULE) {
+      const e = mk('rect', { x: x1, y: Y(i) - size - 4, width: x2 - x1, height: size + 20, rx: 10, fill: colr, 'fill-opacity': .14, stroke: colr, 'stroke-width': 2 }, back);
+      put(e, { o: 0 }); show(e, t1, .3);
+      return e;
+    },
+  };
+}
+// A card with a coloured title and short lines [[text, colour, size?], …] every `step` px; lines appear at t0s[i] (or t0).
+function pcard(p, x, y, w, h, name, colr, lines, t0, { step = 44, top = 100, t0s = [] } = {}) {
+  box(p, x, y, w, h, colr, t0);
+  say(p, name, x + 28, y + 50, t0, { size: 28, fill: colr, weight: 700, anchor: 'start' });
+  lines.forEach(([s, c = C0, size = 24], i) => say(p, s, x + 28, y + top + i * step, t0s[i] ?? t0 + .3 + i * .3, { size, fill: c, weight: 600, anchor: 'start' }));
+}
+// A row of n HP cells from x; cells below `cur` are filled; set(v, t) fills or empties them; thr draws the Broken Threshold after cell thr.
+function hpCells(p, x, y, n, t0, { cw = 56, h = 56, gap = 6, thr = 0 } = {}) {
+  const X = i => x + i * (cw + gap), fills = [];
+  const g = G(p, { o: 0 });
+  for (let i = 0; i < n; i++) {
+    mk('rect', { x: X(i), y, width: cw, height: h, rx: 8, fill: 'none', stroke: COL.faint, 'stroke-width': 2, 'stroke-dasharray': '6 5' }, g);
+    T(g, String(i + 1), { x: X(i) + cw / 2, y: y + h + 24, size: 18, fill: DIM, weight: 600, anchor: 'middle' });
+  }
+  show(g, t0);
+  for (let i = 0; i < n; i++) fills.push(put(mk('rect', { x: X(i), y, width: cw, height: h, rx: 8, fill: HERO, 'fill-opacity': .5, stroke: HERO, 'stroke-width': 2 }, p), { o: 0 }));
+  if (thr) {
+    const tx = X(thr) - gap / 2, tl = G(p, { o: 0 });
+    path(tl, `M${tx} ${y - 14}V${y + h + 34}`, { stroke: NO, 'stroke-width': 4, 'stroke-dasharray': '10 7' });
+    T(tl, 'предел прочности 6', { x: tx, y: y + h + 62, size: 20, fill: NO, weight: 600, anchor: 'middle' });
+    show(tl, t0 + .4);
+  }
+  let cur = 0;
+  return {
+    X,
+    set(v, t1, step = .08) {
+      const from = cur;
+      for (let i = Math.min(from, v); i < Math.max(from, v); i++) tw(fills[i], { o: v > from ? 1 : 0 }, t1 + Math.abs(i - from) * step, .2);
+      cur = v;
+    },
+  };
+}
+// Downtime calendar: 7 day columns from CAL.x; block(row, d1, d2, …) spans days d1..d2 (0-based).
+const CAL = { x: 300, w: 166, gap: 8, y: 190, h: 84, dy: 100 };
+const calX = d => CAL.x + d * (CAL.w + CAL.gap);
+function calBlock(p, row, d1, d2, label, colr, t0, sub) {
+  const x = calX(d1), w = calX(d2) + CAL.w - x, y = CAL.y + row * CAL.dy, g = G(p, { o: 0 });
+  mk('rect', { x, y, width: w, height: CAL.h, rx: 12, fill: colr, 'fill-opacity': .2, stroke: colr, 'stroke-width': 2.5 }, g);
+  T(g, label, { x: x + w / 2, y: y + (sub ? 36 : 50), size: 22, fill: C0, weight: 600, anchor: 'middle' });
+  if (sub) T(g, sub, { x: x + w / 2, y: y + 66, size: 18, fill: DIM, weight: 600, anchor: 'middle' });
+  show(g, t0);
+  return g;
+}
+// The road map: village (left) → mill (right), 1 mile = 400 px.
+const MX = mi => 180 + mi * 400, RY = 200;
+function roadMap(p, t0) {
+  const g = G(p, { o: 0 });
+  [[90, 196], [140, 184]].forEach(([x, y]) => path(g, `M${x - 22} ${y + 20}V${y - 4}L${x} ${y - 24}L${x + 22} ${y - 4}V${y + 20}Z`, { stroke: C0, 'stroke-width': 3, fill: '#22322d' }));
+  T(g, 'деревня', { x: 115, y: 254, size: 22, fill: DIM, weight: 600, anchor: 'middle' });
+  path(g, 'M1462 222V172H1508V222Z', { stroke: C0, 'stroke-width': 3, fill: '#22322d' });
+  path(g, 'M1485 160L1455 130M1485 160L1515 130M1485 160L1455 190M1485 160L1515 190', { stroke: C0, 'stroke-width': 4 });
+  T(g, 'мельница', { x: 1485, y: 254, size: 22, fill: DIM, weight: 600, anchor: 'middle' });
+  // meadow: tufts of grass along the first mile; road: a solid line; river: a wave under the road
+  for (let x = MX(0) + 14; x < MX(1) - 10; x += 34) path(g, `M${x} ${RY + 14}l6 -16l6 16m4 0l6 -12`, { stroke: COL.faint, 'stroke-width': 2.5 });
+  path(g, `M${MX(0)} ${RY}H${MX(1)}`, { stroke: DIM, 'stroke-width': 4, 'stroke-dasharray': '4 10' });
+  path(g, `M${MX(1)} ${RY}H${MX(3)}`, { stroke: C0, 'stroke-width': 6 });
+  let w = `M${MX(1)} ${RY + 34}`;
+  for (let x = MX(1); x < MX(3); x += 40) w += `q10 -10 20 0t20 0`;
+  path(g, w, { stroke: COL.faint, 'stroke-width': 2.5 });
+  [0, 1, 2, 3].forEach(i => path(g, `M${MX(i)} ${RY - 12}V${RY + 12}`, { stroke: C0, 'stroke-width': 3 }));
+  T(g, 'луг · 1 миля', { x: (MX(0) + MX(1)) / 2, y: RY - 30, size: 22, weight: 600, anchor: 'middle' });
+  T(g, 'дорога вдоль реки · 2 мили', { x: (MX(1) + MX(3)) / 2, y: RY - 30, size: 22, weight: 600, anchor: 'middle' });
+  show(g, t0);
+  return g;
+}
+// The party: three small rings moving along the road.
+function party(p, x, y, t0) {
+  const g = G(p, { x, y, o: 0 });
+  [['Ш', -26, -10], ['Б', 0, 12], ['Т', 26, -10]].forEach(([s, dx, dy]) => {
+    mk('circle', { cx: dx, cy: dy, r: 15, fill: COL.board, stroke: HERO, 'stroke-width': 3 }, g);
+    T(g, s, { x: dx, y: dy + 6, size: 15, fill: HERO, weight: 700, anchor: 'middle' });
+  });
+  show(g, t0);
+  return g;
+}
+
+/* ---------- beats: [id, title, run(m, D), { ask }?] ---------- */
+const BEATS = [
+  ['intro', 'Исследование и свободное время', (m, D) => {
+    const g = G(scene, { o: 0, y: 24 });
+    T(g, 'Раздел 7 «Вне боя» · Глава 15', { x: 800, y: 330, size: 28, fill: DIM, anchor: 'middle' });
+    T(g, 'Исследование и свободное время', { x: 800, y: 440, size: 64, weight: 600, anchor: 'middle' });
+    tw(g, { o: 1, y: 0 }, .2, 1.1, out);
+    const r = say(scene, 'дорога, занятия в пути, неделя в деревне', 800, 560, Math.max(m('sub'), 1.2), { size: 34, fill: DIM });
+    tw(g, { o: 0, y: -24 }, D - .9, .8); hide(r, D - .9, .8);
+  }],
+  ['table', 'Утро в деревне', (m) => {
+    const p = panel(0);
+    title(p, 'Утро в деревне');
+    [['Шиппа', 140], ['Бронна', 260], ['Тиль', 380]].forEach(([n, x], i) => who(p, n, HERO, x, 250, .3 + i * .15, 38));
+    who(p, 'Ведущий', GMC, 1440, 250, m('gm', -.4), 38);
+    bubble(p, 'До мельницы 3 мили: миля лугом и 2 по дороге. Что делаете в пути?', 930, 160, GMC, m('gm'), { size: 23, side: 'right' });
+    const cards = [['бой', ENC, 'раунды по 6 секунд', ['главы 8–12'], 'time'],
+      ['исследование', EXP, 'минуты и часы', ['дорога, осмотр развалин,', 'разговор у ворот'], 'exp'],
+      ['свободное время', DOWN, 'дни', ['неделя в деревне: работа,', 'починка, покупки'], 'down']];
+    const bx = [];
+    cards.forEach(([n, colr, unit, ex, mk1], i) => {
+      const x = 100 + i * 480, t0 = m(mk1), g = G(p);
+      bx.push(g);
+      pcard(g, x, 400, 440, 240, n, colr, [[unit, C0, 28], ...ex.map(s => [s, DIM, 22])], t0, { step: 40, top: 104, t0s: [t0 + .3, t0 + .8, t0 + .8] });
+    });
+    tw(bx[0], { o: .4 }, m('time', 2.2), .6);
+    L(p, [['раундов нет · каждый игрок называет ', C0], ['одно занятие', EXP], [' на всю дорогу', C0]], 100, 730, m('time', 4), 28);
+  }],
+  ['speed', 'Скорость путешествия', (m) => {
+    const p = panel(0);
+    title(p, 'Скорость путешествия');
+    const R = [[10, 100, '1', 8], [15, 150, '1½', 12], [20, 200, '2', 16], [25, 250, '2½', 20], [30, 300, '3', 24], [40, 400, '4', 32]];
+    const tb = table(p, [[150, 'middle'], [330, 'middle'], [520, 'middle'], [690, 'middle']], ['Скорость', 'футов в минуту', 'миль в час', 'миль в день'],
+      R.map(r => r.map(String)), 140, 52, .3, i => m('tab', i * .2), { x1: 70, x2: 770 });
+    L(p, [['футов в минуту = ', C0], ['Скорость × 10', RULE]], 860, 170, m('ft'), 28);
+    L(p, [['миль в час = ', C0], ['Скорость ÷ 10', RULE]], 860, 225, m('mi'), 28);
+    L(p, [['день пути = ', C0], ['8 часов', RULE]], 860, 280, m('day'), 28);
+    tb.hl(2, m('br'), HERO);
+    L(p, [['Бронна, Скорость 20:', HERO]], 860, 360, m('br'), 28);
+    L(p, [['200 футов в минуту', C0]], 860, 405, m('br', 1.5), 26);
+    L(p, [['2 мили в час · 16 миль за день', C0]], 860, 445, m('br', 3), 26);
+    hr(p, 520, m('grp', -.3));
+    [['Ш', 25, 200], ['Т', 30, 360], ['Б', 20, 520]].forEach(([s, v, x], i) => {
+      tok(p, s, HERO, x, 640, m('grp', 3 + i * .9), 34);
+      say(p, 'Скорость ' + v, x, 714, m('grp', 3.2 + i * .9), { size: 22, fill: DIM, weight: 600 });
+    });
+    const ring = put(mk('circle', { cx: 520, cy: 640, r: 46, fill: 'none', stroke: RULE, 'stroke-width': 4 }, p), { o: 0 });
+    show(ring, m('two', -.2));
+    L(p, [['группа идёт со скоростью самого медленного', C0]], 680, 625, m('grp'), 28);
+    L(p, [['Бронна, 20 → ', HERO], ['2 мили в час', RULE]], 680, 685, m('two'), 30);
+  }],
+  ['acts1', 'Занятия исследования', (m) => {
+    const p = panel(0);
+    title(p, 'Занятия исследования');
+    who(p, 'Шиппа', HERO, 140, 200, .3, 38);
+    bubble(p, 'Смотрю, нет ли на дороге ловушек', 480, 150, HERO, .5, { size: 24, side: 'left' });
+    who(p, 'Ведущий', GMC, 980, 200, m('gm', -.3), 38);
+    pill(p, 'занятие исследования', EXP, 1290, 200, m('gm', .6), 26);
+    arrowTo(p, 1030, 200, 1130, 200, DIM, m('gm', .4));
+    const bar = (y, w, label, note, t0) => {
+      say(p, label, 100, y + 28, t0, { size: 24, fill: C0, weight: 600, anchor: 'start' });
+      const e = put(mk('rect', { x: 380, y, width: 1, height: 40, rx: 8, fill: EXP, 'fill-opacity': .45, stroke: EXP, 'stroke-width': 2 }, p), { o: 0, a_width: 1 });
+      show(e, t0, .2); tw(e, { a_width: w }, t0, .9);
+      say(p, note, 400 + w, y + 29, t0 + .8, { size: 24, fill: EXP, weight: 600, anchor: 'start' });
+    };
+    bar(300, 760, 'просто идёт к цели', 'полная скорость', m('full'));
+    bar(366, 380, 'почти все занятия', '½ скорости', m('half'));
+    L(p, [['готовят к бою:', ENC]], 100, 470, m('fight'), 26);
+    const C = [['Незаметное перемещение', ['на инициативу —', 'Скрытность (глава 13)'], 'an'],
+      ['Защита', ['щит поднят ещё', 'до первого хода'], 'def'],
+      ['Разведка', ['+1 к инициативе', 'каждому в группе'], 'sc']];
+    C.forEach(([n, ef, mk1], i) => {
+      const t0 = m(mk1);
+      pcard(p, 100 + i * 480, 500, 440, 300, n, EXP, [['½ скорости', DIM, 22], ['в начале боя:', ENC, 22], [ef[0], C0, 26], [ef[1], C0, 26]], t0,
+        { step: 44, top: 100, t0s: [t0 + .4, t0 + 1.2, t0 + 1.6, t0 + 1.9] });
+    });
+  }],
+  ['acts2', 'Другие занятия', (m) => {
+    const p = panel(0);
+    title(p, 'Занятия, которые ищут');
+    const C = [['Осмотр', [['ведущий тайно бросает'], ['Вспомнить информацию'], ['по находкам в пути']], .3],
+      ['Обыск', [['Поиск тайных дверей'], ['и ловушек'], ['глава 13', DIM]], m('srch')],
+      ['Обнаружение магии', [['≤ 150 футов в минуту:'], ['ауру заметит заранее'], ['≤ 300 — не пропустит ни одной', DIM, 20]], m('dm')]];
+    C.forEach(([n, ls, t0], i) => {
+      const t1 = i ? t0 : m('inv');
+      pcard(p, 100 + i * 480, 110, 440, 250, n, EXP, [['½ скорости', DIM, 22], ...ls.map(([s, c = C0, z = 23]) => [s, c, z])], i ? t0 : .3,
+        { step: 38, top: 96, t0s: [t1 + .4, t1 + .8, t1 + 1.2, t1 + 1.6] });
+    });
+    box(p, 100, 400, 1400, 170, EXP, m('hus'));
+    say(p, 'Спешка', 128, 450, m('hus'), { size: 28, fill: EXP, weight: 700, anchor: 'start' });
+    L(p, [['скорость ', C0], ['× 2', OK], [', но ненадолго', C0]], 330, 450, m('hus', .6), 26);
+    L(p, [['длится: Выносливость × 10 минут, ', C0], ['не меньше 10', RULE]], 128, 500, m('hus', 3), 26);
+    L(p, [['вся группа — по самой низкой Выносливости', C0]], 128, 545, m('low'), 26);
+    say(p, 'ещё: Следование примеру, Повтор заклинания, Поддержание эффекта — ведущий объяснит, когда понадобятся', 100, 615, m('low', 2.4), { size: 21, fill: DIM, anchor: 'start' });
+    L(p, [['действия навыков с дескриптором ', C0], ['«исследование»', EXP], [':', C0]], 100, 680, m('skill'), 26);
+    pillRow(p, ['Лечение ранений · 10 мин', 'Починка предмета · 10 мин', 'Расшифровка', 'Выслеживание'], 800, 740, 22, HERO,
+      [0, 1, 2, 3].map(i => m('skill', 2.4 + i * .5)));
+    L(p, [['утомлённый', NO], [' — занятий в пути не ведёт', C0]], 100, 830, m('fat'), 28);
+  }],
+  ['q1', 'Быстрая проверка', () => { panel(0); }, { ask: done => quiz(WIDE, [{
+    id: 'c-spd', prompt: ['Скорость путешествия.'], build: blanks(Q_SPD),
+  }, {
+    id: 'c-act', prompt: ['Верно или неверно?'], build: grid(Q_ACT, TF, { multi: false, text: true }),
+  }], done) }],
+  ['road', 'Дорога к мельнице', (m) => {
+    const p = panel(0);
+    title(p, 'Дорога к мельнице');
+    roadMap(p, .3);
+    const pt = party(p, MX(0) - 10, RY - 70, .6);
+    const tb = table(p, [[100, 'start'], [380, 'middle'], [570, 'middle'], [800, 'middle'], [1030, 'middle']],
+      ['герой', 'Скорость', 'футов в минуту', 'занятие', 'с занятием'],
+      [[['Шиппа', HERO], '25', '250', ['Осмотр', EXP], '125'], [['Бронна', HERO], '20', '200', ['Защита', EXP], '100'],
+        [['Тиль', HERO], '30', '300', ['Обнаружение магии', EXP], '150']],
+      360, 50, m('sh', -.4), i => m(['sh', 'br', 'ti'][i]), { x1: 80, x2: 1130 });
+    tb.hl(1, m('grp'), HERO);
+    L(p, [['группа: 100 фт/мин', C0]], 1170, 420, m('grp'), 25);
+    L(p, [['= ', C0], ['1 миля в час', RULE]], 1170, 460, m('grp', 3), 25);
+    L(p, [['Тиль: 100 < 150 —', C0]], 1170, 515, m('til', 1), 24);
+    L(p, [['ловушку заметит заранее', OK]], 1170, 550, m('til', 3), 24);
+    L(p, [['пересечённая местность: ', C0], ['скорость ½', RULE]], 160, 290, m('dt'), 22);
+    say(p, 'сильно пересечённая — ⅓', 160, 325, m('gdt'), { size: 20, fill: DIM, weight: 600, anchor: 'start' });
+    // hours on the way, to scale: 1 hour = 220 px
+    const HX = h => 380 + h * 220;
+    hr(p, 590, m('mead', -.4));
+    say(p, 'часов в пути', 100, 640, m('mead', -.4), { size: 22, fill: DIM, weight: 600, anchor: 'start' });
+    const seg = (y, h1, h2, label, t0, meadow) => {
+      const g = G(p, { o: 0 });
+      mk('rect', { x: HX(h1), y, width: HX(h2) - HX(h1) - 4, height: 50, rx: 8, fill: meadow ? COL.faint : C0, 'fill-opacity': meadow ? .35 : .18, stroke: meadow ? DIM : C0, 'stroke-width': 2 }, g);
+      T(g, label, { x: (HX(h1) + HX(h2)) / 2, y: y + 33, size: 21, fill: C0, weight: 600, anchor: 'middle' });
+      show(g, t0);
+    };
+    say(p, 'с занятиями', 100, 692, m('mead'), { size: 24, weight: 600, anchor: 'start' });
+    seg(660, 0, 2, 'луг · ½ мили в час', m('mead', .3), true);
+    seg(660, 2, 4, 'дорога · 1 миля в час', m('way', .2));
+    say(p, '4 часа', HX(4) + 20, 694, m('tot'), { size: 30, fill: RULE, weight: 700, anchor: 'start' });
+    say(p, 'без занятий', 100, 772, m('no'), { size: 24, fill: DIM, weight: 600, anchor: 'start' });
+    seg(740, 0, 1, 'луг', m('no', .4), true);
+    seg(740, 1, 2, 'дорога', m('no', .8));
+    say(p, '2 часа', HX(2) + 20, 774, m('no', 1.4), { size: 30, fill: DIM, weight: 700, anchor: 'start' });
+    [0, 1, 2, 3, 4].forEach(h => say(p, String(h), HX(h), 832, m('mead', -.3), { size: 20, fill: DIM, weight: 600 }));
+    tw(pt, { x: MX(1) }, m('mead', .3), 1.6);
+    tw(pt, { x: MX(3) }, m('way', .2), 1.6);
+  }],
+  ['ambush', 'Луг и начало боя', (m) => {
+    const p = panel(0);
+    title(p, 'На лугу');
+    who(p, 'Шиппа', HERO, 140, 190, .3, 38);
+    L(p, [['ведёт ', C0], ['Осмотр', EXP], [' · ведущий тайно бросает Общество +3', C0]], 220, 180, .5, 26);
+    roll(p, 14, 220, 240, [['14 + 3 = 17 ≥ СЛ 15 → ', C0], ['успех', OK]], m('roll', .4));
+    L(p, [['Ведущий: ', GMC], ['«У брода — порванный мешок. Клеймо на нём чужое»', C0]], 100, 330, m('find'), 26);
+    hr(p, 380, m('foe', -.3));
+    who(p, 'Разбойник', FOE, 1400, 480, m('foe'), 40);
+    pill(p, 'бой', ENC, 1400, 610, m('foe', 1.4), 26);
+    tok(p, 'Б', HERO, 130, 470, m('def'), 28);
+    L(p, [['шла с ', C0], ['Защитой', EXP], [' → щит поднят до первого хода', C0]], 180, 480, m('def'), 26);
+    L(p, [['КБ 18 + 2 = ', C0], ['20', OK], [' — без единого действия', DIM]], 180, 525, m('def', 3.5), 26);
+    tok(p, 'Ш', HERO, 130, 610, m('per'), 28);
+    L(p, [['вела ', C0], ['Осмотр', EXP], [' → инициатива: ', C0], ['Внимание +5', HERO]], 180, 620, m('per'), 26);
+    say(p, 'Скрытность на инициативу — только после Незаметного перемещения', 180, 665, m('st'), { size: 22, fill: DIM, weight: 600, anchor: 'start' });
+    L(p, [['Разведку не вёл никто → ', C0], ['+1 к инициативе нет', NO]], 130, 760, m('sc'), 26);
+  }],
+  ['rest', 'Отдых и ежедневная подготовка', (m) => {
+    const p = panel(0);
+    title(p, 'Отдых и ежедневная подготовка');
+    L(p, [['отдых: ', C0], ['8 часов раз в сутки', RULE]], 100, 140, .3, 28);
+    say(p, 'ПЗ: Выносливость × уровень, не меньше 1 (глава 11)', 100, 186, .9, { size: 21, fill: DIM, weight: 600, anchor: 'start' });
+    [['Ш', '+2 ПЗ', ''], ['Б', '+2 ПЗ', ''], ['Т', '+1 ПЗ', ' · Выносливость 0, минимум']].forEach(([s, v, n], i) => {
+      tok(p, s, HERO, 120, 240 + i * 52, m('hp', i * .9), 20);
+      L(p, [[v, OK], [n, DIM]], 156, 248 + i * 52, m('hp', i * .9), 24);
+    });
+    hr(p, 400, m('arm', -.3), 80, 760);
+    L(p, [['Шиппа спала в доспехе → ', C0]], 100, 455, m('arm'), 26);
+    pill(p, 'утомление', NO, 520, 446, m('arm', 3.6), 24);
+    L(p, [['КБ 18 → ', C0], ['17', NO]], 120, 520, m('fat'), 26);
+    L(p, [['испытания ', C0], ['−1', NO]], 120, 565, m('fat', 1.8), 26);
+    L(p, [['занятий в пути — ', C0], ['нет', NO]], 120, 610, m('fat', 3.4), 26);
+    say(p, 'до следующего полноценного отдыха', 120, 660, m('fat', 5), { size: 21, fill: DIM, weight: 600, anchor: 'start' });
+    box(p, 840, 110, 680, 520, RULE, m('prep'));
+    L(p, [['ежедневная подготовка', RULE], [' · ≈ 1 час', C0]], 870, 160, m('prep'), 28);
+    const items = [['ячейки заклинаний — снова полные', 'Шиппа: две ячейки 1-го круга', 'sl'], ['фокальные пункты и «раз в день»', 'Шиппа: снова 2 ФП', 'fp'],
+      ['доспехи надеты, оружие в руках', '', 'gear'], ['настройка на магические предметы', 'не больше 10 (глава 19)', 'inv']];
+    items.forEach(([a, b, mk1], i) => {
+      const y = 235 + i * 88;
+      yesNo(p, true, 890, y - 9, m(mk1), .8);
+      say(p, a, 920, y, m(mk1), { size: 25, weight: 600, anchor: 'start' });
+      if (b) say(p, b, 920, y + 34, m(mk1, .6), { size: 21, fill: DIM, weight: 600, anchor: 'start' });
+    });
+    say(p, 'только после отдыха и раз в день', 870, 600, m('prep', 1.5), { size: 21, fill: DIM, weight: 600, anchor: 'start' });
+  }],
+  ['q2', 'Быстрая проверка', () => { panel(0); }, { ask: done => quiz(WIDE, [{
+    id: 'c-road', prompt: ['Дорога, начало боя и отдых.'], build: blanks(Q_ROAD),
+  }, {
+    id: 'c-road-tf', prompt: ['Верно или неверно?'], build: grid(Q_ROAD_TF, TF, { multi: false, text: true }),
+  }], done) }],
+  ['downtime', 'Неделя в деревне', (m) => {
+    const p = panel(0);
+    title(p, 'Неделя в деревне');
+    L(p, [['свободное время', DOWN], [': безопасное место, обычно поселение', C0]], 100, 125, .3, 26);
+    L(p, [[' · занятие — целый день', DOWN]], 830, 125, m('day'), 26);
+    for (let d = 0; d < 7; d++) say(p, 'день ' + (d + 1), calX(d) + CAL.w / 2, 172, m('week', d * .08), { size: 21, fill: DIM, weight: 600 });
+    ['Ш', 'Б', 'Т'].forEach((s, r) => tok(p, s, HERO, 150, CAL.y + r * CAL.dy + CAL.h / 2, m('week', .3 + r * .2), 30));
+    calBlock(p, 0, 0, 6, 'трактир у моста', DOWN, m('sh'), 'Зарабатывание денег · Исполнение');
+    calBlock(p, 1, 0, 0, 'покупки', DOWN, m('br'), 'починка');
+    calBlock(p, 1, 1, 2, 'подготовка', DOWN, m('br', .6), 'Создание предмета');
+    calBlock(p, 1, 3, 6, 'кузница', DOWN, m('br', 1.2), 'Создание предмета');
+    calBlock(p, 2, 0, 6, 'у мельника за кров и еду', DOWN, m('ti'), 'Самообеспечение');
+    // the evening before day 1: Gather Information
+    const ev = G(p, { o: 0 });
+    mk('rect', { x: 200, y: CAL.y - 4, width: 92, height: CAL.h + 8, rx: 12, fill: 'none', stroke: HERO, 'stroke-width': 2.5, 'stroke-dasharray': '7 6' }, ev);
+    T(ev, 'вечер', { x: 246, y: CAL.y + 50, size: 19, fill: HERO, weight: 600, anchor: 'middle' });
+    show(ev, m('gi'));
+    hr(p, 520, m('gi', -.3));
+    L(p, [['вечер приезда: ', DIM], ['Сбор информации', HERO], [' — действие Дипломатии', C0]], 100, 580, m('gi'), 28);
+    L(p, [['обычно 2 часа · с чертой ', C0], ['Неформальное общение', HERO], [' — 1 час', OK]], 100, 640, m('hob'), 28);
+    roll(p, 9, 100, 715, [['Дипломатия +7: 9 + 7 = 16 ≥ СЛ 15 → ', C0], ['успех', OK]], m('roll', 1), 28);
+    L(p, [['Ведущий: ', GMC], ['«В трактире у моста ищут музыканта на неделю»', C0]], 100, 790, m('roll', 5), 26);
+  }],
+  ['income', 'Зарабатывание денег', (m) => {
+    const p = panel(0);
+    title(p, 'Зарабатывание денег');
+    L(p, [['занятие свободного времени', DOWN], [' · навык должен быть ', C0], ['изучен', RULE]], 100, 135, .3, 28);
+    pillRow(p, ['Ремесло', 'Знание', 'Исполнение'], 330, 205, 24, HERO, [0, 1, 2].map(i => m('sk', i * .5)));
+    L(p, [['ведущий: ', GMC], ['уровень задачи → СЛ', RULE], [' (тайно)', DIM]], 700, 214, m('lvl'), 28);
+    table(p, [[150, 'middle'], [320, 'middle'], [480, 'middle'], [640, 'middle']], ['уровень задачи', 'СЛ', 'провал', 'изучен'],
+      [['0', '14', '1 мм', '5 мм'], ['1', '15', '2 мм', '2 см'], ['2', '16', '4 мм', '3 см'], ['3', '18', '8 мм', '5 см']],
+      300, 60, m('tab'), i => m('tab', 1 + i * .4), { x1: 70, x2: 720, fill: (i, j) => [C0, RULE, MON, MON][j] });
+    say(p, 'начало таблицы «Заработанные деньги» · плата за день', 80, 620, m('tab', 2.5), { size: 20, fill: DIM, weight: 600, anchor: 'start' });
+    const cx = d => 800 + d * 102, cells = [];
+    for (let d = 0; d < 7; d++) {
+      const g = G(p, { o: 0 });
+      cells.push(put(mk('rect', { x: cx(d), y: 300, width: 90, height: 70, rx: 10, fill: MON, 'fill-opacity': 0, stroke: COL.faint, 'stroke-width': 2 }, g), { 'a_fill-opacity': 0 }));
+      T(g, 'день ' + (d + 1), { x: cx(d) + 45, y: 343, size: 19, fill: C0, weight: 600, anchor: 'middle' });
+      show(g, m('once', d * .1));
+    }
+    dieShape(p, 20, cx(0) + 45, 262, RULE, m('once', 1.5), 22, null);
+    say(p, 'проверка — один раз, после первого дня', 800, 410, m('once', 1.5), { size: 24, weight: 600, anchor: 'start' });
+    cells.forEach((e, d) => tw(e, { 'a_fill-opacity': .3 }, m('same', d * .12), .3));
+    say(p, 'дальше каждый день — та же плата, без новых проверок', 800, 450, m('same', .5), { size: 22, fill: MON, weight: 600, anchor: 'start' });
+    [[[['крит. успех', OK], [': как задача на уровень выше', C0]], 'cs'], [[['успех', OK], [': по уровню задачи', C0]], 's'],
+      [[['провал', NO], [': колонка «провал»', C0]], 'f'], [[['крит. провал', NO], [': ничего, выгоняют сразу', C0]], 'cf']]
+      .forEach(([parts, mk1], i) => L(p, parts, 800, 530 + i * 56, m(mk1), 26));
+  }],
+  ['shippa', 'Шиппа в трактире', (m) => {
+    const p = panel(0);
+    title(p, 'Шиппа в трактире');
+    const tb = table(p, [[150, 'middle'], [320, 'middle'], [480, 'middle'], [640, 'middle']], ['уровень задачи', 'СЛ', 'провал', 'изучен'],
+      [['0', '14', '1 мм', '5 мм'], ['1', '15', '2 мм', '2 см'], ['2', '16', '4 мм', '3 см'], ['3', '18', '8 мм', '5 см']],
+      130, 56, .3, i => .4 + i * .1, { x1: 70, x2: 720, size: 25, fill: (i, j) => [C0, RULE, MON, MON][j] });
+    tb.hl(1, .6, RULE);
+    L(p, [['трактир у моста: ', C0], ['задача 1-го уровня, СЛ 15', RULE]], 790, 165, .5, 25);
+    L(p, [['Исполнение +7', HERO], [' = Харизма +4 + изучен +3', DIM]], 790, 220, m('perf'), 25);
+    roll(p, 13, 790, 280, [['13 + 7 = 20 ≥ 15 → ', C0], ['успех', OK], [': 2 см в день', MON]], m('roll'), 25);
+    L(p, [['7 × 2 см = ', C0], ['14 см', MON], [' за неделю', C0]], 790, 340, m('wk'), 28);
+    tb.hl(2, m('cs', 4), OK);
+    L(p, [['крит. успех: итог 25 → на кубике 18+', OK]], 790, 405, m('cs'), 24);
+    L(p, [['как задача 2-го уровня: 3 см в день, 21 см', C0]], 790, 442, m('cs', 4), 24);
+    L(p, [['провал: на кубике 2–7', NO], [' → 2 мм в день, 14 мм', C0]], 790, 500, m('f'), 24);
+    L(p, [['на кубике 1: крит. провал', NO], [' → выгнали в первый день', C0]], 790, 545, m('cf'), 24);
+    tb.hl(0, m('st', 3), DIM);
+    hr(p, 590, m('st', -.3));
+    say(p, 'доход за неделю, в масштабе', 100, 630, m('st', -.3), { size: 21, fill: DIM, weight: 600, anchor: 'start' });
+    const bar = (y, w, label, val, t0) => {
+      say(p, label, 100, y + 32, t0, { size: 24, weight: 600, anchor: 'start' });
+      const e = put(mk('rect', { x: 420, y, width: 1, height: 46, rx: 8, fill: MON, 'fill-opacity': .4, stroke: MON, 'stroke-width': 2 }, p), { o: 0, a_width: 1 });
+      show(e, t0, .2); tw(e, { a_width: w }, t0, 1);
+      say(p, val, 440 + w, y + 32, t0 + .9, { size: 26, fill: MON, weight: 700, anchor: 'start' });
+    };
+    bar(660, 175, 'площадь · задача 0', '35 мм', m('st', 4));
+    bar(740, 700, 'трактир · задача 1', '140 мм = 14 см', m('x4'));
+    say(p, '× 4', 1430, 774, m('x4', 1.6), { size: 40, fill: OK, weight: 700 });
+  }],
+  ['q3', 'Быстрая проверка', () => { panel(0); }, { ask: done => quiz(WIDE, [{
+    id: 'c-inc', prompt: ['Зарабатывание денег: задача 1-го уровня, Исполнение +7.'], build: blanks(Q_INC),
+  }, {
+    id: 'c-inc-tf', prompt: ['Верно или неверно?'], build: grid(Q_INC_TF, TF, { multi: false, text: true }),
+  }], done) }],
+  ['repair', 'Починка предмета', (m) => {
+    const p = panel(0);
+    title(p, 'Починка предмета');
+    L(p, [['деревянный щит Бронны: ', C0], ['Твёрдость 3 · ПЗ 12 · предел прочности 6', RULE]], 100, 135, .3, 26);
+    const hp = hpCells(p, 100, 175, 12, .5, { thr: 6 });
+    hp.set(5, m('now'));
+    const br = L(p, [['5 ≤ 6 → ', C0], ['сломан', NO]], 880, 215, m('now', 2), 30);
+    L(p, [['сломанный — бонусов нет: поднятый щит даёт ', C0], ['+0 к КБ', NO]], 100, 345, m('bk'), 26);
+    hr(p, 385, m('rep', -.3));
+    L(p, [['Починка предмета', HERO], [': ремонтный набор · 10 минут · проверка Ремесла', C0]], 100, 440, m('rep'), 26);
+    say(p, 'изучать Ремесло не обязательно — от ранга зависит, сколько ПЗ вернётся', 100, 485, m('rank'), { size: 22, fill: DIM, weight: 600, anchor: 'start' });
+    table(p, [[100, 'start'], [330, 'start']], ['исход', 'ПЗ предмета'],
+      [[['крит. успех', OK], '10 + 10 за ранг: изучен 20'], [['успех', OK], '5 + 5 за ранг: изучен 10, без изучения 5'],
+        [['провал', NO], 'ничего'], [['крит. провал', NO], '2d6 урона предмету']],
+      530, 46, m('tab'), i => m('tab', i < 2 ? i * 1.6 : 6 + i * .3), { x1: 80, x2: 940, size: 23 });
+    say(p, 'Бронна', 1000, 560, m('bro'), { size: 28, fill: HERO, weight: 700, anchor: 'start' });
+    L(p, [['Ремесло +3 (изучено)', C0]], 1000, 605, m('bro'), 24);
+    L(p, [['ремонтный набор: ', C0], ['2 зм', MON]], 1000, 650, m('bro', 3), 24);
+    roll(p, 11, 1000, 720, [['11 + 3 = 14 ≥ СЛ 14', C0]], m('roll'), 24);
+    L(p, [['успех → ', OK], ['+10 ПЗ', OK]], 1000, 770, m('roll', 4), 26);
+    hide(br, m('max', -.2), .3);
+    hp.set(12, m('max'));
+    L(p, [['5 + 10 = 15 → ', C0], ['12 из 12', OK], [' (не выше максимума)', DIM]], 880, 215, m('max', .3), 26);
+    say(p, 'без изучения: 5 + 5 = 10 > 6 — не сломан, но не 12', 880, 268, m('un'), { size: 21, fill: DIM, weight: 600, anchor: 'start' });
+  }],
+  ['craft', 'Создание предмета', (m) => {
+    const p = panel(0);
+    title(p, 'Создание предмета');
+    L(p, [['стальной щит: ', C0], ['2 зм', MON], [' · Твёрдость 5 · ПЗ 20 · предел прочности 10', RULE]], 100, 130, .3, 26);
+    L(p, [['Создание предмета', HERO], [': Ремесло изучено · предмет обычный · не выше уровня героя', C0]], 100, 185, m('cr'), 24);
+    say(p, 'у стального щита уровня нет → предмет 0-го уровня', 100, 222, m('cr', 4), { size: 20, fill: DIM, weight: 600, anchor: 'start' });
+    L(p, [['инструменты ремесленника', RULE], [' и мастерская (кузница)', C0]], 100, 285, m('tool'), 24);
+    L(p, [['материалы заранее: ≥ ½ цены = ', C0], ['1 зм', MON]], 100, 335, m('mat'), 24);
+    L(p, [['подготовка: ', C0], ['2 дня', RULE], [' (с формулой — 1 день)', DIM]], 100, 385, m('prep'), 24);
+    L(p, [['проверка Ремесла', RULE]], 860, 285, m('chk'), 24);
+    say(p, 'провал — материалы целы · крит. провал — минус 10% материалов', 860, 318, m('chk', .8), { size: 18, fill: DIM, weight: 600, anchor: 'start' });
+    L(p, [['успех → доплатить вторую половину', OK]], 860, 365, m('ok'), 24);
+    L(p, [['или работать: каждый день − плата', C0]], 860, 410, m('work'), 24);
+    say(p, 'по своему уровню и рангу · не дешевле ½ цены', 860, 445, m('work', 3), { size: 20, fill: DIM, weight: 600, anchor: 'start' });
+    hr(p, 480, m('d1', -.4));
+    const DX = d => 100 + d * 200, cell = (d1, d2, s, sub, colr, t0) => {
+      const g = G(p, { o: 0 }), x = DX(d1), w = DX(d2) + 186 - x;
+      mk('rect', { x, y: 520, width: w, height: 110, rx: 12, fill: colr, 'fill-opacity': .2, stroke: colr, 'stroke-width': 2.5 }, g);
+      T(g, s, { x: x + w / 2, y: 565, size: 22, fill: C0, weight: 600, anchor: 'middle' });
+      T(g, sub, { x: x + w / 2, y: 602, size: 19, fill: DIM, weight: 600, anchor: 'middle' });
+      show(g, t0);
+    };
+    for (let d = 0; d < 7; d++) say(p, 'день ' + (d + 1), DX(d) + 93, 508, m('d1', -.3), { size: 19, fill: DIM, weight: 600 });
+    cell(0, 0, 'покупки', 'починка', DOWN, m('d1', .6));
+    cell(1, 2, 'подготовка', 'формулы нет', DOWN, m('d23'));
+    for (let d = 3; d < 7; d++) cell(d, d, 'работа', '− 2 см', DOWN, m('d47', (d - 3) * .5));
+    roll(p, 15, 100, 700, [['15 + 3 = 18 ≥ 14 → ', C0], ['успех', OK]], m('roll', .3), 25);
+    say(p, 'остаток', DX(2) + 93, 664, m('d47', -.2), { size: 19, fill: DIM, weight: 600 });
+    ['10', '8', '6', '4', '2'].forEach((s, i) => say(p, s + ' см', DX(2 + i) + 93, 700, i ? m('d47', (i - 1) * .5 + .3) : m('d47', -.2),
+      { size: 26, fill: i === 4 ? MON : C0, weight: 700 }));
+    L(p, [['10 − 8 = ', C0], ['2 см', MON], [' доплата', C0]], 820, 780, m('left'), 26);
+    L(p, [['1 зм + 2 см = ', C0], ['1 зм 2 см', MON], [' вместо 2 зм в лавке', DIM]], 100, 840, m('tot'), 28);
+  }],
+  ['living', 'Покупки и стоимость жизни', (m) => {
+    const p = panel(0);
+    title(p, 'Покупки и стоимость жизни');
+    L(p, [['покупка или продажа — ', C0], ['1 день', DOWN]], 100, 140, .3, 28);
+    L(p, [['Цена', RULE], [' — сколько стоит купить', C0]], 100, 200, m('pr'), 28);
+    L(p, [['продать — за ', C0], ['половину', OK]], 100, 260, m('half'), 28);
+    L(p, [['короткий лук: ', C0], ['3 зм', MON]], 860, 200, m('bow'), 28);
+    L(p, [['3 зм ÷ 2 = ', C0], ['1 зм 5 см', MON]], 860, 260, m('bow', 3.5), 28);
+    hr(p, 310, m('cost', -.3));
+    L(p, [['стоимость жизни', RULE], [' · только в свободное время, в дороге не считают', DIM]], 100, 365, m('cost'), 26);
+    const tb = table(p, [[100, 'start'], [440, 'middle'], [620, 'middle'], [800, 'middle']], ['образ жизни', 'неделя', 'месяц', 'год'],
+      [['скромный', '4 см', '2 зм', '24 зм'], ['хороший', '1 зм', '4 зм', '52 зм'], ['богатый', '30 зм', '130 зм', '1600 зм'], ['роскошный', '100 зм', '430 зм', '5200 зм']],
+      420, 56, m('tab'), i => m('tab', i < 2 ? i * 2.4 : 3.6), { x1: 80, x2: 880, fill: (i, j) => i > 1 ? DIM : j ? MON : C0 });
+    tb.hl(1, m('sb'), HERO);
+    tok(p, 'Ш', HERO, 940, tb.Y(1) - 9, m('sb', .4), 22);
+    tok(p, 'Б', HERO, 1000, tb.Y(1) - 9, m('sb', .7), 22);
+    say(p, 'комната в трактире', 1040, tb.Y(1), m('sb', 1), { size: 22, fill: DIM, weight: 600, anchor: 'start' });
+    tb.hl(0, m('ti'), HERO);
+    tok(p, 'Т', HERO, 940, tb.Y(0) - 9, m('ti', .4), 22);
+    L(p, [['Самообеспечение', HERO], [' · Общество', C0]], 980, tb.Y(0), m('ti', 4), 22);
+    roll(p, 10, 100, 760, [['Тиль: Общество +7, 10 + 7 = 17 ≥ СЛ 15 → ', C0], ['успех', OK], [': скромный образ жизни даром', C0]], m('roll', .5), 25);
+  }],
+  ['q4', 'Быстрая проверка', () => { panel(0); }, { ask: done => quiz(WIDE, [{
+    id: 'c-craft', prompt: ['Починка, создание и продажа.'], build: blanks(Q_CRAFT),
+  }], done) }],
+  ['week', 'Итог недели', (m) => {
+    const p = panel(0);
+    title(p, 'Итог недели, в серебре');
+    const C = [['Шиппа', [['+14 см выступления', OK], ['−10 см жизнь (хорошая)', NO]], '+4 см', MON, '', 'sh'],
+      ['Бронна', [['+15 см лук', OK], ['−20 см ремонтный набор', NO], ['−10 см материалы', NO], ['−2 см доплата', NO], ['−10 см жизнь (хорошая)', NO]], '−27 см', NO, 'остались: набор и два щита', 'br'],
+      ['Тиль', [['0 приход', DIM], ['0 расход', DIM]], '0', C0, 'жизнь — Самообеспечением', 'ti']];
+    C.forEach(([n, ls, tot, tc, note, mk1], i) => {
+      const x = 100 + i * 480, t0 = m(mk1);
+      pcard(p, x, 100, 440, 450, n, HERO, ls.map(([s, c]) => [s, c, 24]), t0, { step: 42, top: 100, t0s: ls.map((_, k) => t0 + .5 + k * .5) });
+      const tt = i === 1 ? m('neg') : t0 + 2.6;
+      draw(path(p, `M${x + 28} 420H${x + 412}`, { stroke: COL.faint, 'stroke-width': 2 }, { d: 0 }), tt, .4);
+      L(p, [['итог ', DIM], [tot, tc]], x + 28, 470, tt, 34);
+      if (note) say(p, note, x + 28, 520, i === 1 ? m('keep') : t0 + 3, { size: 20, fill: DIM, weight: 600, anchor: 'start' });
+    });
+    L(p, [['кошелёк Шиппы: ', C0], ['7 зм 4 см 8 мм', MON]], 100, 620, m('purse'), 28);
+    L(p, [['+ 4 см = ', C0], ['7 зм 8 см 8 мм', MON]], 560, 620, m('now'), 28);
+    L(p, [['долговременный отдых', HERO], [': сутки отдыха — вдвое больше ночи · Шиппе ', C0], ['4 ПЗ в день', OK]], 100, 710, m('ltr'), 26);
+    say(p, 'переподготовка (заменить черту или навык) — глава 16', 100, 780, m('re'), { size: 22, fill: DIM, weight: 600, anchor: 'start' });
+  }],
+  ['sheet', 'Что сделать сейчас', (m) => {
+    const p = panel(0);
+    const sh = charSheet(p, .3);
+    SHEET1.forEach(([k, v, s]) => sh.fill(k, v, s));
+    say(p, 'Что сделать сейчас', 560, 70, .3, { size: 30, weight: 600 });
+    box(p, 60, 120, 1000, 300, EXP, m('spd', -.2));
+    sh.flash('spd', m('spd'));
+    L(p, [['Скорость 25 футов → ', C0], ['250 футов в минуту · 2½ мили в час', RULE]], 100, 190, m('spd'), 27);
+    L(p, [['с занятием: ', C0], ['125 футов в минуту', RULE]], 100, 250, m('half'), 27);
+    L(p, [['занятие в пути: ', C0], ['Осмотр', EXP], [' — скажите ведущему', DIM]], 100, 350, m('act'), 27);
+    box(p, 60, 460, 1000, 360, DOWN, m('inc', -.2));
+    sh.page(2, m('inc'));
+    sh.set('gold', '7 зм 8 см 8 мм', m('inc', 1));
+    L(p, [['Зарабатывание денег: ', C0], ['Исполнение +7', HERO], [', Знание (выпивка) +3', HERO]], 100, 530, m('inc'), 26);
+    L(p, [['задача 1-го уровня, успех: 7 × 2 см = ', C0], ['14 см', MON], [' в неделю', C0]], 100, 600, m('inc', 6), 26);
+    L(p, [['образ жизни: скромный ', C0], ['4 см', MON], [' или хороший ', C0], ['1 зм', MON], [' в неделю', C0]], 100, 700, m('life'), 26);
+  }],
+  ['wrap', 'Итоги', (m) => {
+    const p = panel(0);
+    numbered(p, [['Скорость путешествия: Скорость × 10 футов в минуту, ÷ 10 миль в час.', 'w1'],
+      ['Почти все занятия — ½ скорости; Защита, Разведка и Незаметное', 'w2'],
+      ['Зарабатывание денег: одна проверка, дальше та же плата каждый день.', 'w3'],
+      ['Продают за ½ Цены; скромная жизнь — 4 см в неделю.', 'w4']], m, 220, 150, 28);
+    say(p, 'перемещение меняют начало боя.', 166, 412, m('w2', .6), { size: 28, weight: 600, anchor: 'start' });
+  }],
+  ['final1', 'Практика главы', () => { panel(0); }, { ask: done => quiz(SCREEN, [{
+    id: 'p-tf', prompt: ['Верно или неверно?'], build: grid(P_TF, TF, { multi: false, text: true }),
+  }], done, 'Практика главы   1 из 3') }],
+  ['final2', 'Практика главы', () => {}, { ask: done => quiz(SCREEN, [{
+    id: 'p-road', prompt: ['Дорога. Тиль: Скорость 30, Бронна: Скорость 20.'], build: blanks(P_ROAD),
+  }], done, 'Практика главы   2 из 3') }],
+  ['final3', 'Практика главы', () => {}, { ask: done => quiz(SCREEN, [{
+    id: 'p-money', prompt: ['Деньги за неделю.'], build: blanks(P_MONEY),
+  }], done, 'Практика главы   3 из 3') }],
+  ['finish', 'Готово', () => {}, { ask: finishCard }],
+].map(([id, title, run, extra]) => ({ id, title, run, ...extra }));
+
+/* ---------- Shippa's sheet as after chapter 14 (both pages) ---------- */
+const SHEET1 = [['name', 'Шиппа'], ['lvl', '1'], ['anc', 'гоблин'], ['her', 'небьющийся гоблин'], ['bg', 'трактирщик'], ['cls', 'бард'],
+  ['a0', '0'], ['a1', '+3'], ['a2', '+2'], ['a3', '0'], ['a4', '0'], ['a5', '+4'], ['hp', '20', '10+8+2'], ['ac', '18', '10+3+3+2'],
+  ['per', '+5', 'эксперт'], ['will', '+5', 'эксперт'], ['fort', '+5', 'изучен'], ['ref', '+6', 'изучен'],
+  ['sk0', 'Дипломатия', 'изучен · +7'], ['sk1', 'Знание (выпивка)', 'изучен · +3'], ['sk2', 'Оккультизм', 'изучен · +3'], ['sk3', 'Исполнение', 'изучен · +7'],
+  ['sk4', 'Обман, Общество, Религия, Скрытность', ''], ['ft_anc', 'Гоблинская песня'], ['ft_skill', 'Неформальное общение'], ['ft_cls', 'Продолжительная композиция'],
+  ['size', 'Небольшой'], ['spd', '25 футов'], ['sense', 'ночное зрение'], ['lang', 'всеобщий, гоблинский'], ['prof', 'изучен'],
+  ['gold', '7 зм 4 см 8 мм'], ['it0', 'Клёпаный кожаный доспех', '3 зм'], ['it1', 'Кинжал', '2 см'], ['it2', 'Рапира', '2 зм'], ['it3', 'Праща', '0'],
+  ['it4', 'Пращные ядра ×20', '2 мм'], ['it5', 'Комплект искателя приключений', '15 см'], ['it6', 'Музыкальный инструмент (ручной)', '8 см'],
+  ['st0', 'Кинжал', '+6 · 1d4 колющий'], ['st1', 'Рапира', '+6 · 1d6 колющий'], ['st2', 'Праща', '+6 · 1d6 дробящий'],
+  ['bulk', '4', 'из 5'], ['cdc', '17', '10+3+4']];
+
+/* ---------- question data ---------- */
+const Q_SPD = [
+  { parts: ['Скорость 30 футов. Футов в минуту: ', { box: '300' }], why: '30 × 10 = 300.', hint: 'В 10 раз больше Скорости.' },
+  { parts: ['Скорость 30 футов. Миль в час: ', { box: '3' }], why: '30 ÷ 10 = 3.', hint: 'В 10 раз меньше Скорости.' },
+  { parts: ['Скорость 30 футов. Миль за день: ', { box: '24' }], why: 'День пути — 8 часов: 3 × 8 = 24.', hint: 'День пути — 8 часов.' },
+  { parts: ['Шиппа 25, Тиль 30, Бронна 20. Группа проходит миль в час: ', { box: '2' }], why: 'По самому медленному: Бронна, 20 → 2.', hint: 'Группа идёт по самому медленному.' },
+];
+const Q_ACT = [
+  { parts: ['Кто просто идёт к цели, идёт вдвое медленнее.'], ans: ['f'], why: 'С полной скоростью; вдвое замедляют почти все занятия.' },
+  { parts: ['Разведка даёт +1 к инициативе каждому в группе.'], ans: ['t'], why: 'В начале следующего боя.' },
+  { parts: ['Спешка героя с Выносливостью 0 длится 10 минут.'], ans: ['t'], why: '0 × 10 = 0, но не меньше 10 минут.' },
+];
+const Q_ROAD = [
+  { parts: ['Шиппа (Скорость 25) ведёт Осмотр. Футов в минуту: ', { box: '125' }], why: '250 ÷ 2 = 125.', hint: 'Осмотр — половина скорости.' },
+  { parts: ['Группа идёт 100 футов в минуту. Миль в час: ', { box: '1' }], why: 'Это строка Скорости 10: 1 миля в час.', hint: '100 футов в минуту — Скорость 10.' },
+  { parts: ['Луг — 1 миля пересечённой местности, группа идёт 1 милю в час. Часов на луг: ', { box: '2' }], why: 'Скорость ½: ½ мили в час, 1 миля за 2 часа.', hint: 'Пересечённая местность делит скорость пополам.' },
+  { parts: ['Бронна шла с Защитой. Её КБ (обычно 18) до первого хода: ', { box: '20' }], why: 'Щит поднят: 18 + 2 = 20.', hint: 'Бонус Поднятия щита +2.' },
+  { parts: ['Шиппа спала в доспехе и утомлена. Её КБ (обычно 18): ', { box: '17' }], why: 'Утомление: −1 к КБ.', hint: 'Утомлённый получает −1 к КБ.' },
+];
+const Q_ROAD_TF = [
+  { parts: ['Шиппа вела Осмотр, поэтому на инициативу бросает Скрытность.'], ans: ['f'], why: 'Внимание; Скрытность — после Незаметного перемещения.' },
+  { parts: ['Утомлённый герой может вести Осмотр в пути.'], ans: ['f'], why: 'Утомлённый не ведёт занятий в пути.' },
+];
+const Q_INC = [
+  { parts: ['Обычная СЛ задачи 1-го уровня: ', { box: '15' }], why: 'По таблице: уровень 1 — СЛ 15.', hint: 'Смотрите колонку СЛ.' },
+  { parts: ['На кубике 13. Итог: ', { box: '20' }], why: '13 + 7 = 20.', hint: 'Кубик + 7.' },
+  { parts: ['Успех, навык изучен. Серебряных монет в день: ', { box: '2' }], why: 'Задача 1-го уровня, изучен: 2 см.', hint: 'Колонка «изучен», строка 1.' },
+  { parts: ['Сколько серебряных за 7 дней: ', { box: '14' }], why: '7 × 2 = 14.', hint: 'Каждый день та же плата.' },
+  { parts: ['Наименьшее число на кубике для критического успеха: ', { box: '18' }], why: '15 + 10 = 25, 25 − 7 = 18.', hint: 'Крит. успех — СЛ + 10.' },
+];
+const Q_INC_TF = [
+  { parts: ['Проверку Зарабатывания денег бросают каждый день.'], ans: ['f'], why: 'Один раз, после первого дня.' },
+];
+const Q_CRAFT = [
+  { parts: ['Щит: 12 ПЗ, предел прочности 6. Сломан, пока ПЗ не больше: ', { box: '6' }], why: 'Сломан, если ПЗ не больше предела: 6 и меньше.', hint: 'Не больше предела прочности.' },
+  { parts: ['Успех Починки, Ремесло изучено. Предмет получает ПЗ: ', { box: '10' }], why: '5 + 5 за ранг «изучен» = 10.', hint: '5 и ещё 5 за ранг.' },
+  { parts: ['Короткий лук стоит 3 зм. Продать его можно за серебряных: ', { box: '15' }], why: '30 см ÷ 2 = 15 см.', hint: 'Половина Цены; 1 зм = 10 см.' },
+  { parts: ['Стальной щит стоит 2 зм. Материалы — не меньше чем на зм: ', { box: '1' }], why: 'Половина цены: 2 ÷ 2 = 1.', hint: 'Не меньше половины цены.' },
+  { parts: ['Остаток 10 см, 4 дня работы по 2 см. Доплатить см: ', { box: '2' }], why: '10 − 4 × 2 = 2.', hint: 'Каждый день сбавляет 2 см.' },
+];
+const P_TF = [
+  { parts: ['День пути — 8 часов.'], ans: ['t'], why: 'Миль в день = миль в час × 8.' },
+  { parts: ['Группа идёт со скоростью самого быстрого.'], ans: ['f'], why: 'Самого медленного.' },
+  { parts: ['Сильно пересечённая местность оставляет треть скорости.'], ans: ['t'], why: 'Пересечённая — половину, сильно пересечённая — треть.' },
+  { parts: ['С Защитой щит поднят ещё до первого хода в бою.'], ans: ['t'], why: 'Бонус Поднятия щита действует до первого хода.' },
+  { parts: ['Проверку Зарабатывания денег бросают каждый день.'], ans: ['f'], why: 'Один раз; дальше та же плата.' },
+  { parts: ['Поднятый сломанный щит даёт +2 к КБ.'], ans: ['f'], why: 'Сломанный предмет бонусов не даёт.' },
+  { parts: ['Продать предмет можно за половину Цены.'], ans: ['t'], why: 'Цена — сколько стоит купить.' },
+];
+const P_ROAD = [
+  { parts: ['Тиль ведёт Разведку. Футов в минуту: ', { box: '150' }], why: '300 ÷ 2 = 150.', hint: 'Разведка — половина скорости.' },
+  { parts: ['Бронна просто идёт к цели. Миль в час: ', { box: '2' }], why: '20 ÷ 10 = 2, полная скорость.', hint: 'Без занятия — полная скорость.' },
+  { parts: ['Скорость 40 футов. Миль в час: ', { box: '4' }], why: '40 ÷ 10 = 4.', hint: 'В 10 раз меньше Скорости.' },
+  { parts: ['Группа идёт 2 мили в час. Часов на 2 мили пересечённой местности: ', { box: '2' }], why: '½ скорости: 1 миля в час, 2 мили — 2 часа.', hint: 'Пересечённая местность — половина скорости.' },
+  { parts: ['Спешка героя с Выносливостью +2 длится минут: ', { box: '20' }], why: '2 × 10 = 20.', hint: 'Выносливость × 10.' },
+];
+const P_MONEY = [
+  { parts: ['Площадь: задача 0-го уровня, успех — 5 мм в день. За 7 дней, мм: ', { box: '35' }], why: '7 × 5 = 35.', hint: 'Каждый день та же плата.' },
+  { parts: ['Провал на задаче 1-го уровня — 2 мм в день. За 7 дней, мм: ', { box: '14' }], why: '7 × 2 = 14.', hint: '7 дней по 2 мм.' },
+  { parts: ['Хороший образ жизни — 1 зм в неделю. За 2 недели, см: ', { box: '20' }], why: '2 зм = 20 см.', hint: '1 зм = 10 см.' },
+  { parts: ['Стальной щит: в лавке 2 зм, своими руками 1 зм 2 см. Экономия, см: ', { box: '8' }], why: '20 − 12 = 8.', hint: 'Переведите в серебро.' },
+  { parts: ['Шиппа заработала 14 см, на жизнь ушло 10 см. Итог недели, см: +', { box: '4' }], why: '14 − 10 = 4.', hint: 'Получено минус потрачено.' },
+];
+boot();
+</script>
+</body>
+</html>

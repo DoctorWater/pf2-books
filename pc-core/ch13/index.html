@@ -1,0 +1,750 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Внимание и скрытность — Первый герой</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%231d2b27'/%3E%3Ctext x='32' y='45' text-anchor='middle' font-size='48' fill='%23f0b45a'%3E∞%3C/text%3E%3C/svg%3E">
+<link rel="stylesheet" href="../lib/engine.css">
+<link rel="expect" href="#bar" blocking="render"><!-- hold the first frame until the player exists, so the page transition can run -->
+</head>
+<body>
+<script src="../lib/engine.js"></script>
+<script src="../lib/pf.js"></script>
+<script src="audio/ru/timings.js"></script>
+<script>
+'use strict';
+const CHAPTER = { number: 13, title: 'Внимание и скрытность', minutes: 14, language: 'ru', next: '../ch14/' };
+
+/* ---------- chapter drawing helpers (shared ones: lib/pf.js) ---------- */
+// Heroes HERO, bandits FOE, GM GMC, rules and dice RULE, light LIGHT (yellow), success OK, failure and penalties NO.
+const LIGHT = COL.int;
+const hr = (p, y, t0, x1 = 80, x2 = 1520) => draw(path(p, `M${x1} ${y}H${x2}`, { stroke: COL.faint, 'stroke-width': 2 }, { d: 0 }), t0, .5);
+const box = (p, x, y, w, h, colr, t0) => { const r = mk('rect', { x, y, width: w, height: h, rx: 18, fill: '#22322d', stroke: colr, 'stroke-width': 2.5 }, p); put(r, { o: 0 }); show(r, t0); return r; };
+const title = (p, s, t0 = .2) => say(p, s, 800, 62, t0, { size: 36, weight: 600 });
+const L = (p, parts, x, y, t0, size = 26) => colorLine(p, parts, x, y, t0, { size, anchor: 'start' });   // left-aligned coloured line
+// A d20 with its roll and a coloured line after it, left-aligned at x (as in ch08–ch09).
+function roll(p, n, x, y, parts, t0, size = 25) {
+  numDie(p, n, x + 16, y - 9, t0, 22);
+  colorLine(p, parts, x + 46, y, t0 + .3, { size, anchor: 'start' });
+}
+// A ring with a letter, no name under it (as in ch09).
+function tok(p, letter, colr, x, y, t0, r = 34, dash = false) {
+  const g = G(p, { x, y, o: 0 });
+  mk('circle', { r, fill: COL.board, stroke: colr, 'stroke-width': 4, ...(dash ? { 'stroke-dasharray': '7 6' } : {}) }, g);
+  T(g, letter, { y: r * .36, size: r, fill: colr, weight: 700, anchor: 'middle' });
+  show(g, t0);
+  return g;
+}
+// Pills in a row centred on cx (as in ch07, ch09).
+const pw = (s, size) => s.length * size * .56 + 44;
+function pillRow(p, items, cx, y, size, colr, t0s) {
+  const w = items.map(s => pw(s, size)), tot = w.reduce((a, b) => a + b + 18, -18);
+  let x = cx - tot / 2;
+  return items.map((s, i) => { const g = pill(p, s, colr, x + w[i] / 2, y, t0s[i], size); x += w[i] + 18; return g; });
+}
+// The twenty faces of a d20 in a row (ch09); paint(f, deg, t0) colours face f with a degree of success.
+function faces(p, x0, y, t0, { w = 58, h = 80, gap = 4, size = 26 } = {}) {
+  const X = f => x0 + (f - 1) * (w + gap), cx = f => X(f) + w / 2;
+  const g = G(p, { o: 0 });
+  for (let f = 1; f <= 20; f++) {
+    mk('rect', { x: X(f), y, width: w, height: h, rx: 8, fill: 'none', stroke: COL.faint, 'stroke-width': 2, 'stroke-dasharray': '6 5' }, g);
+    T(g, String(f), { x: cx(f), y: y + h / 2 + size * .36, size, weight: 600, anchor: 'middle' });
+  }
+  show(g, t0);
+  const top = G(p);
+  return {
+    X, cx, w, h,
+    paint(f, deg, t1) {
+      const [, , colr, op] = DEG.find(d => d[0] === deg);
+      const r = mk('rect', { x: X(f), y, width: w, height: h, rx: 8, fill: colr, 'fill-opacity': op, stroke: colr, 'stroke-width': 2.5 }, top);
+      put(r, { o: 0 }); show(r, t1, .3);
+      return r;
+    },
+  };
+}
+// A tile coloured by a degree of success: key, two lines of text.
+function degTile(p, key, x, y, w, h, lines, t0, size = 23) {
+  const [, name, colr, op] = DEG.find(d => d[0] === key);
+  const r = mk('rect', { x, y, width: w, height: h, rx: 14, fill: colr, 'fill-opacity': op, stroke: colr, 'stroke-width': 2.5 }, p);
+  put(r, { o: 0 }); show(r, t0);
+  say(p, name, x + w / 2, y + 38, t0, { size: 24, weight: 700 });
+  lines.forEach((s, i) => say(p, s, x + w / 2, y + 76 + i * 32, t0 + .2, { size, fill: COL.chalk }));
+}
+// An action heading: one-action glyph, name, descriptor pills.
+function actHead(p, name, traits, y, t0, x = 110) {
+  glyph(p, 1, x, y - 12, t0, .5);
+  const n = say(p, name, x + 40, y, t0, { size: 36, weight: 700, anchor: 'start' });
+  let px = x + 60 + uiW(name, 36);
+  traits.forEach((s, i) => { const w = pw(s, 22); pill(p, s, RULE, px + w / 2, y - 12, t0 + .4 + i * .3, 22); px += w + 14; });
+  return px;
+}
+
+/* ---------- the night field: barn, torch, light zones to scale (1 foot = 8 px) ---------- */
+const FT = 8, TX = 300, TY = 450;   // the torch by the barn door
+const at = (ft, dy = 0) => [TX + ft * FT, TY + dy * FT];   // ft feet right of the torch, dy feet down
+const SP = { s45: at(45), s35: at(35), s25: at(25), s25b: at(25, 10), s15: at(15), ban: at(4, 5), ban2: at(19, 10), owl: at(8, -13) };
+function field(p, t0, { zones = true } = {}) {
+  const g = G(p, { o: 0 });
+  mk('rect', { x: 0, y: 96, width: 830, height: 724, fill: '#121c19' }, g);
+  const zb = G(g, { o: zones ? 1 : 0 }), zd = G(g, { o: zones ? 1 : 0 }), zn = G(g, { o: zones ? 1 : 0 });
+  mk('circle', { cx: TX, cy: TY, r: 40 * FT, fill: LIGHT, 'fill-opacity': .09 }, zd);
+  mk('circle', { cx: TX, cy: TY, r: 20 * FT, fill: LIGHT, 'fill-opacity': .13 }, zb);
+  // barn and door
+  mk('rect', { x: -10, y: 250, width: 290, height: 400, fill: '#2a2622', stroke: COL.faint, 'stroke-width': 3 }, g);
+  T(g, 'амбар', { x: 130, y: 460, size: 30, fill: COL.dim, weight: 600, anchor: 'middle' });
+  mk('rect', { x: 266, y: 415, width: 14, height: 70, fill: '#5a4632' }, g);
+  // the torch
+  const torch = G(g, { x: TX, y: TY });
+  path(torch, 'M-10 22L0 4', { stroke: '#8a6a48', 'stroke-width': 5 });
+  mk('circle', { cy: -2, r: 9, fill: LIGHT }, torch);
+  T(g, 'факел', { x: TX, y: TY - 26, size: 20, fill: LIGHT, weight: 600, anchor: 'middle' });
+  // the ruler: feet from the torch, zones on it
+  const rx = ft => TX + ft * FT, ry = 852;
+  path(g, `M${rx(0)} ${ry + 6}H${rx(60)}`, { stroke: COL.dim, 'stroke-width': 2 });
+  [0, 20, 40, 60].forEach(v => {
+    path(g, `M${rx(v)} ${ry - 8}V${ry + 12}`, { stroke: COL.dim, 'stroke-width': 2 });
+    T(g, String(v), { x: rx(v), y: ry + 36, size: 18, fill: COL.dim, anchor: 'middle' });
+  });
+  T(g, 'футов от факела', { x: rx(0) - 14, y: ry + 36, size: 18, fill: COL.dim, anchor: 'end' });
+  [[zb, 0, 20, .7, 'яркий свет', LIGHT], [zd, 20, 40, .3, 'тусклый свет', LIGHT], [zn, 40, 60, .5, 'темнота', COL.faint]].forEach(([z, a, b, op, s, c]) => {
+    mk('rect', { x: rx(a) + 2, y: ry - 4, width: (b - a) * FT - 4, height: 10, rx: 3, fill: c, 'fill-opacity': op }, z);
+    T(z, s, { x: rx((a + b) / 2), y: ry - 14, size: 20, fill: c === COL.faint ? COL.dim : LIGHT, weight: 600, anchor: 'middle' });
+  });
+  show(g, t0, .4);
+  return { g, zb, zd, zn, torch, rx, ry };
+}
+// A participant on the field: a small ring with a name under it; the group moves with tw(…, {x, y}).
+// Shippa's name sits above her ring (up), so it stays clear of the bandit who comes up beside her.
+function ftok(p, name, colr, [x, y], t0, up = false) {
+  const g = G(p, { x, y, o: 0 }), r = 24;
+  mk('circle', { r, fill: COL.board, stroke: colr, 'stroke-width': 4 }, g);
+  T(g, name[0], { y: r * .36, size: r, fill: colr, weight: 700, anchor: 'middle' });
+  T(g, name, { y: up ? -r - 12 : r + 30, size: 22, fill: COL.dim, weight: 600, anchor: 'middle' });
+  show(g, t0);
+  return g;
+}
+const moveTo = (e, [x, y], t0, dur = .9) => tw(e, { x, y }, t0, dur);
+// Detection ladder of one observer (night beats): five rungs, Shippa's marker on rung i; set(i, t0) moves it.
+const RUNG = ['видима', 'плохо видима', 'спрятана', 'не обнаружена', 'незамечена'];
+function obsLadder(p, x, y, name, i0, t0) {
+  const g = G(p, { o: 0 }), RY = i => y + 26 + i * 54;
+  colorLine(g, [['для ', COL.dim], [name, FOE], [' Шиппа', COL.dim]], x + 175, y, t0, { size: 24 });
+  RUNG.forEach((s, i) => {
+    mk('rect', { x: x + 50, y: RY(i), width: 250, height: 44, rx: 22, fill: '#22322d', stroke: COL.faint, 'stroke-width': 2, ...(i === 1 ? { 'stroke-dasharray': '7 6' } : {}) }, g);
+    T(g, s, { x: x + 175, y: RY(i) + 30, size: 22, fill: COL.dim, weight: 600, anchor: 'middle' });
+  });
+  const mkr = G(g, { x: 0, y: RY(i0) });
+  mk('rect', { x: x + 50, y: 0, width: 250, height: 44, rx: 22, fill: HERO, 'fill-opacity': .16, stroke: HERO, 'stroke-width': 3 }, mkr);
+  mk('circle', { cx: x + 20, cy: 22, r: 18, fill: COL.board, stroke: HERO, 'stroke-width': 3 }, mkr);
+  T(mkr, 'Ш', { x: x + 20, y: 30, size: 20, fill: HERO, weight: 700, anchor: 'middle' });
+  show(g, t0);
+  return { set: (i, t1) => { tw(mkr, { y: RY(i) }, t1, .6); pulse(mkr, t1 + .6, 1.04); } };
+}
+// The two observers' ladders on the right of the night field.
+const ladders = (p, a, b, t0) => [obsLadder(p, 860, 120, 'разбойника', a, t0), obsLadder(p, 1220, 120, 'Сыча', b, t0)];
+// The night scene at the start of a beat: field, people where they stand, ladders.
+function night(p, name, ship, ban, a, b, t0 = .2) {
+  title(p, name);
+  const F = field(p, t0);
+  const T0 = {
+    ban: ftok(p, 'Разбойник', FOE, ban, t0 + .1),
+    owl: ftok(p, 'Сыч', FOE, SP.owl, t0 + .1),
+    ship: ftok(p, 'Шиппа', HERO, ship, t0 + .15, true),
+  };
+  return { F, ...T0, lad: ladders(p, a, b, t0 + .2) };
+}
+// A burst of text that rises and fades (a sound on the field).
+function burst(p, s, x, y, colr, t0) {
+  const e = say(p, s, x, y, t0, { size: 24, fill: colr, weight: 700 });
+  tw(e, { y: y - 30, o: 0 }, t0 + 1.6, .8);
+  return e;
+}
+
+/* ---------- the big detection ladder (states beats) ---------- */
+const LAD = ['видимый', 'плохо видимый', 'спрятанный', 'необнаруженный', 'незамеченный'];
+const LY = i => 150 + i * 116;
+function bigLadder(p, lit, t0) {
+  say(p, '↓ смотрящий знает меньше', 100, 128, t0, { size: 20, fill: COL.dim, anchor: 'start' });
+  return LAD.map((s, i) => {
+    const g = G(p, { o: 0 });
+    mk('rect', { x: 100, y: LY(i), width: 360, height: 80, rx: 40, fill: '#22322d', stroke: COL.chalk, 'stroke-width': 2.5, ...(i === 1 ? { 'stroke-dasharray': '10 7' } : {}) }, g);
+    T(g, s, { x: 280, y: LY(i) + 50, size: 30, weight: 700, anchor: 'middle' });
+    tw(g, { o: lit.includes(i) ? 1 : .3 }, t0, .5);
+    return g;
+  });
+}
+// Effect lines to the right of rung i: [[parts…], …] coloured lines.
+const rungText = (p, i, lines, t0, step = .6) => lines.forEach((parts, k) => L(p, parts, 500, LY(i) + 34 + k * 36, t0 + k * step, 24));
+const RT = {
+  0: [[['на виду · бить по нему можно как обычно', COL.chalk]]],
+  2: [[['знает клетку, но не видит как следует', COL.chalk]], [['смотрящий застигнут врасплох: ', RULE], ['−2 к КБ', NO]]],
+  3: [[['клетку не знает · тоже застигнут врасплох', COL.chalk]], [['бить — наугад по клетке, броски тайно у ведущего', COL.dim]]],
+  4: [[['даже не подозревает, что существо здесь', COL.chalk]], [['всегда ещё и необнаруженный', COL.dim]]],
+  1: [[['туман, дым, тусклый свет', COL.chalk]], [['главное состояние не меняется', COL.dim]]],
+};
+const flatPill = (p, i, n, t0) => pill(p, 'чистая проверка ' + n, RULE, 1390, LY(i) + 40, t0, 24);
+
+/* ---------- beats: [id, title, run(m, D), { ask }?] ---------- */
+const BEATS = [
+  ['intro', 'Внимание и скрытность', (m, D) => {
+    const g = G(scene, { o: 0, y: 24 });
+    T(g, 'Раздел 5 «Восприятие» · Глава 13', { x: 800, y: 330, size: 28, fill: COL.dim, anchor: 'middle' });
+    T(g, 'Внимание и скрытность', { x: 800, y: 440, size: 70, weight: 600, anchor: 'middle' });
+    tw(g, { o: 1, y: 0 }, .2, 1.1, out);
+    const r = say(scene, 'кто кого видит и как спрятаться', 800, 560, m('sub'), { size: 34, fill: COL.dim });
+    tw(g, { o: 0, y: -24 }, D - .9, .8); hide(r, D - .9, .8);
+  }],
+  ['barn', 'Ночь у амбара', (m) => {
+    const p = panel(0);
+    title(p, 'Ночь у амбара');
+    field(p, .2);
+    ftok(p, 'Разбойник', FOE, SP.ban, m('bandit'));
+    ftok(p, 'Сыч', FOE, SP.owl, m('owl'));
+    ftok(p, 'Шиппа', HERO, SP.s45, m('ship'), true);
+    say(p, '45 футов от двери', SP.s45[0], SP.s45[1] + 56, m('ship', 1.5), { size: 20, fill: COL.dim });
+    bubble(p, 'Подползаю ближе', SP.s45[0], 334, HERO, m('ship', 2.6), { size: 24 });
+    who(p, 'Ведущий', GMC, 960, 330, m('gm', -.3), 46);
+    bubble(p, 'Разбойник зевает и смотрит в другую сторону', 1220, 220, GMC, m('gm', 1.4), { size: 24, side: 'left' });
+    // who sees whom: Shippa sees the lit bandit, he does not see her in the dark
+    const [sx, sy] = SP.s45, [bx, by] = SP.ban;
+    arrowTo(p, sx - 30, sy - 8, bx + 32, by - 14, HERO, m('why'));
+    const no = G(p, { o: 0 });
+    path(no, `M${bx + 30} ${by + 10}L${sx - 34} ${sy + 18}`, { stroke: FOE, 'stroke-width': 3, 'stroke-dasharray': '10 8' });
+    const mx = (bx + sx) / 2, my = (by + sy) / 2 + 16;
+    path(no, `M${mx - 12} ${my - 12}L${mx + 12} ${my + 12}M${mx + 12} ${my - 12}L${mx - 12} ${my + 12}`, { stroke: NO, 'stroke-width': 5 });
+    show(no, m('why', 1.6));
+    L(p, [['Шиппа видит разбойника: ', HERO], ['он у факела', COL.chalk]], 900, 520, m('why'), 28);
+    L(p, [['разбойник Шиппу — ', FOE], ['нет: она в темноте', NO]], 900, 580, m('why', 1.6), 28);
+    say(p, 'всё решают свет и глаза', 900, 680, m('why', 3.4), { size: 30, fill: RULE, weight: 600, anchor: 'start' });
+  }],
+  ['light', 'Свет и темнота', (m) => {
+    const p = panel(0);
+    title(p, 'Свет и темнота');
+    const F = field(p, .2, { zones: false });
+    ftok(p, 'Разбойник', FOE, SP.ban, .3);
+    ftok(p, 'Сыч', FOE, SP.owl, .3);
+    const row = (y, op, name, txt, t0, dash) => {
+      const sw = mk('rect', { x: 880, y: y - 34, width: 44, height: 44, rx: 8, fill: dash ? 'none' : LIGHT, 'fill-opacity': op, stroke: dash ? COL.faint : LIGHT, 'stroke-width': 2 }, p);
+      put(sw, { o: 0 }); show(sw, t0);
+      say(p, name, 950, y, t0, { size: 30, weight: 700, anchor: 'start' });
+      txt.forEach((s, k) => say(p, s[0], 950, y + 40 + k * 34, t0 + .4 + k * .4, { size: 24, fill: s[1] || COL.dim, anchor: 'start' }));
+    };
+    show(F.zb, m('bright'));
+    row(170, .7, 'Яркий свет', [['всех видно ясно'], ['если ведущий не сказал другого', COL.dim]], m('bright'));
+    pulse(F.torch, m('torch'), 1.6);
+    show(F.zd, m('dim'));
+    row(330, .3, 'Тусклый свет', [['от 20 до 40 футов от факела'], ['кто в нём — плохо видим', COL.chalk]], m('dim'));
+    show(F.zn, m('dark'));
+    row(490, 0, 'Темнота', [['дальше 40 футов'], ['не видно: спрятан или не обнаружен', COL.chalk]], m('dark'), true);
+    ftok(p, 'Шиппа', HERO, SP.s45, m('ship'), true);
+    const mk45 = G(p, { o: 0 });
+    path(mk45, `M${F.rx(45)} ${F.ry - 16}V${F.ry + 12}`, { stroke: HERO, 'stroke-width': 4 });
+    T(mk45, '45', { x: F.rx(45), y: F.ry + 36, size: 18, fill: HERO, weight: 700, anchor: 'middle' });
+    show(mk45, m('ship', .4));
+    box(p, 870, 620, 680, 180, NO, m('blind'));
+    L(p, [['смотрящий без особого зрения в темноте: ', COL.chalk], ['слепота', NO]], 900, 672, m('blind'), 24);
+    L(p, [['но освещённое место он видит', OK]], 900, 720, m('blind', 3), 24);
+    arrowTo(p, SP.s45[0] - 30, SP.s45[1] - 8, SP.ban[0] + 32, SP.ban[1] - 14, HERO, m('sees'));
+    L(p, [['Шиппа из темноты видит, кто у факела', COL.dim]], 900, 764, m('sees', .4), 22);
+  }],
+  ['senses', 'Способы восприятия', (m) => {
+    const p = panel(0);
+    title(p, 'Способы восприятия');
+    const C = [280, 800, 1320], cs = 80, gy = 290;
+    const grid3 = (cx, t0) => {
+      const g = G(p, { o: 0 });
+      for (let i = 0; i < 3; i++) for (let j = 0; j < 3; j++)
+        mk('rect', { x: cx - 1.5 * cs + i * cs, y: gy + j * cs, width: cs - 4, height: cs - 4, rx: 6, fill: 'none', stroke: COL.faint, 'stroke-width': 2, 'stroke-dasharray': '6 5' }, g);
+      show(g, t0);
+    };
+    const head = (cx, s, sub, t0) => {
+      say(p, s, cx, 200, t0, { size: 32, fill: RULE, weight: 700 });
+      say(p, sub, cx, 244, t0 + .3, { size: 24, fill: COL.dim });
+    };
+    // precise: the creature is seen where it is
+    head(C[0], 'точный', 'обычно зрение', m('precise'));
+    grid3(C[0], m('precise'));
+    tok(p, 'Р', FOE, C[0] + cs - 2, gy + cs - 2, m('precise', .8), 28);
+    say(p, 'где существо и что делает', C[0], 590, m('precise', 1.6), { size: 24 });
+    say(p, 'только им — цель без помех', C[0], 630, m('precise', 3.4), { size: 24, fill: OK });
+    // imprecise: only the square is known
+    head(C[1], 'вспомогательный', 'например, слух', m('imprecise'));
+    grid3(C[1], m('imprecise'));
+    const q = G(p, { o: 0 });
+    mk('rect', { x: C[1] + cs / 2 - 2, y: gy + cs - 2 - cs / 2, width: cs - 4, height: cs - 4, rx: 6, fill: RULE, 'fill-opacity': .3, stroke: RULE, 'stroke-width': 2.5 }, q);
+    T(q, '?', { x: C[1] + cs - 4, y: gy + cs + 12, size: 40, fill: RULE, weight: 700, anchor: 'middle' });
+    show(q, m('imprecise', 1.2));
+    say(p, 'только клетка', C[1], 590, m('imprecise', 1.6), { size: 24 });
+    say(p, 'ушами — максимум спрятанный,', C[1], 630, m('imprecise', 4), { size: 24, fill: NO });
+    say(p, 'видимым никогда', C[1], 666, m('imprecise', 4.6), { size: 24, fill: NO });
+    // vague: only "someone is here"
+    head(C[2], 'дополнительный', 'например, нюх', m('vague'));
+    grid3(C[2], m('vague'));
+    const v = mk('rect', { x: C[2] - 1.5 * cs - 6, y: gy - 6, width: 3 * cs + 8, height: 3 * cs + 8, rx: 12, fill: COL.dim, 'fill-opacity': .18, stroke: COL.dim, 'stroke-width': 2 }, p);
+    put(v, { o: 0 }); show(v, m('vague', 1));
+    say(p, 'кто-то здесь', C[2], gy + 1.5 * cs + 8, m('vague', 1.4), { size: 26, fill: COL.chalk, weight: 600 });
+    say(p, 'только «здесь кто-то есть»', C[2], 590, m('vague', 1.6), { size: 24 });
+    say(p, 'нюх и виброчувствительность зверей: точные они или нет — в описании существа', 800, 800, m('vague', 3), { size: 21, fill: COL.dim });
+  }],
+  ['vision', 'Особое зрение', (m) => {
+    const p = panel(0);
+    title(p, 'Особое зрение');
+    infoCard(p, 80, 100, 700, 'Ночное зрение', [['темнота и тусклый свет — как яркий'], ['в темноте без цвета', COL.dim], ['гоблины, дварфы: Шиппа, Бронна', HERO]], RULE, m('dv'), .9);
+    infoCard(p, 820, 100, 700, 'Сумеречное зрение', [['тусклый свет — как яркий'], ['в полной темноте слеп', NO], ['эльфы: Тиль', HERO]], RULE, m('ll'), .9);
+    // the table: who sees how in each zone
+    const cx = [760, 1060, 1360], cw = 280, top = 390;
+    const hd = [['у факела', 'до 20 футов', .7], ['тусклый свет', '20–40 футов', .3], ['темнота', 'дальше 40', 0]];
+    hd.forEach(([a, b, op], i) => {
+      const t0 = m('table', .2 + i * .2);
+      const r = mk('rect', { x: cx[i] - cw / 2, y: top, width: cw, height: 64, rx: 10, fill: op ? LIGHT : 'none', 'fill-opacity': op * .5, stroke: op ? LIGHT : COL.faint, 'stroke-width': 2 }, p);
+      put(r, { o: 0 }); show(r, t0);
+      say(p, a, cx[i], top + 28, t0, { size: 24, weight: 700 });
+      say(p, b, cx[i], top + 54, t0, { size: 19, fill: COL.dim });
+    });
+    const V = { y: ['ясно', OK], c: ['ясно, без цвета', OK], d: ['плохо видно', RULE], n: ['не видит', NO] };
+    const R = [['Шиппа, Бронна', 'ночное зрение', 'yyc', 'r1'], ['Тиль', 'сумеречное зрение', 'yyn', 'r2'], ['Разбойник, Сыч', 'обычное зрение', 'ydn', 'r3']];
+    R.forEach(([who_, how, cells, mark], j) => {
+      const y = top + 90 + j * 110, t0 = m(mark);
+      say(p, who_, 80, y + 36, t0, { size: 28, fill: j < 2 ? HERO : FOE, weight: 700, anchor: 'start' });
+      say(p, how, 80, y + 72, t0 + .2, { size: 22, fill: COL.dim, anchor: 'start' });
+      [...cells].forEach((k, i) => {
+        const [s, colr] = V[k], t1 = t0 + .5 + i * .5;
+        const r = mk('rect', { x: cx[i] - cw / 2, y, width: cw, height: 90, rx: 12, fill: colr, 'fill-opacity': k === 'n' ? .28 : .16, stroke: colr, 'stroke-width': 2 }, p);
+        put(r, { o: 0 }); show(r, t1);
+        say(p, s, cx[i], y + 54, t1, { size: 26, weight: 600 });
+      });
+    });
+  }],
+  ['q1', 'Быстрая проверка', () => { panel(0); }, { ask: done => quiz(WIDE, [{
+    id: 'c-zone', prompt: ['Ночь, факел на стене. Какой свет на таком расстоянии от факела?'], build: grid(Q_ZONE, ZONES, { multi: false, text: true }),
+  }, {
+    id: 'c-see', prompt: ['Верно или неверно?'], build: grid(Q_SEE, TF, { multi: false, text: true }),
+  }], done) }],
+  ['states', 'Состояния обнаружения', (m) => {
+    const p = panel(0);
+    title(p, 'Состояния обнаружения');
+    bigLadder(p, [0, 2, 3], .3);
+    // relative: one Shippa, two observers
+    const rel = G(p, { o: 0 });
+    L(rel, [['Шиппа для ', HERO], ['разбойника', FOE]], 500, LY(2) + 50, m('rel', 1.5), 26);
+    L(rel, [['Шиппа для ', HERO], ['Сыча', FOE]], 500, LY(3) + 50, m('rel', 2.5), 26);
+    show(rel, m('rel', 1.5)); hide(rel, m('obs', -.4), .4);
+    rungText(p, 0, RT[0], m('obs', .4));
+    rungText(p, 2, RT[2], m('hid', .4), 3.4);
+    flatPill(p, 2, 11, m('hidflat', 1.4));
+    rungText(p, 3, RT[3], m('und', .4), 3.2);
+  }],
+  ['states2', 'Ещё три состояния', (m) => {
+    const p = panel(0);
+    title(p, 'Ещё три состояния');
+    const R = bigLadder(p, [0, 2, 3], .2);
+    [0, 2, 3].forEach(i => rungText(p, i, RT[i], .3, 0));
+    flatPill(p, 2, 11, .3);
+    tw(R[4], { o: 1 }, m('unn'), .5);
+    rungText(p, 4, RT[4], m('unn', .6), 2.6);
+    tw(R[1], { o: 1 }, m('conc'), .5);
+    rungText(p, 1, RT[1], m('conc', .6), 2.4);
+    flatPill(p, 1, 5, m('five', .6));
+    box(p, 100, 735, 1420, 120, COL.dim, m('inv', -.2));
+    say(p, 'Невидимый', 140, 785, m('inv'), { size: 30, weight: 700, anchor: 'start' });
+    L(p, [['для тех, кто смотрит только глазами, — ', COL.chalk], ['необнаруженный', RULE]], 380, 785, m('inv', .5), 25);
+    L(p, [['единственное состояние, которое не зависит от смотрящего', COL.dim]], 140, 830, m('inv', 3.4), 23);
+  }],
+  ['flat', 'Чистая проверка', (m) => {
+    const p = panel(0);
+    title(p, 'Чистая проверка');
+    numDie(p, '?', 130, 150, .3, 34);
+    L(p, [['d20 без модификаторов', RULE], [' · до броска атаки', COL.chalk]], 190, 162, .4, 30);
+    const tc = turnCells(p, 100, 250, m('fail', -.2), { w: 200, h: 112, react: false });
+    tc.spend(0, 'Удар', m('fail'), 'чистая: провал');
+    tc.lose(0, m('fail', 1));
+    L(p, [['провал: цель не затронута', NO]], 100, 420, m('fail', 1.2), 26);
+    L(p, [['действие всё равно потрачено', COL.chalk]], 100, 460, m('fail', 2.2), 26);
+    // the fog: Bronna strikes the bandit inside it
+    const fog = G(p, { o: 0 });
+    [[1240, 330, 190, 70], [1300, 290, 150, 50], [1190, 380, 140, 45], [1330, 385, 140, 50]].forEach(([x, y, rx, ry]) => mk('ellipse', { cx: x, cy: y, rx, ry, fill: COL.dim, 'fill-opacity': .16 }, fog));
+    show(fog, m('fog'));
+    who(p, 'Бронна', HERO, 960, 330, m('fog', .4), 40);
+    who(p, 'Разбойник', FOE, 1260, 330, m('fog', .4), 40);
+    say(p, 'туман: плохо видим', 1260, 220, m('fog', 1.2), { size: 22, fill: COL.dim });
+    L(p, [['длинный меч: сначала ', COL.chalk], ['чистая проверка СЛ 5', RULE]], 880, 500, m('fog', 4), 26);
+    roll(p, 4, 880, 570, [['4 < 5 → ', COL.chalk], ['провал', NO], [': атаку не бросают', COL.chalk]], m('roll'));
+    const x = G(p, { o: 0 });
+    path(x, 'M1010 330L1200 330', { stroke: HERO, 'stroke-width': 4, 'stroke-dasharray': '10 8' });
+    path(x, 'M1093 318L1117 342M1117 318L1093 342', { stroke: NO, 'stroke-width': 5 });
+    show(x, m('roll', .6));
+    roll(p, '5+', 880, 640, [['5 и больше → атака ', COL.chalk], ['+9', RULE], [' против КБ 16', COL.chalk]], m('ok'));
+  }],
+  ['odds', 'СЛ 5 и СЛ 11', (m) => {
+    const p = panel(0);
+    title(p, 'Чистая проверка: СЛ 5 и СЛ 11');
+    const rows = [[5, 190, 'five', '16 из 20'], [11, 380, 'eleven', '10 из 20 — ровно половина']];
+    rows.forEach(([dc, y, mark, txt]) => {
+      const t0 = m(mark, -.3);
+      say(p, 'СЛ ' + dc, 150, y + 52, t0, { size: 30, fill: RULE, weight: 700, anchor: 'end' });
+      const F = faces(p, 180, y, t0, { w: 62 });
+      for (let f = 1; f <= 20; f++) F.paint(f, f >= dc ? 's' : 'f', m(mark, .5 + (f >= dc ? (f - dc) * .04 + .6 : 0)));
+      const xd = F.X(dc) - 2;
+      draw(path(p, `M${xd} ${y - 12}V${y + 92}`, { stroke: RULE, 'stroke-width': 4 }, { d: 0 }), m(mark, .3), .4);
+      say(p, 'проходит: ' + txt, F.X(20) + F.w, y + 126, m(mark, 1.8), { size: 26, fill: OK, weight: 600, anchor: 'end' });
+    });
+    L(p, [['спрятаться выгоднее, чем стоять в тумане', RULE]], 180, 590, m('hide'), 28);
+    hr(p, 630, m('both', -.3));
+    L(p, [['несколько чистых проверок → ', COL.chalk], ['один бросок, бóльшая СЛ', RULE]], 180, 690, m('both'), 28);
+    L(p, [['спрятан ', COL.chalk], ['11', RULE], [' + плохо видим ', COL.chalk], ['5', RULE], [' → одна проверка, СЛ 11', COL.chalk]], 180, 740, m('both', 3.6), 26);
+    L(p, [['эффект с областью — ', COL.chalk], ['без чистой проверки', OK]], 180, 820, m('area'), 26);
+  }],
+  ['q2', 'Быстрая проверка', () => { panel(0); }, { ask: done => quiz(WIDE, [{
+    id: 'c-flat', prompt: ['Чистая проверка и состояния.'], build: blanks(Q_FLAT),
+  }, {
+    id: 'c-state', prompt: ['Верно или неверно?'], build: grid(Q_STATE, TF, { multi: false, text: true }),
+  }], done) }],
+  ['seek', 'Поиск', (m) => {
+    const p = panel(0);
+    title(p, 'Поиск');
+    const px = actHead(p, 'Поиск', ['тайна'], 150, .3);
+    say(p, 'участок обычно не больше 30 футов', px + 10, 150, .9, { size: 22, fill: COL.dim, anchor: 'start' });
+    colorLine(p, [['ведущий тайно: ', GMC], ['d20 + Внимание', RULE], [' против ', COL.chalk], ['СЛ Скрытности', RULE], [' каждого, кто прячется', COL.chalk]], 800, 230, m('gm'), { size: 28 });
+    colorLine(p, [['СЛ Скрытности = 10 + модификатор', RULE], [' · Шиппа: 10 + 5 = ', COL.chalk], ['15', HERO]], 800, 290, m('dc'), { size: 28 });
+    // three outcomes, each with the three rungs and arrows up
+    const T3 = [['s', 100, 's'], ['cs', 590, 'cs'], ['f', 1080, 'f']], ry = [430, 530, 630], names = ['видимый', 'спрятанный', 'необнаруженный'];
+    T3.forEach(([key, x, mark]) => {
+      const [, name, colr, op] = DEG.find(d => d[0] === key), t0 = m(mark);
+      const r = mk('rect', { x, y: 340, width: 430, height: 370, rx: 16, fill: colr, 'fill-opacity': op * .5, stroke: colr, 'stroke-width': 2.5 }, p);
+      put(r, { o: 0 }); show(r, t0);
+      say(p, name, x + 215, 384, t0, { size: 26, weight: 700 });
+      names.forEach((s, i) => {
+        const g = G(p, { o: 0 });
+        mk('rect', { x: x + 30, y: ry[i] - 26, width: 250, height: 52, rx: 26, fill: '#22322d', stroke: COL.dim, 'stroke-width': 2 }, g);
+        T(g, s, { x: x + 155, y: ry[i] + 8, size: 22, weight: 600, anchor: 'middle' });
+        show(g, t0 + .2);
+      });
+    });
+    // success: each one step up; critical success: everyone to the top
+    arrowTo(p, 100 + 320, ry[2], 100 + 320, ry[1] + 4, OK, m('s', 1.4));
+    arrowTo(p, 100 + 380, ry[1], 100 + 380, ry[0] + 4, OK, m('s', 2.6));
+    arrowTo(p, 590 + 320, ry[2], 590 + 320, ry[0] + 4, OK, m('cs', .6));
+    arrowTo(p, 590 + 380, ry[1], 590 + 380, ry[0] + 4, OK, m('cs', .6));
+    say(p, 'ничего не меняется', 1080 + 215, 690, m('f', .4), { size: 22, fill: COL.chalk });
+    L(p, [['разбойник: Внимание +4 → нужно ', FOE], ['11', RULE], [' на кубике', COL.chalk], [' (11 + 4 = 15)', COL.dim]], 100, 790, m('ban'), 28);
+  }],
+  ['hide', 'Спрятаться', (m) => {
+    const p = panel(0);
+    title(p, 'Спрятаться');
+    actHead(p, 'Спрятаться', ['тайна'], 150, .3);
+    // the diagram: Sych looks, the barrel blocks the view
+    const g = G(p, { o: 0 });
+    mk('rect', { x: 80, y: 210, width: 700, height: 250, rx: 16, fill: '#121c19' }, g);
+    show(g, .4);
+    who(p, 'Сыч', FOE, 180, 320, .5, 36);
+    const bar = G(p, { x: 500, y: 320, o: 0 });
+    mk('circle', { r: 42, fill: '#4a3c30', stroke: COL.dim, 'stroke-width': 3 }, bar);
+    T(bar, 'бочка', { y: 70, size: 20, fill: COL.dim, anchor: 'middle' });
+    show(bar, .5);
+    const sh = tok(p, 'Ш', HERO, 600, 320, .6, 30);
+    draw(path(p, 'M225 320H452', { stroke: FOE, 'stroke-width': 3, 'stroke-dasharray': '10 8' }, { d: 0 }), m('need', .4), .6);
+    L(p, [['нужно: ', COL.chalk], ['укрытие', RULE], [' или ', COL.chalk], ['надёжное укрытие', RULE]], 840, 240, m('need'), 26);
+    L(p, [['или вы плохо видимы', COL.chalk]], 840, 280, m('need', 3.6), 26);
+    L(p, [['ведущий тайно: ', GMC], ['Скрытность', HERO], [' против СЛ Внимания', COL.chalk]], 840, 350, m('roll'), 26);
+    L(p, [['каждого, кто вас видит · укрытие ', COL.dim], ['+2', RULE], [', надёжное ', COL.dim], ['+4', RULE]], 840, 390, m('roll', 3.4), 24);
+    roll(p, 6, 840, 450, [['Сыч: 6 + 5 + 2 = 13 ≥ СЛ 12 → ', COL.chalk], ['успех', OK]], m('ex', 2.5));
+    // now Sych knows the barrel, not Shippa
+    tw(sh, { o: .35 }, m('now'), .6);
+    const q = say(p, '?', 500, 270, m('now', .4), { size: 40, fill: FOE, weight: 700 });
+    say(p, 'Сыч знает, за какой бочкой Шиппа, но не видит её', 430, 428, m('now', 1), { size: 22, fill: COL.dim });
+    pulse(q, m('now', .8), 1.4);
+    hr(p, 500, m('keep', -.3));
+    say(p, 'остаётесь спрятанной:', 100, 570, m('keep'), { size: 26, anchor: 'start' });
+    pillRow(p, ['Спрятаться', 'Красться', 'Шаг'], 720, 560, 26, OK, [m('keep', .6), m('keep', 1.1), m('keep', 1.6)]);
+    L(p, [['любое другое действие → ', COL.chalk], ['вас видно', NO]], 100, 660, m('other'), 26);
+    L(p, [['Удар из пряток: ', HERO], ['цель застигнута врасплох', RULE], [' против этого Удара, потом вас видно', COL.chalk]], 100, 750, m('strike'), 26);
+  }],
+  ['sneak', 'Красться', (m) => {
+    const p = panel(0);
+    title(p, 'Красться');
+    const px = actHead(p, 'Красться', ['движение', 'тайна'], 150, .3);
+    say(p, '½ Скорости, дробь отбрасывается', px + 10, 150, .9, { size: 24, fill: COL.dim, anchor: 'start' });
+    // cells of 5 feet to scale: 1 foot = 12 px; the reach of half the Speed
+    const cx0 = 640, u = 12;
+    const R = [['Шиппа', 25, 12, 2, 'ship'], ['Бронна', 20, 10, 2, 'br'], ['Тиль', 30, 15, 3, 'til']];
+    R.forEach(([n, spd, ft, k, mark], i) => {
+      const y = 220 + i * 92, t0 = m(mark);
+      say(p, n, 100, y + 38, t0, { size: 28, fill: HERO, weight: 700, anchor: 'start' });
+      say(p, `Скорость ${spd} → ${ft} футов`, 260, y + 38, t0 + .3, { size: 24, anchor: 'start' });
+      for (let c = 0; c < 4; c++) {
+        const r = mk('rect', { x: cx0 + c * 5 * u + 3, y, width: 5 * u - 6, height: 5 * u - 6, rx: 6, fill: c < k ? RULE : 'none', 'fill-opacity': c < k ? .35 : 0, stroke: c < k ? RULE : COL.faint, 'stroke-width': 2, ...(c < k ? {} : { 'stroke-dasharray': '6 5' }) }, p);
+        put(r, { o: 0 }); show(r, t0 + .6 + (c < k ? c * .3 : 0));
+      }
+      const xf = cx0 + ft * u, lg = G(p, { o: 0 });
+      path(lg, `M${xf} ${y - 8}V${y + 62}`, { stroke: HERO, 'stroke-width': 4 });
+      T(lg, ft + ' фт', { x: xf + 8, y: y - 10, size: 18, fill: HERO, weight: 700 });
+      show(lg, t0 + 1.4);
+      L(p, [['→ ' + k + ' клетки', RULE]], 940, y + 38, t0 + 2, 28);
+    });
+    say(p, 'клетка — 5 футов', cx0, 500, m('ship', 2), { size: 20, fill: COL.dim, anchor: 'start' });
+    L(p, [['в конце: ведущий тайно — ', GMC], ['Скрытность', HERO], [' против СЛ Внимания каждого,', COL.chalk]], 100, 560, m('roll'), 25);
+    L(p, [['от кого вы были спрятаны или не обнаружены', COL.chalk]], 100, 596, m('roll', 1.5), 25);
+    degTile(p, 's', 100, 620, 440, 110, ['не обнаружены'], m('s'));
+    degTile(p, 'f', 580, 620, 440, 110, ['спрятаны: вас услышали'], m('f'));
+    degTile(p, 'cf', 1060, 620, 440, 110, ['вас видно'], m('cf'));
+    L(p, [['в конце нет укрытия и плохой видимости → ', COL.chalk], ['проверки нет, вас видно', NO]], 100, 790, m('open'), 25);
+    L(p, [['Красться — только от того, кто вас ещё не видит', COL.dim]], 100, 840, m('only'), 25);
+  }],
+  ['q3', 'Быстрая проверка', () => { panel(0); }, { ask: done => quiz(WIDE, [{
+    id: 'c-stealth', prompt: ['Посчитайте.'], build: blanks(Q_STEALTH),
+  }, {
+    id: 'c-stealth-tf', prompt: ['Верно или неверно?'], build: grid(Q_STEALTH_TF, TF, { multi: false, text: true }),
+  }], done) }],
+  ['avoid', 'Незаметное перемещение', (m) => {
+    const p = panel(0);
+    title(p, 'Незаметное перемещение');
+    pill(p, 'исследование', EXP, 190, 150, .3, 26);
+    say(p, 'занятие вне боя, вместо действий Красться', 320, 158, .6, { size: 25, fill: COL.dim, anchor: 'start' });
+    L(p, [['Незаметное перемещение: ', EXP], ['½ скорости путешествия', COL.chalk]], 100, 240, m('mode'), 28);
+    const bx = 420, k = 2.4;
+    const bar_ = (y, ft, colr, s, t0) => {
+      const r = mk('rect', { x: bx, y, width: 0, height: 40, rx: 8, fill: colr, 'fill-opacity': .4, stroke: colr, 'stroke-width': 2 }, p);
+      prog(q => r.setAttribute('width', ft * k * q), t0, .8, out);
+      say(p, s, bx - 20, y + 30, t0, { size: 24, anchor: 'end' });
+      say(p, ft + ' футов в минуту', bx + ft * k + 16, y + 30, t0 + .6, { size: 24, fill: colr, weight: 700, anchor: 'start' });
+    };
+    bar_(290, 250, COL.dim, 'Шиппа обычно', m('half'));
+    bar_(350, 125, EXP, 'незаметно', m('half', 2.4));
+    hr(p, 430, m('init', -.3));
+    L(p, [['бой: инициатива на ', COL.chalk], ['Скрытности', HERO], [' вместо Внимания', COL.dim]], 100, 490, m('init'), 28);
+    L(p, [['тот же итог — против ', COL.chalk], ['СЛ Внимания каждого врага', RULE]], 100, 550, m('cmp'), 28);
+    degTile(p, 's', 100, 600, 440, 110, ['враг вас не обнаружил'], m('s'));
+    degTile(p, 'f', 580, 600, 440, 110, ['вы для него спрятаны'], m('f'));
+    degTile(p, 'cf', 1060, 600, 440, 110, ['вас видно'], m('cf'));
+  }],
+  ['night1', 'Ночь у амбара: инициатива', (m) => {
+    const p = panel(0);
+    const N = night(p, 'Ночь у амбара: инициатива', SP.s45, SP.ban, 4, 4);
+    pill(p, 'бой', ENC, 415, 130, m('fight'), 26);
+    const fence = G(p, { o: 0 });
+    path(fence, 'M740 300V600', { stroke: COL.dim, 'stroke-width': 4, 'stroke-dasharray': '4 10' });
+    T(fence, 'плетень', { x: 790, y: 286, size: 18, fill: COL.dim, anchor: 'middle' });
+    show(fence, m('fight', 2));
+    tok(p, 'Б', HERO, 790, 400, m('fight', 2.4), 20);
+    tok(p, 'Т', HERO, 790, 480, m('fight', 2.6), 20);
+    say(p, 'инициатива', 880, 480, m('ship', -.3), { size: 22, fill: COL.dim, anchor: 'start' });
+    roll(p, 11, 880, 530, [['Шиппа: 11 + 5 = 16', HERO], [' · Скрытность', COL.dim]], m('ship'));
+    roll(p, 8, 880, 585, [['Разбойник: 8 + 4 = 12', FOE], [' · Внимание', COL.dim]], m('ban'));
+    roll(p, 7, 880, 640, [['Сыч: 7 + 2 = 9', FOE], [' · Внимание', COL.dim]], m('owl'));
+    L(p, [['16 ≥ СЛ 14 и СЛ 12 → ', COL.chalk], ['не обнаружена', OK], [' обоими', COL.chalk]], 880, 720, m('cmp'), 26);
+    N.lad.forEach(l => l.set(3, m('cmp', 1.6)));
+  }],
+  ['night2', 'Ход Шиппы', (m) => {
+    const p = panel(0);
+    const N = night(p, 'Ход Шиппы: три раза Красться', SP.s45, SP.ban, 3, 3);
+    say(p, 'раунд 1 · ход Шиппы', 415, 130, .3, { size: 24, fill: HERO, weight: 600 });
+    moveTo(N.ship, SP.s35, m('s1', .2));
+    roll(p, 10, 870, 490, [['→ 35 фт, тусклый: 10 + 5 = 15 · ', COL.chalk], ['успех', OK], [' против 14 и 12', COL.dim]], m('s1', 6), 24);
+    moveTo(N.ship, SP.s25, m('s2', .2));
+    roll(p, 8, 870, 545, [['→ 25 фт: 8 + 5 = 13', COL.chalk]], m('s2', 2.6), 24);
+    L(p, [['против 14 разбойника: ', FOE], ['провал', NO], [' → спрятана', COL.chalk]], 916, 590, m('ban'), 24);
+    burst(p, 'хрусь!', SP.s25[0] + 64, SP.s25[1] + 52, NO, m('ban', 1.6));
+    N.lad[0].set(2, m('ban', 3.4));
+    L(p, [['против 12 Сыча: ', FOE], ['успех', OK], [' → не обнаружена', COL.chalk]], 916, 630, m('owl'), 24);
+    moveTo(N.ship, SP.s25b, m('s3', .4));
+    roll(p, 12, 870, 685, [['→ вбок: 12 + 5 = 17 · ', COL.chalk], ['успех', OK], [' против обоих', COL.dim]], m('s3', 2), 24);
+    N.lad[0].set(3, m('s3', 4.5));
+    say(p, 'ведущий игроку, без чисел:', 870, 748, m('gm'), { size: 22, fill: GMC, weight: 600, anchor: 'start' });
+    say(p, '«После хруста разбойник всматривается в темноту,', 870, 782, m('gm', 2), { size: 22, fill: COL.chalk, anchor: 'start' });
+    say(p, 'потом снова смотрит на дверь»', 870, 814, m('gm', 2.6), { size: 22, fill: COL.chalk, anchor: 'start' });
+    tok(p, 'Ш', HERO, ...SP.s15, m('light', .3), 24, true);
+    arrowTo(p, SP.s25[0] - 6, SP.s25[1], SP.s15[0] + 30, SP.s15[1], HERO, m('light', .3), true);
+    L(p, [['на 2 клетки ближе — яркий свет: ', COL.chalk], ['её просто видят', NO]], 870, 860, m('light', 2), 22);
+  }],
+  ['night3', 'Ход разбойника', (m) => {
+    const p = panel(0);
+    const N = night(p, 'Ход разбойника', SP.s25b, SP.ban, 3, 3);
+    say(p, 'раунд 1 · ход разбойника', 415, 130, .3, { size: 24, fill: FOE, weight: 600 });
+    const area = put(mk('circle', { cx: SP.s25b[0], cy: SP.s25b[1], r: 60, fill: FOE, 'fill-opacity': .08, stroke: FOE, 'stroke-width': 2.5, 'stroke-dasharray': '8 6' }, p), { o: 0 });
+    show(area, m('seek'));
+    roll(p, 13, 870, 490, [['Поиск: 13 + 4 = 17 ≥ СЛ 15 → ', COL.chalk], ['успех', OK], [': спрятана', COL.chalk]], m('seek', 1), 24);
+    N.lad[0].set(2, m('seek', 6));
+    hide(area, m('move', -.2));
+    moveTo(N.ban, SP.ban2, m('move', .2), 1.2);
+    L(p, [['Перемещение → рядом с Шиппой', COL.chalk]], 916, 540, m('move'), 24);
+    L(p, [['Удар: спрятана ', COL.chalk], ['11', RULE], [' + плохо видима ', COL.chalk], ['5', RULE], [' → одна, СЛ 11', COL.chalk]], 916, 590, m('hit'), 24);
+    roll(p, 7, 870, 645, [['7 < 11 → ', COL.chalk], ['мимо', NO], [': атаку не бросают', COL.chalk]], m('roll'), 24);
+    grow(N.ban, 1, m('hit', .4));
+    burst(p, 'мимо', SP.ban2[0] - 70, SP.ban2[1] + 8, NO, m('roll', .6));
+    L(p, [['только плохо видима: 7 ≥ 5 → атака +7 против КБ 18', COL.dim]], 916, 695, m('if'), 22);
+    roll(p, 5, 870, 760, [['Сыч, Поиск: 5 + 2 = 7 < 15 → ', COL.chalk], ['ничего', NO]], m('owl', .6), 24);
+  }],
+  ['night4', 'Удар из пряток', (m) => {
+    const p = panel(0);
+    const N = night(p, 'Удар из пряток', SP.s25b, SP.ban2, 2, 3);
+    say(p, 'раунд 2 · ход Шиппы', 415, 130, .3, { size: 24, fill: HERO, weight: 600 });
+    L(p, [['Удар рапирой из пряток: разбойник ', COL.chalk], ['застигнут врасплох', RULE]], 870, 490, m('off', -.3), 24);
+    L(p, [['КБ 16 − 2 = 14', COL.chalk]], 870, 535, m('off', 3), 26);
+    grow(N.ship, 1, m('roll'));
+    burst(p, 'попадание', SP.ban2[0] - 90, SP.ban2[1] + 8, OK, m('roll', 2));
+    roll(p, 9, 870, 600, [['9 + 6 = 15 ≥ 14 → ', COL.chalk], ['попадание', OK]], m('roll', .6), 26);
+    say(p, 'против КБ 16 был бы промах', 916, 640, m('roll', 4), { size: 22, fill: COL.dim, anchor: 'start' });
+    N.lad.forEach(l => l.set(1, m('seen', .4)));
+    L(p, [['после Удара — ', COL.chalk], ['видима', NO], [' для обоих', COL.chalk]], 870, 710, m('seen'), 26);
+    L(p, [['но тусклый свет: их атаки — ', COL.chalk], ['чистая проверка 5', RULE]], 870, 760, m('dim'), 26);
+  }],
+  ['q4', 'Быстрая проверка', () => { panel(0); }, { ask: done => quiz(WIDE, [{
+    id: 'c-night', prompt: ['Шиппа Крадётся; итог её Скрытности против СЛ Внимания врага. Чем она станет для него?'], build: grid(Q_NIGHT, STATE3, { multi: false, text: true }),
+  }, {
+    id: 'c-night-n', prompt: ['Посчитайте.'], build: blanks(Q_NIGHT_N),
+  }], done) }],
+  ['motive', 'Проницательность', (m) => {
+    const p = panel(0);
+    title(p, 'Проницательность');
+    who(p, 'Шиппа', HERO, 150, 290, .3, 40);
+    who(p, 'Сыч', FOE, 420, 290, .3, 40);
+    bubble(p, 'Не бей, меня наняли сторожить', 420, 190, FOE, .4, { size: 24 });
+    actHead(p, 'Проницательность', ['тайна'], 230, m('sm'), 680);
+    L(p, [['ведущий тайно: ', GMC], ['Внимание', HERO], [' против ', COL.chalk], ['СЛ Обмана', RULE]], 680, 300, m('sm', 2.4), 26);
+    const D4 = [['cs', ['чего он хочет', 'на самом деле']], ['s', ['ведёт ли себя', 'естественно']], ['f', ['верите тому,', 'что видите']], ['cf', ['неверный вывод', 'о намерениях']]];
+    D4.forEach(([k, lines], i) => degTile(p, k, 80 + i * 365, 380, 340, 160, lines, m(k)));
+    roll(p, 11, 100, 620, [['Шиппа: 11 + 5 = 16 ≥ СЛ 14 → ', COL.chalk], ['успех', OK]], m('ex'), 28);
+    who(p, 'Ведущий', GMC, 800, 800, m('gm', -.3), 40);
+    bubble(p, 'Он слишком часто косится на дверь амбара', 800, 690, GMC, m('gm', .6), { size: 24 });
+  }],
+  ['secret', 'Тайные проверки', (m) => {
+    const p = panel(0);
+    title(p, 'Тайные проверки');
+    pillRow(p, ['Поиск', 'Спрятаться', 'Красться', 'Проницательность'], 800, 140, 26, RULE, [.3, .5, .7, .9]);
+    // the GM's screen hides the die
+    numDie(p, '?', 260, 280, .5, 40);
+    const scr = mk('rect', { x: 150, y: 290, width: 220, height: 130, rx: 10, fill: '#3a2e3a', stroke: GMC, 'stroke-width': 3 }, p);
+    put(scr, { o: 0 }); show(scr, .6);
+    say(p, 'ширма ведущего', 260, 450, .8, { size: 20, fill: COL.dim });
+    say(p, 'бросает ведущий, итог не называет', 440, 300, 1.2, { size: 28, anchor: 'start' });
+    say(p, 'игрок не знает больше героя', 440, 360, m('why'), { size: 30, fill: RULE, weight: 700, anchor: 'start' });
+    // what would go wrong with an open roll
+    const bad = G(p, { o: 0 });
+    show(bad, m('ex'));
+    roll(bad, 3, 100, 540, [['игрок видит: 3 + 5 = 8 → «провал, пойду осторожнее»', COL.chalk]], m('ex', .2), 26);
+    draw(path(p, 'M140 530H820', { stroke: NO, 'stroke-width': 4 }, { d: 0 }), m('ex', 5), .6);
+    say(p, 'а сама Шиппа ничего не заметила', 146, 590, m('ex', 5.6), { size: 24, fill: COL.dim, anchor: 'start' });
+    hr(p, 650, m('fort', -.3));
+    pill(p, 'удача', RULE, 160, 712, m('fort', .4), 26);
+    L(p, [['если знаете о тайной проверке — можно:', COL.chalk]], 250, 720, m('fort', .6), 26);
+    L(p, [['переброс за пункт героизма', HERO], [' · перебрасывает ведущий', COL.chalk]], 250, 770, m('fort', 4.6), 26);
+  }],
+  ['search', 'Обыск', (m) => {
+    const p = panel(0);
+    title(p, 'Обыск');
+    const g = G(p, { o: 0 });
+    mk('rect', { x: 80, y: 130, width: 700, height: 560, rx: 14, fill: '#2a2622', stroke: COL.faint, 'stroke-width': 3 }, g);
+    for (let i = 0; i < 46; i++) {
+      const x = 120 + (i * 137) % 620, y = 170 + (i * 89) % 480;
+      path(g, `M${x} ${y}l${18 + i % 3 * 6} ${(i % 5) - 2}`, { stroke: LIGHT, 'stroke-width': 3, 'stroke-opacity': .35 });
+    }
+    T(g, 'амбар', { x: 430, y: 720, size: 22, fill: COL.dim, anchor: 'middle' });
+    show(g, .2);
+    const hatch = put(mk('rect', { x: 620, y: 520, width: 110, height: 110, rx: 6, fill: 'none', stroke: RULE, 'stroke-width': 3, 'stroke-dasharray': '8 6' }, p), { o: 0 });
+    tw(hatch, { o: .25 }, m('ex'), .5);
+    const br = who(p, 'Бронна', HERO, 170, 400, .3, 34);
+    pill(p, 'исследование', EXP, 960, 160, .4, 24);
+    say(p, 'Обыск', 1084, 168, .4, { size: 32, fill: EXP, weight: 700, anchor: 'start' });
+    say(p, '½ скорости · тайные двери, ловушки, вещи', 860, 230, .8, { size: 24, fill: COL.dim, anchor: 'start' });
+    moveTo(br, [560, 470], m('pass'), 2.4);
+    L(p, [['мимо спрятанного → ', COL.chalk], ['бесплатный тайный Поиск', RULE]], 860, 310, m('pass', .6), 26);
+    L(p, [['люк под соломой: ', COL.chalk], ['СЛ 18', RULE]], 860, 400, m('ex'), 26);
+    roll(p, 13, 860, 460, [['Бронна: 13 + 6 = 19 ≥ 18 → ', COL.chalk], ['успех', OK]], m('ex', 3), 26);
+    tw(hatch, { o: 1 }, m('gm'), .5); pulse(hatch, m('gm'), 1.1);
+    bubble(p, 'У дальней стены доски под соломой звучат глухо', 1150, 600, GMC, m('gm', .4), { size: 23 });
+  }],
+  ['wrap', 'Итоги', (m) => {
+    const p = panel(0);
+    numbered(p, [['Факел: ярко до 20 футов, тускло до 40, дальше темнота.', 'w1'],
+      ['Плохо видимый — чистая 5, спрятанный — 11, необнаруженный — клетка неизвестна.', 'w2'],
+      ['Поиск, Спрятаться, Красться двигают по ступеням; бросает ведущий, тайно.', 'w3'],
+      ['Удар из пряток: цель застигнута врасплох, потом вас видно.', 'w4']], m, 220, 140, 29);
+  }],
+  ['final1', 'Практика главы', () => { panel(0); }, { ask: done => quiz(SCREEN, [{
+    id: 'p-tf', prompt: ['Верно или неверно?'], build: grid(P_TF, TF, { multi: false, text: true }),
+  }], done, 'Практика главы   1 из 3') }],
+  ['final2', 'Практика главы', () => {}, { ask: done => quiz(SCREEN, [{
+    id: 'p-calc', prompt: ['Посчитайте.'], build: blanks(P_CALC),
+  }], done, 'Практика главы   2 из 3') }],
+  ['final3', 'Практика главы', () => {}, { ask: done => quiz(SCREEN, [{
+    id: 'p-night', prompt: ['Снова ночь у амбара. Шиппа: Скрытность +5, Внимание +5, рапира +6. Разбойник: КБ 16, СЛ Внимания 14. Сыч: СЛ Внимания 12, СЛ Обмана 14.'], build: blanks(P_NIGHT),
+  }], done, 'Практика главы   3 из 3') }],
+  ['finish', 'Готово', () => {}, { ask: finishCard }],
+].map(([id, title, run, extra]) => ({ id, title, run, ...extra }));
+
+/* ---------- question data ---------- */
+const ZONES = [['b', 'Яркий', LIGHT, '1'], ['d', 'Тусклый', null, '2'], ['n', 'Темнота', null, '3']];
+const Q_ZONE = [
+  { parts: ['15 футов'], ans: ['b'], why: 'Факел светит ярко на 20 футов.' },
+  { parts: ['35 футов'], ans: ['d'], why: 'От 20 до 40 футов — тусклый свет.' },
+  { parts: ['45 футов'], ans: ['n'], why: 'Дальше 40 футов — темнота.' },
+];
+const Q_SEE = [
+  { parts: ['Тиль (сумеречное зрение) видит в полной темноте.'], ans: ['f'], why: 'Сумеречное зрение помогает только в тусклом свете.' },
+  { parts: ['Бронна (ночное зрение) видит в темноте, но без цвета.'], ans: ['t'], why: 'Ночное зрение: как при ярком свете, только без цвета.' },
+  { parts: ['Существо в тусклом свете плохо видимо для разбойника.'], ans: ['t'], why: 'Тусклый свет делает существо плохо видимым.' },
+  { parts: ['Ушами существо можно сделать видимым.'], ans: ['f'], why: 'Слух — вспомогательный способ: максимум спрятанный.' },
+];
+const Q_FLAT = [
+  { parts: ['Атака по спрятанному: чистая проверка СЛ ', { box: '11' }], why: 'Спрятанный — СЛ 11.', hint: 'Спрятанный труднее, чем плохо видимый.' },
+  { parts: ['Атака по плохо видимому: СЛ ', { box: '5' }], why: 'Плохо видимый — СЛ 5.', hint: 'Туман, дым, тусклый свет.' },
+  { parts: ['Сколько граней из 20 проходят СЛ 5: ', { box: '16' }], why: 'Грани 5–20: 16 граней.', hint: 'От 5 до 20 включительно.' },
+  { parts: ['Враг спрятан и плохо видим. Одна чистая проверка, СЛ ', { box: '11' }], why: 'Один бросок, бóльшая СЛ.', hint: 'Берут бóльшую СЛ.' },
+  { parts: ['Разбойник (КБ 16) застигнут врасплох. Его КБ: ', { box: '14' }], why: '16 − 2 = 14.', hint: 'Застигнут врасплох: −2 к КБ.' },
+];
+const Q_STATE = [
+  { parts: ['Провал чистой проверки: атаку не бросают, но действие потрачено.'], ans: ['t'], why: 'Цель не затронута, затраты пропали.' },
+  { parts: ['Незамеченный всегда ещё и необнаруженный.'], ans: ['t'], why: 'Смотрящий даже не подозревает, что он здесь.' },
+  { parts: ['Эффекту с областью нужна чистая проверка.'], ans: ['f'], why: 'Эффекты с областью обходятся без неё.' },
+];
+const Q_STEALTH = [
+  { parts: ['Скрытность +7. СЛ Скрытности: ', { box: '17' }], why: '10 + 7 = 17.', hint: '10 + модификатор.' },
+  { parts: ['Разбойник (Внимание +4) ищет Шиппу (СЛ Скрытности 15). Нужно на кубике не меньше: ', { box: '11' }], why: '11 + 4 = 15.', hint: '15 − 4.' },
+  { parts: ['Шиппа Прячется за бочкой (укрытие): Скрытность +5, на кубике 4. Итог: ', { box: '11' }], why: '4 + 5 + 2 = 11.', hint: 'Не забудьте +2 за укрытие.' },
+  { parts: ['Герой со Скоростью 35 Крадётся. Клеток: ', { box: '3' }], why: '35 / 2 = 17,5 → 17 футов: три клетки по 5, на четвёртую не хватает.', hint: 'Половина Скорости, дробь отбросить, клетка — 5 футов.' },
+];
+const Q_STEALTH_TF = [
+  { parts: ['Успех Поиска делает необнаруженное существо сразу видимым.'], ans: ['f'], why: 'Успех поднимает на одну ступень: необнаруженный → спрятанный.' },
+  { parts: ['Провал Красться: вас услышали, вы спрятаны.'], ans: ['t'], why: 'Знают клетку, но не видят.' },
+  { parts: ['Спрятанная Шиппа делает Шаг и остаётся спрятанной.'], ans: ['t'], why: 'Спрятаться, Красться и Шаг сохраняют прятки.' },
+  { parts: ['Красться можно от того, кто вас уже видит.'], ans: ['f'], why: 'Сначала надо Спрятаться.' },
+];
+const STATE3 = [['o', 'видима', null, '1'], ['h', 'спрятана', null, '2'], ['u', 'не обнаружена', null, '3']];
+const Q_NIGHT = [
+  { parts: ['Итог 16 против СЛ 14'], ans: ['u'], why: 'Успех: не обнаружена.' },
+  { parts: ['Итог 13 против СЛ 14'], ans: ['h'], why: 'Провал: её услышали, она спрятана.' },
+  { parts: ['Итог 13 против СЛ 12'], ans: ['u'], why: 'Успех: не обнаружена.' },
+  { parts: ['Итог 3 против СЛ 14'], ans: ['o'], why: 'На 10 меньше СЛ — критический провал: её видно.' },
+];
+const Q_NIGHT_N = [
+  { parts: ['Шиппа Незаметно перемещается; обычно проходит 250 футов в минуту. Теперь футов в минуту: ', { box: '125' }], why: '250 / 2 = 125.', hint: 'Половина скорости путешествия.' },
+  { parts: ['Шиппа спрятана, бьёт рапирой (+6) разбойника (КБ 16). На кубике нужно не меньше: ', { box: '8' }], why: 'КБ 16 − 2 = 14; 8 + 6 = 14.', hint: 'Цель застигнута врасплох: КБ 14.' },
+];
+const P_TF = [
+  { parts: ['Если ведущий не сказал другого, вокруг яркий свет.'], ans: ['t'], why: 'Яркий свет — по умолчанию.' },
+  { parts: ['Спрятанное существо: смотрящий не знает, в какой оно клетке.'], ans: ['f'], why: 'Клетку он знает; не знает её у необнаруженного.' },
+  { parts: ['Плохая видимость меняет главное состояние: видимый становится спрятанным.'], ans: ['f'], why: 'Главное состояние не меняется, добавляется чистая проверка 5.' },
+  { parts: ['Если чистых проверок несколько, бросают один раз с бóльшей СЛ.'], ans: ['t'], why: 'Спрятан и плохо видим — одна проверка СЛ 11.' },
+  { parts: ['После Удара из пряток вы остаётесь спрятанной.'], ans: ['f'], why: 'Цель застигнута врасплох, а потом вас видно.' },
+  { parts: ['Проницательность бросает ведущий, тайно.'], ans: ['t'], why: 'У неё дескриптор «тайна».' },
+  { parts: ['К тайной проверке, о которой вы знаете, можно применить переброс за пункт героизма.'], ans: ['t'], why: 'Способность удачи применить можно — перебросит ведущий.' },
+];
+const P_CALC = [
+  { parts: ['СЛ 11: граней из 20, которые проходят: ', { box: '10' }], why: 'Грани 11–20: ровно половина.', hint: 'От 11 до 20 включительно.' },
+  { parts: ['Гоблин со Скрытностью +6. СЛ Скрытности: ', { box: '16' }], why: '10 + 6 = 16.', hint: '10 + модификатор.' },
+  { parts: ['Бронна (Внимание +6) ищет этого гоблина. На кубике нужно не меньше: ', { box: '10' }], why: '10 + 6 = 16.', hint: '16 − 6.' },
+  { parts: ['Тиль (Скорость 30) Крадётся. Футов: ', { box: '15' }], why: '30 / 2 = 15.', hint: 'Половина Скорости.' },
+  { parts: ['Бронна (Скорость 20) Крадётся. Клеток: ', { box: '2' }], why: '20 / 2 = 10 футов: две клетки по 5.', hint: 'Клетка — 5 футов.' },
+];
+const P_NIGHT = [
+  { parts: ['Шиппа Крадётся, на кубике 9. Итог: ', { box: '14' }], why: '9 + 5 = 14 ≥ 14: успех против разбойника.', hint: 'Кубик + Скрытность.' },
+  { parts: ['Шиппа Прячется за бочкой (+2) от Сыча. Наименьшее число на кубике для успеха: ', { box: '5' }], why: '5 + 5 + 2 = 12.', hint: '12 − 5 − 2.' },
+  { parts: ['Сыч лжёт. Наименьшее число на кубике, чтобы Проницательность Шиппы удалась: ', { box: '9' }], why: '9 + 5 = 14.', hint: 'СЛ Обмана 14, Внимание +5.' },
+  { parts: ['Шиппа спрятана от разбойника. Его КБ против её Удара: ', { box: '14' }], why: 'Застигнут врасплох: 16 − 2.', hint: '−2 к КБ.' },
+  { parts: ['Разбойник бьёт спрятанную Шиппу в тусклом свете. Чистая проверка СЛ ', { box: '11' }], why: 'Спрятана (11) и плохо видима (5): берут 11.', hint: 'Бóльшая СЛ.' },
+];
+boot();
+</script>
+</body>
+</html>

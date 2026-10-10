@@ -1,0 +1,672 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ПЗ, лечение, смерть и пункты героизма — Первый герой</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%231d2b27'/%3E%3Ctext x='32' y='45' text-anchor='middle' font-size='48' fill='%23f0b45a'%3E∞%3C/text%3E%3C/svg%3E">
+<link rel="stylesheet" href="../lib/engine.css">
+<link rel="expect" href="#bar" blocking="render"><!-- hold the first frame until the player exists, so the page transition can run -->
+</head>
+<body>
+<script src="../lib/engine.js"></script>
+<script src="../lib/pf.js"></script>
+<script src="audio/ru/timings.js"></script>
+<script>
+'use strict';
+const CHAPTER = { number: 11, title: 'ПЗ, лечение, смерть и пункты героизма', minutes: 14, language: 'ru', next: '../ch12/' };
+
+/* ---------- chapter drawing helpers (shared ones: lib/pf.js) ---------- */
+// HP HERO, healing and success OK, damage, «при смерти» and failure NO, wounded WND (lilac), doomed DOOM (pink), hero points HPT (gold).
+const WND = COL.real, DOOM = COL.rat, HPT = COL.int;
+const PPL = { r: ['Разбойник', FOE], s: ['Шиппа', HERO], t: ['Тиль', HERO], b: ['Бронна', HERO] };
+const hr = (p, y, t0, x1 = 80, x2 = 1520) => draw(path(p, `M${x1} ${y}H${x2}`, { stroke: COL.faint, 'stroke-width': 2 }, { d: 0 }), t0, .5);
+const box = (p, x, y, w, h, colr, t0) => { const r = mk('rect', { x, y, width: w, height: h, rx: 18, fill: '#22322d', stroke: colr, 'stroke-width': 2.5 }, p); put(r, { o: 0 }); show(r, t0); return r; };
+const title = (p, s, t0 = .2) => say(p, s, 800, 62, t0, { size: 36, weight: 600 });
+const L = (p, parts, x, y, t0, size = 26) => colorLine(p, parts, x, y, t0, { size, anchor: 'start' });   // left-aligned coloured line
+const blink = (e, t0) => { tw(e, { o: .25 }, t0, .25); tw(e, { o: 1 }, t0 + .25, .35); tw(e, { o: .25 }, t0 + .6, .25); tw(e, { o: 1 }, t0 + .85, .35); };
+const setText = (e, s, t0) => { prog(() => { e.textContent = s; }, t0, 0); pulse(e, t0, 1.3); };
+// A d20 with its roll and a coloured sum after it, left-aligned at x (as in ch08–ch09).
+function roll(p, n, x, y, parts, t0, size = 26) {
+  numDie(p, n, x, y - 9, t0, 22);
+  colorLine(p, parts, x + 38, y, t0 + .3, { size, anchor: 'start' });
+}
+// The twenty faces of a d20 in a row from x0, top y; paint(f, deg, t0) colours face f with a degree of success (copy of ch09).
+function faces(p, x0, y, t0, { w = 58, h = 80, gap = 4, size = 26 } = {}) {
+  const X = f => x0 + (f - 1) * (w + gap), cx = f => X(f) + w / 2;
+  const g = G(p, { o: 0 });
+  for (let f = 1; f <= 20; f++) {
+    mk('rect', { x: X(f), y, width: w, height: h, rx: 8, fill: 'none', stroke: COL.faint, 'stroke-width': 2, 'stroke-dasharray': '6 5' }, g);
+    T(g, String(f), { x: cx(f), y: y + h / 2 + size * .36, size, weight: 600, anchor: 'middle' });
+  }
+  show(g, t0);
+  const top = G(p);
+  return {
+    X, cx, w, h,
+    paint(f, deg, t1) {
+      const [, , colr, op] = DEG.find(d => d[0] === deg);
+      const r = mk('rect', { x: X(f), y, width: w, height: h, rx: 8, fill: colr, 'fill-opacity': op, stroke: colr, 'stroke-width': 2.5 }, top);
+      put(r, { o: 0 }); show(r, t1, .3);
+      return r;
+    },
+  };
+}
+// Faces a..b painted with one degree, a label centred under them.
+function band(p, F, a, b, deg, label, t0, ly, colr) {
+  for (let f = a; f <= b; f++) F.paint(f, deg, t0 + (f - a) * .04);
+  return say(p, label, (F.X(a) + F.X(b) + F.w) / 2, ly, t0 + .3, { size: a === b ? 20 : 23, fill: colr || DEG.find(d => d[0] === deg)[2], weight: 700 });
+}
+// Hit points as a row of cells from x, top y; set(v, t0) — lost cells flash red and empty, healed ones flash green and fill;
+// ghost(i, t0) — a crossed dashed cell outside the bar (HP above the maximum or below zero are lost).
+function hpBar(p, x, y, max, cur, t0, { cw = 50, h = 44, gap = 4, label = true, colr = HERO, op = .55, stroke = COL.faint } = {}) {
+  const g = G(p, { o: 0 }), X = i => x + i * (cw + gap), cells = [];
+  for (let i = 0; i < max; i++) {
+    mk('rect', { x: X(i), y, width: cw, height: h, rx: 6, fill: 'none', stroke, 'stroke-width': 2, 'stroke-dasharray': '6 5' }, g);
+    cells.push(put(mk('rect', { x: X(i), y, width: cw, height: h, rx: 6, fill: colr, 'fill-opacity': op }, g), { o: i < cur ? 1 : 0 }));
+  }
+  const val = label ? T(g, `${cur} / ${max}`, { x: X(max) + 12, y: y + h / 2 + 11, size: 30, fill: HERO, weight: 700 }) : null;
+  show(g, t0);
+  let v0 = cur;
+  return {
+    g, X, cw, h, val,
+    set(v, t1) {
+      const lo = Math.min(v, v0), hi = Math.max(v, v0), down = v < v0;
+      for (let i = lo; i < hi; i++) {
+        const c = cells[i], t = t1 + (down ? hi - 1 - i : i - lo) * .06;
+        tw(c, { c_fill: down ? NO : OK }, t, .05);
+        if (down) { tw(c, { o: 0 }, t + .45, .35); tw(c, { c_fill: colr }, t + .85, .05); }
+        else { tw(c, { o: 1 }, t, .3); tw(c, { c_fill: colr }, t + .8, .5); }
+      }
+      if (val) setText(val, `${v} / ${max}`, t1 + .2);
+      v0 = v;
+    },
+    ghost(i, t1) {
+      const gg = G(p, { o: 0 }), gx = X(i);
+      mk('rect', { x: gx, y, width: cw, height: h, rx: 6, fill: 'none', stroke: NO, 'stroke-width': 2, 'stroke-dasharray': '5 4' }, gg);
+      path(gg, `M${gx + 8} ${y + 8}L${gx + cw - 8} ${y + h - 8}M${gx + cw - 8} ${y + 8}L${gx + 8} ${y + h - 8}`, { stroke: NO, 'stroke-width': 3 });
+      show(gg, t1, .3);
+      return gg;
+    },
+  };
+}
+// A condition scale of n numbered cells (dying 1–4, wounded 1–3) from x, top y; the name on the left in its colour.
+// death — the cell that kills (red frame, «смерть» under it); fill(i, t0, colour) / clear(i, t0) / set(v, t0) change the value.
+function track(p, x, y, n, colr, name, t0, { cw = 120, h = 80, gap = 10, death = 0, size = 34, nameSize = 28 } = {}) {
+  const g = G(p, { o: 0 }), X = i => x + (i - 1) * (cw + gap), fills = {};
+  if (name) T(g, name, { x: x - 22, y: y + h / 2 + nameSize * .36, size: nameSize, fill: colr, weight: 700, anchor: 'end' });
+  for (let i = 1; i <= n; i++) {
+    const dz = i === death;
+    mk('rect', { x: X(i), y, width: cw, height: h, rx: 10, fill: 'none', stroke: dz ? NO : COL.faint, 'stroke-width': dz ? 4 : 2, ...(dz ? {} : { 'stroke-dasharray': '7 5' }) }, g);
+    T(g, String(i), { x: X(i) + cw / 2, y: y + h / 2 + size * .36, size, fill: COL.dim, weight: 700, anchor: 'middle' });
+    if (dz) T(g, 'смерть', { x: X(i) + cw / 2, y: y + h + Math.max(22, size * .8), size: Math.max(18, size * .6), fill: NO, weight: 700, anchor: 'middle' });
+  }
+  show(g, t0);
+  const top = G(p);
+  let v = 0;
+  const api = {
+    g, X, cw, h,
+    fill(i, t1, c = colr) {
+      const r = put(mk('rect', { x: X(i), y, width: cw, height: h, rx: 10, fill: c, 'fill-opacity': .5, stroke: c, 'stroke-width': 3 }, top), { o: 0 });
+      show(r, t1, .3); fills[i] = r; v = Math.max(v, i);
+      return r;
+    },
+    clear(i, t1) { if (fills[i]) hide(fills[i], t1, .3); delete fills[i]; v = Math.min(v, i - 1); },
+    set(nv, t1, c = colr) {
+      const v0 = v;
+      for (let i = v0 + 1; i <= nv; i++) api.fill(i, t1 + (i - v0 - 1) * .15, c);
+      for (let i = v0; i > nv; i--) api.clear(i, t1 + (v0 - i) * .15);
+    },
+    // a cross over cell i (doomed: the scale is shorter)
+    cross(i, t1, c = DOOM) {
+      const a = X(i) + 14, b = X(i) + cw - 14;
+      return draw(path(top, `M${a} ${y + 12}L${b} ${y + h - 12}M${b} ${y + 12}L${a} ${y + h - 12}`, { stroke: c, 'stroke-width': 5 }, { d: 0 }), t1, .4);
+    },
+  };
+  return api;
+}
+// Hero point slots (max 3) at x, y; n filled. spend(t0) empties the last filled one, gain(t0) fills the next.
+function heroPts(p, x, y, n, t0, { r = 20, dx = 56 } = {}) {
+  const g = G(p, { o: 0 }), dots = [];
+  for (let i = 0; i < 3; i++) {
+    mk('circle', { cx: x + i * dx, cy: y, r, fill: 'none', stroke: HPT, 'stroke-width': 2.5, 'stroke-dasharray': '5 4' }, g);
+    dots.push(put(mk('circle', { cx: x + i * dx, cy: y, r: r - 3, fill: HPT }, p), { o: i < n ? 1 : 0 }));
+  }
+  show(g, t0);
+  dots.forEach((d, i) => { if (i < n) { put(d, { o: 0 }); show(d, t0); } });
+  let k = n;
+  return {
+    spend(t1) { k--; tw(dots[k], { o: 0 }, t1, .5); },
+    gain(t1) { show(dots[k], t1, .4); k++; },
+  };
+}
+// Four tiles of degrees of success: items [[deg, big, small, t0], …] from x, top y.
+function degTiles(p, items, x, y, { w = 320, h = 170, gap = 30, big = 44 } = {}) {
+  return items.map(([k, v, s, t0], i) => {
+    const [, name, colr, op] = DEG.find(d => d[0] === k), tx = x + i * (w + gap);
+    const r = mk('rect', { x: tx, y, width: w, height: h, rx: 14, fill: colr, 'fill-opacity': op, stroke: colr, 'stroke-width': 2.5 }, p);
+    put(r, { o: 0 }); show(r, t0);
+    say(p, name, tx + w / 2, y + 42, t0, { size: 25, weight: 700 });
+    say(p, v, tx + w / 2, y + 42 + big + 12, t0 + .2, { size: big, weight: 700 });
+    if (s) say(p, s, tx + w / 2, y + h - 22, t0 + .3, { size: 21 });
+    return tx;
+  });
+}
+// The state of the forest fight at the start of a beat: initiative ring, the bandit's card, Shippa's HP, scales and hero points.
+function fightBoard(p, st, t0 = .3) {
+  say(p, 'инициатива', 80, 104, t0, { size: 20, fill: COL.dim, anchor: 'start' });
+  const rib = ribbon(p, st.order, 130, 160, 150, t0, 30);
+  box(p, 1060, 96, 460, 140, FOE, t0);
+  say(p, 'Разбойник · КБ 16', 1090, 146, t0, { size: 27, fill: FOE, weight: 700, anchor: 'start' });
+  say(p, 'дубинка +7 · урон d6 + 3', 1090, 200, t0, { size: 23, fill: COL.dim, anchor: 'start' });
+  const ban = say(p, 'ПЗ ' + st.ban, 1490, 146, t0, { size: 30, fill: FOE, weight: 700, anchor: 'end' });
+  say(p, 'Шиппа', 80, 322, t0, { size: 28, fill: HERO, weight: 700, anchor: 'start' });
+  const hp = hpBar(p, 210, 292, 20, st.hp, t0, { cw: 30, h: 40, gap: 3 });
+  const dy = track(p, 330, 366, 4, NO, 'при смерти', t0, { cw: 64, h: 50, gap: 8, death: 4, size: 24, nameSize: 24 });
+  (st.dy || []).forEach((c, i) => dy.fill(i + 1, t0, c));
+  const wd = track(p, 840, 366, 3, WND, 'ранение', t0, { cw: 64, h: 50, gap: 8, size: 24, nameSize: 24 });
+  if (st.wd) wd.fill(1, t0);
+  say(p, 'пункты героизма', 1120, 340, t0, { size: 22, fill: HPT, weight: 600, anchor: 'start' });
+  const hero = heroPts(p, 1140, 392, st.hero, t0);
+  return { rib, ban, hp, dy, wd, hero };
+}
+// Swap two rings of the initiative ribbon (a hero who drops moves right before the one who dropped them).
+function swapRib(rib, a, b, t1) {
+  tw(rib.tok[a], { x: rib.pos[b] }, t1, .9); tw(rib.tok[b], { x: rib.pos[a] }, t1, .9);
+  [rib.pos[a], rib.pos[b]] = [rib.pos[b], rib.pos[a]];
+}
+const LOG = i => 520 + i * 48;   // log lines under the fight board
+
+/* ---------- beats: [id, title, run(m, D), { ask }?] ---------- */
+const BEATS = [
+  ['intro', 'ПЗ, лечение, смерть и пункты героизма', (m, D) => {
+    const g = G(scene, { o: 0, y: 24 });
+    T(g, 'Раздел 4 «Бой» · Глава 11', { x: 800, y: 330, size: 28, fill: COL.dim, anchor: 'middle' });
+    T(g, 'ПЗ, лечение, смерть', { x: 800, y: 430, size: 66, weight: 600, anchor: 'middle' });
+    T(g, 'и пункты героизма', { x: 800, y: 510, size: 66, weight: 600, anchor: 'middle' });
+    tw(g, { o: 1, y: 0 }, .2, 1.1, out);
+    const r = say(scene, 'что происходит, когда ПЗ кончаются', 800, 610, m('sub'), { size: 34, fill: COL.dim });
+    tw(g, { o: 0, y: -24 }, D - .9, .8); hide(r, D - .9, .8);
+  }],
+  ['hp', 'Пункты здоровья', (m) => {
+    const p = panel(0);
+    title(p, 'Пункты здоровья');
+    const B = hpBar(p, 180, 150, 20, 20, .3, { cw: 52 });
+    say(p, 'максимум ПЗ: 20', 180, 236, .5, { size: 24, fill: COL.dim, anchor: 'start' });
+    say(p, 'здоровый и отдохнувший герой', 180 + 21 * 56, 236, .7, { size: 22, fill: COL.dim, anchor: 'end' });
+    L(p, [['текущие ПЗ', HERO], [' — рядом на листе', COL.dim]], 180, 290, m('cur'), 26);
+    B.set(5, m('dmg'));
+    L(p, [['урон: ', COL.chalk], ['−15', NO], [' → 5', COL.chalk], ['  один к одному', COL.dim]], 620, 290, m('dmg', .2), 26);
+    hr(p, 330, m('heal', -.3));
+    dieShape(p, 8, 140, 392, RULE, m('heal'), 28, null);
+    L(p, [['зелье: ', COL.chalk], ['5 + 6 = 11', OK]], 190, 402, m('heal', .5), 28);
+    B.set(11, m('heal', 3.4));
+    // above the maximum
+    say(p, 'с 18 ПЗ', 100, 502, m('cap', -.3), { size: 24, fill: COL.dim, anchor: 'start' });
+    const B2 = hpBar(p, 230, 470, 20, 18, m('cap', -.3), { cw: 40, h: 44, label: false });
+    B2.set(20, m('cap', 1.6));
+    [20, 21, 22, 23].forEach((i, k) => B2.ghost(i, m('cap', 2.2 + k * .1)));
+    L(p, [['18 + 6 = 24 → ', COL.chalk], ['20', HERO], [': выше максимума нельзя', COL.dim]], 230, 566, m('cap', 2.8), 26);
+    // below zero
+    say(p, 'с 5 ПЗ', 100, 682, m('floor', -.3), { size: 24, fill: COL.dim, anchor: 'start' });
+    const B3 = hpBar(p, 230, 650, 20, 5, m('floor', -.3), { cw: 40, h: 44, label: false });
+    B3.set(0, m('floor', 1.4));
+    B3.ghost(-1, m('floor', 2.2));
+    L(p, [['5 − 6 = −1 → ', COL.chalk], ['0', NO], [': ниже нуля нельзя', COL.dim]], 230, 746, m('floor', 2.6), 26);
+  }],
+  ['temp', 'Временные ПЗ', (m) => {
+    const p = panel(0);
+    title(p, 'Временные ПЗ');
+    say(p, 'ПЗ', 100, 196, .3, { size: 26, fill: HERO, weight: 700, anchor: 'start' });
+    const B = hpBar(p, 260, 164, 20, 12, .3, { cw: 46 });
+    say(p, 'временные', 100, 296, m('sep'), { size: 26, fill: HERO, weight: 700, anchor: 'start' });
+    const Tm = hpBar(p, 260, 264, 4, 4, m('sep'), { cw: 46, label: false, op: .18, stroke: HERO });
+    say(p, '4 отдельной строкой', 260 + 4 * 50 + 20, 296, m('sep', .4), { size: 24, fill: COL.dim, anchor: 'start' });
+    say(p, 'урон снимает сначала их', 800, 380, m('first'), { size: 28, fill: RULE, weight: 600 });
+    L(p, [['удар: ', COL.chalk], ['6 урона', NO]], 100, 460, m('hit'), 30);
+    Tm.set(0, m('hit', 1));
+    L(p, [['4 временных', HERO], [' + ', COL.chalk], ['2 обычных', HERO], [' = 6 → осталось 10', COL.chalk]], 400, 460, m('rest', -.4), 30);
+    B.set(10, m('rest'));
+    hr(p, 520, m('two', -.3));
+    say(p, 'источник всегда один', 800, 580, m('two'), { size: 28, fill: RULE, weight: 600 });
+    box(p, 220, 620, 480, 120, HERO, m('two', 1));
+    say(p, 'старые: 4 временных', 460, 670, m('two', 1), { size: 28, fill: HERO, weight: 600 });
+    say(p, 'на минуту', 460, 712, m('two', 1.2), { size: 22, fill: COL.dim });
+    box(p, 900, 620, 480, 120, HERO, m('two', 2.4));
+    say(p, 'новые: 3 временных', 1140, 670, m('two', 2.4), { size: 28, fill: HERO, weight: 600 });
+    say(p, 'на час', 1140, 712, m('two', 2.6), { size: 22, fill: COL.dim });
+    say(p, 'или', 800, 690, m('two', 4), { size: 28, fill: RULE, weight: 700 });
+    const no = L(p, [['4 + 3 = 7', NO]], 720, 820, m('not7'), 32);
+    draw(path(p, 'M700 810H900', { stroke: NO, 'stroke-width': 4 }, { d: 0 }), m('not7', .4), .4);
+    say(p, 'не складываются: выбираете одно', 940, 820, m('not7', .6), { size: 26, fill: COL.dim, anchor: 'start' });
+  }],
+  ['zero', 'Падение на 0 ПЗ', (m) => {
+    const p = panel(0);
+    title(p, 'Падение на 0 ПЗ');
+    L(p, [['обычный противник: 0 ПЗ → ', COL.chalk], ['умирает', FOE]], 100, 140, .4, 28);
+    L(p, [['герой: 0 ПЗ → ', COL.chalk], ['три вещи', RULE]], 920, 140, m('hero'), 28);
+    hr(p, 180, m('ini', -.3));
+    const num = (i, s, y, t0) => { say(p, String(i), 110, y, t0, { size: 32, fill: RULE, weight: 700 }); L(p, [[s, COL.chalk]], 150, y, t0, 28); };
+    num(1, 'место в инициативе: прямо перед тем, кто свалил', 236, m('ini'));
+    const rib = ribbon(p, ['r', 's', 't', 'b'], 260, 340, 190, m('ini', 2), 34);
+    swapRib(rib, 's', 'r', m('swap', 4.6));
+    pulse(rib.tok.r, m('swap', 3.6), 1.25);
+    L(p, [['проверка Шиппы — ', COL.chalk], ['раньше', OK], [' удара разбойника', COL.chalk]], 1000, 350, m('why'), 26);
+    hr(p, 440, m('dy', -.3));
+    num(2, 'состояние', 500, m('dy'));
+    const tr = track(p, 520, 540, 4, NO, 'при смерти', m('dy'), { cw: 90, h: 64, death: 4, size: 28 });
+    tr.set(1, m('dy', 1.4));
+    L(p, [['от крит. попадания — сразу ', COL.chalk], ['2', NO]], 1000, 584, m('crit'), 26);
+    hr(p, 680, m('unc', -.3));
+    num(3, 'без сознания', 740, m('unc'));
+  }],
+  ['uncon', 'Без сознания', (m) => {
+    const p = panel(0);
+    title(p, 'Без сознания');
+    const sh = who(p, 'Шиппа', HERO, 240, 260, .3, 56);
+    const rap = G(p, { x: 380, y: 200, o: 0 });   // the rapier, drawn around its middle: falls flat to the ground
+    path(rap, 'M-60 35L60 -35', { stroke: HERO, 'stroke-width': 6, 'stroke-linecap': 'round' });
+    show(rap, .4);
+    say(p, 'не действует', 240, 444, .6, { size: 26, fill: COL.dim });
+    draw(path(p, 'M120 362H480', { stroke: COL.faint, 'stroke-width': 3 }, { d: 0 }), m('prone', -.2), .4);
+    tw(sh, { y: 300, o: .55 }, m('prone'), .7);
+    tw(rap, { r: 30, x: 400, y: 350 }, m('prone', .3), .7);
+    pill(p, 'распластанность', RULE, 240, 504, m('prone', .6), 24);
+    say(p, 'роняет всё из рук', 240, 562, m('prone', 1.2), { size: 22, fill: COL.dim });
+    const x = 560;
+    L(p, [['−4', NO], [' к КБ, Вниманию и испытаниям Реакции', COL.chalk]], x, 180, m('pen'), 27);
+    pill(p, 'слепота', RULE, x + 70, 250, m('blind'), 24);
+    pill(p, 'застигнут врасплох', RULE, x + 300, 250, m('blind', 1.4), 24);
+    L(p, [['−2 к КБ', NO]], x + 480, 260, m('blind', 2.4), 26);
+    colorLine(p, [['КБ: 18 ', COL.chalk], ['− 4 − 2', NO], [' = 12', COL.chalk]], x + 30, 360, m('ac'), { size: 44, anchor: 'start' });
+    L(p, [['дубинка +7: ', FOE], ['5 + 7 = 12', COL.chalk], [' → попадает уже с 5 на кубике', COL.chalk]], x, 440, m('club'), 26);
+    hr(p, 600, m('wake', -.3));
+    L(p, [['при смерти и 0 ПЗ → ', COL.chalk], ['сам не очнётся', NO]], 100, 670, m('wake'), 28);
+    L(p, [['+1 ПЗ → ', OK], ['при смерти и без сознания сняты, герой приходит в себя', COL.chalk]], 100, 730, m('wake', 3.6), 28);
+    L(p, [['но лежит, и оружие на земле', COL.dim]], 100, 790, m('lie'), 26);
+  }],
+  ['q1', 'Быстрая проверка', () => { panel(0); }, { ask: done => quiz(WIDE, [{
+    id: 'c-hp', prompt: ['Шиппа: максимум 20 ПЗ, КБ 18.'], build: blanks(Q_HP),
+  }, {
+    id: 'c-hp-tf', prompt: ['Верно или неверно?'], build: grid(Q_HP_TF, TF, { multi: false, text: true }),
+  }], done) }],
+  ['dying', 'При смерти и проверка восстановления', (m) => {
+    const p = panel(0);
+    title(p, 'При смерти и проверка восстановления');
+    const tr = track(p, 420, 120, 4, NO, 'при смерти', .3, { cw: 150, h: 90, death: 4 });
+    blink(tr.fill(4, m('four', .3)), m('four', .8));
+    tr.clear(4, m('check'));
+    L(p, [['в начале своего хода — ', COL.chalk], ['проверка восстановления', RULE]], 100, 300, m('check'), 30);
+    numDie(p, '?', 120, 352, m('flat'), 24);
+    L(p, [['чистая проверка', RULE], [': d20 без модификаторов', COL.chalk]], 160, 362, m('flat', .3), 28);
+    colorLine(p, [['СЛ = 10 + ', COL.chalk], ['значение «при смерти»', NO]], 100, 432, m('dc'), { size: 34, anchor: 'start' });
+    degTiles(p, [['cs', '−2', 'клетки', m('cs')], ['s', '−1', 'клетка', m('s')], ['f', '+1', '', m('f')], ['cf', '+2', '', m('cf')]], 100, 500, { w: 320, h: 190 });
+    [2, 3].forEach(i => L(p, [['+ ранение', WND]], 100 + i * 350 + 100, 668, m('w', .4 + (i - 2) * .4), 26));
+  }],
+  ['faces', 'При смерти 1: СЛ 11', (m) => {
+    const p = panel(0);
+    title(p, 'При смерти 1, ранения нет: СЛ 11');
+    const F = faces(p, 170, 200, .3, { w: 62 });
+    say(p, 'кубик', 150, 250, .3, { size: 22, fill: COL.dim, anchor: 'end' });
+    const xDC = (F.X(10) + F.w + F.X(11)) / 2;
+    draw(path(p, `M${xDC} 170V300`, { stroke: RULE, 'stroke-width': 4 }, { d: 0 }), .6, .4);
+    say(p, 'СЛ 11', xDC, 156, .7, { size: 24, fill: RULE, weight: 700 });
+    band(p, F, 1, 1, 'cf', 'крит. провал', m('one'), 330);
+    say(p, '→ 3', F.cx(1), 364, m('one', .8), { size: 26, fill: NO, weight: 700 });
+    band(p, F, 2, 10, 'f', 'провал', m('fail'), 330);
+    say(p, '→ при смерти 2', (F.X(2) + F.X(10) + F.w) / 2, 368, m('fail', .8), { size: 26, fill: NO, weight: 700 });
+    band(p, F, 11, 19, 's', 'успех', m('succ'), 330);
+    say(p, '→ 0', (F.X(11) + F.X(19) + F.w) / 2, 368, m('succ', .8), { size: 26, fill: OK, weight: 700 });
+    band(p, F, 20, 20, 'cs', 'крит. успех', m('twenty', 2), 330);
+    say(p, '→ 0', F.cx(20), 364, m('twenty', 2.6), { size: 26, fill: OK, weight: 700 });
+    L(p, [['крит. успех: итог 21 = 11 + 10 → ', COL.chalk], ['только натуральная 20', OK]], 170, 470, m('twenty'), 28);
+    const yb = 520;
+    draw(path(p, `M${F.X(11)} ${yb}V${yb + 20}H${F.X(20) + F.w}V${yb}`, { stroke: OK, 'stroke-width': 3 }, { d: 0 }), m('half'), .6);
+    say(p, '10 граней из 20 — ровно половина', (F.X(11) + F.X(20) + F.w) / 2, yb + 64, m('half', .5), { size: 28, fill: OK, weight: 700 });
+    L(p, [['1–10: ', COL.chalk], ['значение растёт', NO]], 170, 584, m('half', 1.4), 26);
+  }],
+  ['fall', 'Урон при смерти', (m) => {
+    const p = panel(0);
+    title(p, 'Урон при смерти и выход из него');
+    L(p, [['новый урон: ', COL.chalk], ['+1', NO]], 100, 140, .4, 30);
+    L(p, [['крит. попадание: ', COL.chalk], ['+2', NO], [' · и ещё + ранение', WND]], 420, 140, m('crit'), 30);
+    const tr = track(p, 380, 190, 4, NO, 'Шиппа: при смерти', m('ex', -.3), { cw: 100, h: 66, death: 4, size: 28, nameSize: 26 });
+    tr.fill(1, m('ex', -.3));
+    roll(p, 16, 100, 340, [['16 + 7 = 23 ≥ КБ 12 + 10 → ', COL.chalk], ['крит. попадание', NO]], m('ex', 1.4), 28);
+    tr.set(3, m('three'));
+    say(p, '1 + 2 = 3', 380 + 4 * 110 + 30, 236, m('three', .5), { size: 30, fill: NO, weight: 700, anchor: 'start' });
+    hr(p, 400, m('zero', -.3));
+    L(p, [['значение дошло до 0 → ', COL.chalk], ['стабилизация', OK]], 100, 460, m('zero'), 30);
+    say(p, 'без сознания, 0 ПЗ, но больше не умирает', 100, 506, m('zero', 2), { size: 25, fill: COL.dim, anchor: 'start' });
+    L(p, [['+1 ПЗ', OK], [' → при смерти снято сразу, при любом значении', COL.chalk]], 100, 580, m('hp'), 30);
+    hr(p, 630, m('wnd', -.3));
+    L(p, [['как бы ни пропало «при смерти»:', COL.chalk]], 100, 690, m('wnd'), 28);
+    const wd = track(p, 380, 730, 3, WND, 'ранение', m('wnd', .4), { cw: 100, h: 66, size: 28 });
+    wd.fill(1, m('wnd', 1));
+    L(p, [['ранение 1, было — ', COL.chalk], ['+1', WND]], 740, 774, m('wnd', 3.2), 28);
+  }],
+  ['q2', 'Быстрая проверка', () => { panel(0); }, { ask: done => quiz(WIDE, [{
+    id: 'c-rec', prompt: ['Проверка восстановления.'], build: blanks(Q_REC),
+  }, {
+    id: 'c-rec-tf', prompt: ['Верно или неверно?'], build: grid(Q_REC_TF, TF, { multi: false, text: true }),
+  }], done) }],
+  ['wounded', 'Ранение', (m) => {
+    const p = panel(0);
+    title(p, 'Ранение');
+    const dy = track(p, 330, 120, 4, NO, 'при смерти', .3, { cw: 120, h: 80, death: 4 });
+    const wd = track(p, 330, 270, 3, WND, 'ранение', .4, { cw: 120, h: 80 });
+    wd.fill(1, .6);
+    say(p, 'запоминает, что герой уже падал', 830, 320, .8, { size: 25, fill: COL.dim, anchor: 'start' });
+    L(p, [['новое падение: при смерти 1 ', COL.chalk], ['+ ранение', WND]], 100, 430, m('fall'), 28);
+    dy.fill(1, m('ex1', .6)); dy.fill(2, m('ex1', 2), WND);
+    L(p, [['обычное попадание: 1 + ', COL.chalk], ['1', WND], [' = 2', COL.chalk]], 100, 490, m('ex1', 1), 28);
+    L(p, [['критическое: 2 + ', COL.dim], ['1', WND], [' = 3', COL.dim]], 100, 540, m('ex2'), 26);
+    L(p, [['при смерти 2 → ', COL.chalk], ['СЛ 12', RULE]], 100, 610, m('dc'), 28);
+    L(p, [['провал: 2 + 1 + ', COL.chalk], ['1', WND], [' = 4 → ', COL.chalk], ['смерть', NO]], 100, 670, m('fail'), 28);
+    dy.fill(3, m('fail', 1.6)); blink(dy.fill(4, m('fail', 2.6), WND), m('fail', 3.1));
+    box(p, 880, 420, 640, 260, WND, m('cure', -.3));
+    say(p, 'ранение снимают', 910, 470, m('cure', -.3), { size: 26, fill: WND, weight: 700, anchor: 'start' });
+    L(p, [['• успешное ', COL.chalk], ['Лечение ранений', OK]], 910, 530, m('cure', .8), 26);
+    L(p, [['• все ПЗ + 10 минут отдыха', COL.chalk]], 910, 590, m('rest'), 26);
+    wd.clear(1, m('rest', 4));
+  }],
+  ['doom', 'Обречённость и мгновенная смерть', (m) => {
+    const p = panel(0);
+    title(p, 'Обречённость и мгновенная смерть');
+    const o = { cw: 86, h: 62, size: 26, nameSize: 24 };
+    track(p, 420, 120, 4, NO, 'обычно', .3, { ...o, death: 4 });
+    const d1 = track(p, 420, 240, 4, DOOM, 'обречённость 1', m('cut', -.2), { ...o, death: 3 });
+    d1.cross(4, m('cut', 1.4));
+    say(p, 'порог ниже на значение', 820, 280, m('cut', 2), { size: 24, fill: DOOM, anchor: 'start' });
+    L(p, [['ночь отдыха: ', COL.chalk], ['обречённость −1', DOOM]], 820, 320, m('night'), 24);
+    hr(p, 380, m('massive', -.3));
+    L(p, [['огромный урон', NO], [': за один удар ≥ 2 × максимум ПЗ → смерть', COL.chalk]], 100, 440, m('massive'), 28);
+    L(p, [['Шиппа: 2 × 20 = ', COL.chalk], ['40', NO]], 100, 494, m('massive', 5), 28);
+    hr(p, 540, m('tough', -.3));
+    pill(p, 'Живучесть', HERO, 190, 600, m('tough', 1.6), 26);
+    L(p, [['СЛ проверки восстановления ', COL.chalk], ['−1', OK], [': при смерти 1 → СЛ 10', COL.dim]], 310, 610, m('tough', 2.4), 26);
+    pill(p, 'Крепкий орешек', HERO, 210, 690, m('die'), 26);
+    track(p, 520, 740, 5, NO, '', m('die', .6), { ...o, death: 5 });
+    say(p, 'смерть на 5', 420, 784, m('die', .6), { size: 24, fill: COL.dim, anchor: 'end' });
+  }],
+  ['q3', 'Быстрая проверка', () => { panel(0); }, { ask: done => quiz(WIDE, [{
+    id: 'c-wnd', prompt: ['Ранение, обречённость, смерть.'], build: blanks(Q_WND),
+  }], done) }],
+  ['medic', 'Медицина в бою', (m) => {
+    const p = panel(0);
+    title(p, 'Лечение в бою: Медицина');
+    ['Медицина', 'зелье', 'заклинание'].forEach((s, i) => pill(p, s, OK, 170 + i * 200, 140, .4 + i * .3, 26));
+    L(p, [['инструменты лекаря', RULE], [' — в руке или на поясе', COL.chalk]], 100, 230, m('kit'), 26);
+    glyph(p, 1, 120, 290, m('bm'), .5);
+    L(p, [['Медицина в бою', OK], [' · черта навыка', COL.dim]], 160, 300, m('bm'), 28);
+    L(p, [['Медицина против ', COL.chalk], ['СЛ 15', RULE], [', как у Лечения ранений', COL.dim]], 100, 370, m('dc'), 26);
+    degTiles(p, [['s', '2d8 ПЗ', '', m('s')], ['cs', '4d8 ПЗ', '', m('cs')]], 100, 410, { w: 300, h: 130, big: 38 });
+    L(p, [['ранение не снимает', NO]], 100, 600, m('nw'), 26);
+    L(p, [['цель на сутки невосприимчива', COL.chalk]], 100, 650, m('imm'), 26);
+    say(p, 'к Медицине в бою от того же лекаря', 100, 690, m('imm', 1.4), { size: 24, fill: COL.dim, anchor: 'start' });
+    who(p, 'Бронна', HERO, 900, 180, m('br'), 40);
+    say(p, 'Медицина изучена, черта есть', 970, 172, m('br', .4), { size: 24, fill: COL.dim, anchor: 'start' });
+    colorLine(p, [['Мудрость +1', HERO], [' + ', COL.chalk], ['изучен +3', RULE], [' = +4', COL.chalk]], 970, 214, m('br', 4.6), { size: 28, anchor: 'start' });
+    const F = faces(p, 860, 330, m('need', -.3), { w: 30, h: 50, gap: 3, size: 16 });
+    F.paint(1, 'cf', m('need', .4));
+    for (let f = 2; f <= 10; f++) F.paint(f, 'f', m('need', .4));
+    for (let f = 11; f <= 19; f++) F.paint(f, 's', m('need', .4 + (f - 11) * .04));
+    F.paint(20, 'cs', m('need', .8));
+    L(p, [['11 + 4 = 15 → ', COL.chalk], ['успех с 11', OK]], 860, 440, m('need', 1), 28);
+  }],
+  ['aid', 'Первая помощь', (m) => {
+    const p = panel(0);
+    title(p, 'Первая помощь, зелье, заклинания');
+    glyph(p, 2, 140, 140, .3, .5);
+    L(p, [['Первая помощь', OK], [' · можно без изучения', COL.dim]], 210, 150, .4, 30);
+    L(p, [['ПЗ не возвращает', NO]], 100, 230, m('no'), 28);
+    L(p, [['стабилизирует героя при смерти', OK]], 520, 230, m('stab'), 28);
+    L(p, [['СЛ = 15 + ', COL.chalk], ['при смерти', NO], [' · Шиппа при смерти 2: ', COL.chalk], ['17', RULE]], 100, 310, m('dc'), 30);
+    L(p, [['успех: ', OK], ['при смерти снято, но без сознания и ', COL.chalk], ['+ ранение', WND]], 100, 380, m('s'), 28);
+    hr(p, 440, m('potion', -.3));
+    dieShape(p, 8, 150, 530, RULE, m('potion'), 36, null);
+    L(p, [['зелье исцеления (низшее): ', COL.chalk], ['1d8 ПЗ', OK]], 210, 542, m('potion', .3), 30);
+    pill(p, 'заклинания', OK, 190, 640, m('spell'), 26);
+    colorLine(p, [['любое лечение ', COL.chalk], ['хотя бы на 1 ПЗ', OK], [' поднимает героя при смерти', COL.chalk]], 800, 770, m('spell', 1.6), { size: 34 });
+  }],
+  ['hero', 'Пункты героизма', (m) => {
+    const p = panel(0);
+    title(p, 'Пункты героизма');
+    const H = heroPts(p, 160, 150, 1, .3, { r: 24, dx: 64 });
+    say(p, '1 в начале сессии', 360, 158, .5, { size: 25, anchor: 'start' });
+    H.gain(m('more', .4));
+    say(p, '+ за смелые поступки', 620, 158, m('more', .4), { size: 25, fill: OK, anchor: 'start' });
+    say(p, 'не больше 3', 288, 214, m('max'), { size: 22, fill: HPT, weight: 700, anchor: 'middle' });
+    say(p, 'конец сессии → неистраченные сгорают', 920, 158, m('burn'), { size: 25, fill: NO, anchor: 'start' });
+    L(p, [['трата — не действие, можно и без сознания', COL.dim]], 920, 214, m('free'), 23);
+    box(p, 80, 270, 700, 560, HPT, m('re', -.3));
+    say(p, '1 пункт: переброс', 110, 320, m('re', -.3), { size: 30, fill: HPT, weight: 700, anchor: 'start' });
+    say(p, 'бросок заново, берут второй результат,', 110, 376, m('re', .5), { size: 25, anchor: 'start' });
+    say(p, 'даже если он хуже', 110, 414, m('re', .7), { size: 25, anchor: 'start' });
+    say(p, 'на одну проверку — один пункт', 110, 458, m('re', .9), { size: 22, fill: COL.dim, anchor: 'start' });
+    say(p, 'Финт: Обман +7 против СЛ 14', 110, 530, m('ex'), { size: 25, fill: HERO, weight: 600, anchor: 'start' });
+    roll(p, 4, 110, 590, [['4 + 7 = 11 → ', COL.chalk], ['провал', NO]], m('ex', 1.6), 26);
+    roll(p, 15, 110, 660, [['15 + 7 = 22 → ', COL.chalk], ['успех', OK]], m('ex2', 1), 26);
+    box(p, 820, 270, 700, 560, HPT, m('all', -.3));
+    say(p, 'все пункты: не умереть', 850, 320, m('all', -.3), { size: 30, fill: HPT, weight: 700, anchor: 'start' });
+    say(p, 'в начале своего хода', 850, 376, m('all', 2.4), { size: 25, anchor: 'start' });
+    say(p, 'или когда «при смерти» должно вырасти', 850, 414, m('all', 3.4), { size: 25, anchor: 'start' });
+    const tr = track(p, 900, 470, 4, NO, '', m('all', 2), { cw: 90, h: 60, death: 4, size: 26 });
+    tr.fill(1, m('all', 2)); tr.fill(2, m('all', 2));
+    tr.set(0, m('clear', 1.6));
+    L(p, [['при смерти снято: ', COL.chalk], ['стабилизирован, 0 ПЗ', OK]], 850, 640, m('clear', 2.6), 26);
+    L(p, [['нового ранения нет', WND]], 850, 700, m('nw'), 26);
+  }],
+  ['q4', 'Быстрая проверка', () => { panel(0); }, { ask: done => quiz(WIDE, [{
+    id: 'c-heal', prompt: ['Лечение и пункты героизма.'], build: blanks(Q_HEAL),
+  }, {
+    id: 'c-heal-tf', prompt: ['Верно или неверно?'], build: grid(Q_HEAL_TF, TF, { multi: false, text: true }),
+  }], done) }],
+  ['fight1', 'Бой на лесной дороге: раунды 1–2', (m) => {
+    const p = panel(0);
+    title(p, 'Бой на лесной дороге: раунды 1–2');
+    const B = fightBoard(p, { order: ['r', 's', 't', 'b'], hp: 20, ban: 18, hero: 2 });
+    pulse(B.ban, m('ban'), 1.2); pulse(B.hp.val, m('hp'), 1.3);
+    B.rib.cur('r', m('ini'));
+    hr(p, 470, m('r1', -.3));
+    roll(p, 13, 100, LOG(0), [['Раунд 1. Разбойник: 13 + 7 = 20 ≥ 18, урон 5 + 3 = ', COL.chalk], ['8', NO]], m('r1', .6), 25);
+    B.hp.set(12, m('r1', 2.4));
+    roll(p, 16, 100, LOG(1), [['второй удар 16 + 2 = 18 ≥ 18, урон 4 + 3 = ', COL.chalk], ['7', NO]], m('r1', 3.2), 25);
+    B.hp.set(5, m('five'));
+    B.rib.cur('s', m('five', 1.6)); B.rib.cur('t', m('five', 2.4)); B.rib.cur('b', m('five', 3.2));
+    L(p, [['Шиппа и Тиль — мимо, Бронна бежит к ним', COL.dim]], 138, LOG(2), m('five', 1.6), 25);
+    B.rib.cur('r', m('r2'));
+    roll(p, 11, 100, LOG(3), [['Раунд 2. Разбойник: 11 + 7 = 18 ≥ 18, урон 3 + 3 = ', COL.chalk], ['6', NO]], m('r2', .6), 25);
+    B.hp.set(0, m('zero'));
+    B.dy.fill(1, m('zero', 2.6));
+    L(p, [['0 ПЗ, попадание обычное, ранения нет: ', COL.chalk], ['при смерти 1', NO]], 138, LOG(4), m('zero', 2), 25);
+    swapRib(B.rib, 's', 'r', m('move', 1.6));
+    tw(B.rib.hl, { x: B.rib.pos.r }, m('move', 1.6), .9);
+    L(p, [['Шиппа роняет рапиру; порядок: Шиппа, разбойник, Тиль, Бронна', COL.chalk]], 138, LOG(5), m('move', 1.2), 25);
+    B.rib.cur('t', m('tiel'));
+    L(p, [['Тиль: «Поджигание», ', COL.chalk], ['5 урона', NO]], 138, LOG(6), m('tiel'), 25);
+    setText(B.ban, 'ПЗ 13', m('tiel', 1.4));
+  }],
+  ['fight2', 'Раунды 3–4', (m) => {
+    const p = panel(0);
+    title(p, 'Бой на лесной дороге: раунды 3–4');
+    const B = fightBoard(p, { order: ['s', 'r', 't', 'b'], hp: 0, ban: 13, hero: 2, dy: [NO] });
+    B.rib.cur('s', .4);
+    hr(p, 470, m('rc', -.3));
+    roll(p, 6, 100, LOG(0), [['Раунд 3. Шиппа: проверка восстановления, 6 < СЛ 11 → ', COL.chalk], ['провал', NO]], m('rc', .4), 25);
+    B.dy.fill(2, m('d2'));
+    B.rib.cur('b', m('bm'));
+    roll(p, 12, 100, LOG(1), [['Бронна, Медицина в бою: 12 + 4 = 16 ≥ 15 → ', COL.chalk], ['успех', OK]], m('bm', 1), 25);
+    L(p, [['2d8: 3 + 6 = ', COL.chalk], ['9 ПЗ', OK], [' → при смерти снято, ', COL.chalk], ['ранение 1', WND]], 138, LOG(2), m('heal'), 25);
+    B.hp.set(9, m('heal', 1.4)); B.dy.set(0, m('heal', 2.6));
+    B.wd.fill(1, m('wnd'));
+    L(p, [['Бронна, меч: 10 + 9 = 19, урон 5 + 4 = ', COL.chalk], ['9', NO]], 138, LOG(3), m('hit'), 25);
+    setText(B.ban, 'ПЗ 4', m('hit', 1.6));
+    B.rib.cur('s', m('r4'));
+    L(p, [['Раунд 4. Шиппа: Вставание, Взаимодействие (рапира), Удар — ', COL.chalk], ['мимо', NO]], 138, LOG(4), m('r4', .4), 25);
+    B.rib.cur('r', m('ban'));
+    roll(p, 15, 100, LOG(5), [['Разбойник: 15 + 7 = 22, урон 6 + 3 = ', COL.chalk], ['9', NO], [' → 0 ПЗ', COL.chalk]], m('ban', .4), 25);
+    B.hp.set(0, m('ban', 2));
+    B.dy.fill(1, m('d1', 1)); B.dy.fill(2, m('d1', 2.4), WND);
+    L(p, [['при смерти 1 + ', COL.chalk], ['ранение 1', WND], [' = 2', COL.chalk]], 1000, LOG(5), m('d1', 1.4), 25);
+    B.rib.cur('b', m('aid'));
+    roll(p, 10, 100, LOG(6), [['Бронна, Первая помощь: СЛ 15 + 2 = 17; 10 + 4 = 14 → ', COL.chalk], ['провал', NO]], m('aid', 3), 25);
+  }],
+  ['fight3', 'Раунд 5', (m) => {
+    const p = panel(0);
+    title(p, 'Бой на лесной дороге: раунд 5');
+    const B = fightBoard(p, { order: ['s', 'r', 't', 'b'], hp: 0, ban: 4, hero: 2, dy: [NO, WND], wd: 1 });
+    B.rib.cur('s', .4);
+    const F = faces(p, 170, 470, .6, { w: 62, h: 64, size: 24 });
+    const xDC = (F.X(11) + F.w + F.X(12)) / 2;
+    draw(path(p, `M${xDC} 452V550`, { stroke: RULE, 'stroke-width': 4 }, { d: 0 }), .8, .4);
+    say(p, 'СЛ 12', xDC + 10, 456, .9, { size: 22, fill: RULE, weight: 700, anchor: 'start' });
+    band(p, F, 1, 2, 'cf', '2 + 2 + 1 = 5', m('cf'), 580);
+    band(p, F, 3, 11, 'f', '2 + 1 + 1 = 4 · смерть', m('f'), 580);
+    band(p, F, 12, 19, 's', 'при смерти 1', m('s'), 580);
+    band(p, F, 20, 20, 'cs', '0', m('cs'), 580);
+    draw(path(p, `M${F.X(1)} 616V630H${F.X(11) + F.w}V616`, { stroke: NO, 'stroke-width': 3 }, { d: 0 }), m('odds'), .5);
+    say(p, 'смерть: 11 граней из 20', (F.X(1) + F.X(11) + F.w) / 2, 664, m('odds', .3), { size: 26, fill: NO, weight: 700 });
+    const ring = f => { const r = put(mk('rect', { x: F.X(f) - 5, y: 465, width: F.w + 10, height: 74, rx: 10, fill: 'none', stroke: COL.chalk, 'stroke-width': 4 }, p), { o: 0 }); return r; };
+    const r7 = ring(7); show(r7, m('roll'), .3);
+    L(p, [['на кубике 7 → провал', NO]], 170, 724, m('roll'), 25);
+    B.hero.spend(m('re'));
+    hide(r7, m('re', 1)); show(ring(9), m('re', 1.4), .3);
+    L(p, [['пункт героизма: переброс → 9, снова провал', COL.chalk]], 520, 724, m('re', .4), 25);
+    B.hero.spend(m('last', 1));
+    B.dy.set(0, m('stab'));
+    L(p, [['последний пункт: ', HPT], ['стабилизирована, 0 ПЗ, без сознания, ранение 1', OK]], 170, 774, m('last', 1), 25);
+    L(p, [['с 2 пунктами: сперва переброс (12+ — пункт в запасе); с 1 — сразу спасение', COL.dim]], 170, 824, m('order'), 24);
+    setText(B.ban, 'сдался', m('end', 1));
+  }],
+  ['after', 'Лечение ранений', (m) => {
+    const p = panel(0);
+    title(p, 'После боя: Лечение ранений');
+    L(p, [['только с изученной Медициной · 10 минут · одно существо · ', COL.chalk], ['СЛ 15', RULE]], 100, 130, m('who'), 26);
+    degTiles(p, [['cs', '4d8', 'ранение снято', m('cs')], ['s', '2d8', 'ранение снято', m('s')], ['f', '—', 'ничего', m('f')], ['cf', '1d8', 'урона', m('cf')]], 100, 170, { w: 320, h: 160, big: 40 });
+    L(p, [['до часа: ', COL.chalk], ['ПЗ × 2', OK], [' · потом невосприимчивость 1 час', COL.dim]], 100, 400, m('hour'), 26);
+    hr(p, 440, m('br', -.3));
+    roll(p, 14, 100, 500, [['Бронна: 14 + 4 = 18 ≥ 15 → ', COL.chalk], ['успех', OK]], m('br'), 26);
+    L(p, [['2d8: 4 + 6 = ', COL.chalk], ['10', OK]], 138, 550, m('ten'), 26);
+    L(p, [['целый час: 10 × 2 = ', COL.chalk], ['20', OK]], 138, 600, m('dbl'), 26);
+    say(p, 'Шиппа', 100, 672, m('br', -.3), { size: 26, fill: HERO, weight: 700, anchor: 'start' });
+    const hp = hpBar(p, 220, 644, 20, 0, m('br', -.3), { cw: 30, h: 40, gap: 3 });
+    const wd = track(p, 1180, 644, 3, WND, 'ранение', m('br', -.3), { cw: 56, h: 40, gap: 8, size: 20, nameSize: 22 });
+    wd.fill(1, m('br', -.3));
+    hp.set(20, m('dbl', 2)); wd.set(0, m('dbl', 4));
+    hr(p, 730, m('night', -.3));
+    L(p, [['ночной отдых: ', COL.chalk], ['Выносливость +2', HERO], [' × уровень 1 = ', COL.chalk], ['2 ПЗ', OK]], 100, 800, m('night', 1), 30);
+  }],
+  ['sheet', 'На листе', (m) => {
+    const p = panel(0);
+    const sh = charSheet(p, .3);
+    [['name', 'Шиппа'], ['lvl', '1'], ['anc', 'гоблин'], ['her', 'небьющийся гоблин'], ['bg', 'трактирщик'], ['cls', 'бард'],
+      ['a0', '0'], ['a1', '+3'], ['a2', '+2'], ['a3', '0'], ['a4', '0'], ['a5', '+4'], ['hp', '20', '10+8+2'], ['ac', '18', '10+3+3+2'],
+      ['per', '+5', 'эксперт'], ['will', '+5', 'эксперт'], ['fort', '+5', 'изучен'], ['ref', '+6', 'изучен'],
+      ['sk0', 'Дипломатия', 'изучен · +7'], ['sk1', 'Знание (выпивка)', 'изучен · +3'], ['sk2', 'Оккультизм', 'изучен · +3'], ['sk3', 'Исполнение', 'изучен · +7'],
+      ['sk4', 'Обман, Общество, Религия, Скрытность', ''], ['ft_anc', 'Гоблинская песня'], ['ft_skill', 'Неформальное общение'], ['ft_cls', 'Продолжительная композиция'],
+      ['size', 'Небольшой'], ['spd', '25 футов'], ['sense', 'ночное зрение'], ['lang', 'всеобщий, гоблинский'], ['prof', 'изучен'],
+      ['gold', '7 зм 4 см 8 мм'], ['it0', 'Клёпаный кожаный доспех', '3 зм'], ['it1', 'Кинжал', '2 см'], ['it2', 'Рапира', '2 зм'], ['it3', 'Праща', '0'],
+      ['it4', 'Пращные ядра ×20', '2 мм'], ['it5', 'Комплект искателя приключений', '15 см'], ['it6', 'Музыкальный инструмент (ручной)', '8 см'],
+      ['st0', 'Кинжал', '+6 · 1d4 колющий'], ['st1', 'Рапира', '+6 · 1d6 колющий'], ['st2', 'Праща', '+6 · 1d6 дробящий'],
+      ['bulk', '4', 'из 5'], ['cdc', '17', '10+3+4']].forEach(([k, v, s]) => sh.fill(k, v, s));
+    say(p, 'Что сделать сейчас', 560, 70, .3, { size: 30, weight: 600 });
+    sh.flash('hp', .6);
+    say(p, 'строка ПЗ — на три части:', 80, 150, .4, { size: 25, anchor: 'start' });
+    [['максимум', '20'], ['текущие', '20'], ['временные', '—']].forEach(([a, b], i) => {
+      const x = 80 + i * 330;
+      box(p, x, 180, 300, 110, HERO, .6 + i * .5);
+      say(p, a, x + 150, 222, .6 + i * .5, { size: 24, fill: COL.dim });
+      say(p, b, x + 150, 270, .7 + i * .5, { size: 34, fill: HERO, weight: 700 });
+    });
+    track(p, 280, 350, 4, NO, 'при смерти', m('scales'), { cw: 100, h: 66, death: 4, size: 28, nameSize: 26 });
+    track(p, 280, 500, 3, WND, 'ранение', m('scales', 1.4), { cw: 100, h: 66, size: 28, nameSize: 26 });
+    sh.page(2, m('hero'));
+    sh.set('hero', '1', m('hero', .6), 'макс. 3');
+    L(p, [['пункты героизма: ', HPT], ['1', COL.chalk], [' · не больше 3', COL.dim]], 80, 660, m('hero', .6), 28);
+    who(p, 'Бронна', HERO, 130, 770, m('med'), 36);
+    L(p, [['у кого изучена ', COL.chalk], ['Медицина', OK], ['? у кого инструменты лекаря?', COL.chalk]], 200, 780, m('med', .3), 26);
+  }],
+  ['wrap', 'Итоги', (m) => {
+    const p = panel(0);
+    numbered(p, [['0 ПЗ: без сознания и при смерти 1 (крит — 2), плюс ранение.', 'w1'],
+      ['Проверка восстановления: d20 против 10 + значение; на 4 — смерть.', 'w2'],
+      ['Лечение хотя бы на 1 ПЗ поднимает героя, но ранение растёт.', 'w3'],
+      ['Пункт героизма — переброс; все пункты — спасение от смерти.', 'w4']], m, 220, 140, 29);
+  }],
+  ['final1', 'Практика главы', () => { panel(0); }, { ask: done => quiz(SCREEN, [{
+    id: 'p-tf', prompt: ['Верно или неверно?'], build: grid(P_TF, TF, { multi: false, text: true }),
+  }], done, 'Практика главы   1 из 3') }],
+  ['final2', 'Практика главы', () => {}, { ask: done => quiz(SCREEN, [{
+    id: 'p-rec', prompt: ['Проверки восстановления и падения.'], build: blanks(P_REC),
+  }], done, 'Практика главы   2 из 3') }],
+  ['final3', 'Практика главы', () => {}, { ask: done => quiz(SCREEN, [{
+    id: 'p-heal', prompt: ['Лечение и пункты героизма. Максимум ПЗ Шиппы 20.'], build: blanks(P_HEAL),
+  }], done, 'Практика главы   3 из 3') }],
+  ['finish', 'Готово', () => {}, { ask: finishCard }],
+].map(([id, title, run, extra]) => ({ id, title, run, ...extra }));
+
+/* ---------- question data ---------- */
+const Q_HP = [
+  { parts: ['У Шиппы 5 ПЗ, она пьёт зелье, на d8 выпало 6. ПЗ: ', { box: '11' }], why: '5 + 6 = 11.', hint: 'Лечение прибавляет.' },
+  { parts: ['С 18 ПЗ то же зелье (6) даёт ПЗ: ', { box: '20' }], why: '18 + 6 = 24, но выше максимума 20 нельзя.', hint: 'Максимум — 20.' },
+  { parts: ['12 ПЗ и 4 временных, удар на 6. Обычных ПЗ останется: ', { box: '10' }], why: 'Сначала 4 временных, потом 2 обычных: 12 − 2 = 10.', hint: 'Урон сначала снимает временные.' },
+  { parts: ['КБ Шиппы без сознания: ', { box: '12' }], why: '18 − 4 − 2 = 12.', hint: '−4 и ещё −2 за «застигнут врасплох».' },
+];
+const Q_HP_TF = [
+  { parts: ['4 временных ПЗ и новые 3 временных складываются в 7.'], ans: ['f'], why: 'Источник один: выбирают 4 или 3.' },
+  { parts: ['Герой на 0 ПЗ теперь ходит прямо перед тем, кто его свалил.'], ans: ['t'], why: 'Так проверка восстановления идёт раньше нового удара.' },
+];
+const Q_REC = [
+  { parts: ['При смерти 1. СЛ проверки восстановления: ', { box: '11' }], why: '10 + 1 = 11.', hint: '10 + значение «при смерти».' },
+  { parts: ['При смерти 3. СЛ: ', { box: '13' }], why: '10 + 3 = 13.', hint: '10 + значение.' },
+  { parts: ['При смерти 1, ранения нет, на кубике 7. Станет при смерти: ', { box: '2' }], why: '7 < 11 — провал: 1 + 1 = 2.', hint: 'Провал добавляет 1.' },
+  { parts: ['При смерти 2, ранения нет, на кубике 1. Станет при смерти: ', { box: '4' }], why: 'Критический провал: 2 + 2 = 4 — смерть.', hint: 'Критический провал добавляет 2.' },
+];
+const Q_REC_TF = [
+  { parts: ['При смерти 0 и 0 ПЗ герой приходит в себя.'], ans: ['f'], why: 'Он стабилизирован, но лежит без сознания.' },
+  { parts: ['Критическое попадание по герою при смерти добавляет 2.'], ans: ['t'], why: 'Обычный урон +1, критическое попадание +2.' },
+];
+const Q_WND = [
+  { parts: ['Шиппа с ранением 1 падает от обычного попадания. При смерти: ', { box: '2' }], why: '1 + 1 = 2.', hint: '1 плюс значение ранения.' },
+  { parts: ['Та же Шиппа (ранение 1) падает от критического попадания. При смерти: ', { box: '3' }], why: '2 + 1 = 3.', hint: 'Крит — 2, плюс ранение.' },
+  { parts: ['При смерти 2, ранение 1, провал проверки. Станет при смерти: ', { box: '4' }], why: '2 + 1 + 1 = 4 — смерть.', hint: 'Провал: 1 плюс ранение.' },
+  { parts: ['Обречённость 1. Герой умирает при значении «при смерти»: ', { box: '3' }], why: 'Порог 4 − 1 = 3.', hint: 'Обречённость сдвигает порог вниз.' },
+  { parts: ['Шиппа (максимум 20 ПЗ). Мгновенно убивает урон за один удар от: ', { box: '40' }], why: '2 × 20 = 40.', hint: 'Вдвое больше максимума ПЗ.' },
+];
+const Q_HEAL = [
+  { parts: ['Бронна: Медицина +4 против СЛ 15. Наименьшее число на кубике для успеха: ', { box: '11' }], why: '11 + 4 = 15.', hint: '15 − 4.' },
+  { parts: ['Первая помощь Шиппе при смерти 2. СЛ: ', { box: '17' }], why: '15 + 2 = 17.', hint: '15 + значение «при смерти».' },
+  { parts: ['Больше скольких пунктов героизма у героя сразу не бывает: ', { box: '3' }], why: 'Не больше 3.', hint: 'Сколько клеток на листе?' },
+  { parts: ['Шиппа при смерти 3 тратит все пункты героизма. Станет при смерти: ', { box: '0' }], why: '«При смерти» снимается целиком.', hint: 'Все пункты — спасение от смерти.' },
+];
+const Q_HEAL_TF = [
+  { parts: ['Медицина в бою снимает ранение.'], ans: ['f'], why: 'Ранение снимает Лечение ранений, а не Медицина в бою.' },
+  { parts: ['После переброса пунктом героизма можно оставить лучший бросок.'], ans: ['f'], why: 'Берут второй результат, даже если он хуже.' },
+];
+const P_TF = [
+  { parts: ['Обычный противник на 0 ПЗ умирает, а герой теряет сознание.'], ans: ['t'], why: 'Герой оказывается при смерти и без сознания.' },
+  { parts: ['Проверка восстановления — чистая проверка против СЛ 10 + значение «при смерти».'], ans: ['t'], why: 'd20 без модификаторов.' },
+  { parts: ['С ранением 1 провал проверки восстановления добавляет 2.'], ans: ['t'], why: '1 за провал + 1 за ранение.' },
+  { parts: ['Когда «при смерти» пропадает, ранение тоже снимается.'], ans: ['f'], why: 'Наоборот: герой получает ранение или оно растёт на 1.' },
+  { parts: ['Урон сначала снимает временные ПЗ, потом обычные.'], ans: ['t'], why: '4 временных + 2 обычных: из 12 осталось 10.' },
+  { parts: ['Пункты героизма можно тратить без сознания.'], ans: ['t'], why: 'Это не действие.' },
+  { parts: ['Ночной отдых возвращает Шиппе все ПЗ.'], ans: ['f'], why: 'Только Выносливость × уровень: 2 × 1 = 2.' },
+];
+const P_REC = [
+  { parts: ['При смерти 2. СЛ проверки восстановления: ', { box: '12' }], why: '10 + 2 = 12.', hint: '10 + значение.' },
+  { parts: ['При смерти 1, ранения нет, на кубике 20. Станет при смерти: ', { box: '0' }], why: 'Критический успех: 1 − 2, не ниже 0.', hint: 'Натуральная 20 — критический успех.' },
+  { parts: ['При смерти 1, ранение 1, провал. Станет при смерти: ', { box: '3' }], why: '1 + 1 + 1 = 3.', hint: 'Провал: 1 плюс ранение.' },
+  { parts: ['Ранение 2, героя свалило обычное попадание. При смерти: ', { box: '3' }], why: '1 + 2 = 3.', hint: '1 плюс значение ранения.' },
+  { parts: ['При смерти 1, ранение 1, критический провал. Станет при смерти: ', { box: '4' }], why: '1 + 2 + 1 = 4 — смерть.', hint: 'Критический провал: 2 плюс ранение.' },
+];
+const P_HEAL = [
+  { parts: ['Медицина в бою, успех: 2d8 выпало 5 и 2. Шиппа с 0 ПЗ получает ПЗ: ', { box: '7' }], why: '5 + 2 = 7.', hint: 'Сложите кубики.' },
+  { parts: ['Лечение ранений, успех: 2d8 = 7, лечили целый час. ПЗ вернулось: ', { box: '14' }], why: '7 × 2 = 14.', hint: 'Час лечения удваивает.' },
+  { parts: ['Шиппа: Выносливость +2, 1-й уровень. ПЗ за ночь отдыха: ', { box: '2' }], why: '2 × 1 = 2.', hint: 'Выносливость × уровень.' },
+  { parts: ['Первая помощь Шиппе при смерти 1. СЛ: ', { box: '16' }], why: '15 + 1 = 16.', hint: '15 + значение «при смерти».' },
+  { parts: ['У Шиппы 2 пункта героизма, она тратит 1 на переброс. Осталось: ', { box: '1' }], why: 'Переброс стоит 1 пункт.', hint: '2 − 1.' },
+];
+boot();
+</script>
+</body>
+</html>

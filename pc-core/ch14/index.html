@@ -1,0 +1,735 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Заклинания — Первый герой</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%231d2b27'/%3E%3Ctext x='32' y='45' text-anchor='middle' font-size='48' fill='%23f0b45a'%3E∞%3C/text%3E%3C/svg%3E">
+<link rel="stylesheet" href="../lib/engine.css">
+<link rel="expect" href="#bar" blocking="render"><!-- hold the first frame until the player exists, so the page transition can run -->
+</head>
+<body>
+<script src="../lib/engine.js"></script>
+<script src="../lib/pf.js"></script>
+<script src="audio/ru/timings.js"></script>
+<script>
+'use strict';
+const CHAPTER = { number: 14, title: 'Заклинания', minutes: 13, language: 'ru', next: '../ch15/' };
+
+/* ---------- chapter drawing helpers (shared ones: lib/pf.js) ---------- */
+// Spells, spell names and areas MAG; slots and focus points (resources) RULE; heroes HERO, the bandit FOE.
+const MAG = COL.real;
+const PPL = { b: ['Бронна', HERO], t: ['Тиль', HERO], r: ['Разбойник', FOE], s: ['Шиппа', HERO] };
+const hr = (p, y, t0, x1 = 80, x2 = 1520) => draw(path(p, `M${x1} ${y}H${x2}`, { stroke: COL.faint, 'stroke-width': 2 }, { d: 0 }), t0, .5);
+const box = (p, x, y, w, h, colr, t0) => { const r = mk('rect', { x, y, width: w, height: h, rx: 18, fill: '#22322d', stroke: colr, 'stroke-width': 2.5 }, p); put(r, { o: 0 }); show(r, t0); return r; };
+const title = (p, s, t0 = .2) => say(p, s, 800, 62, t0, { size: 36, weight: 600 });
+const L = (p, parts, x, y, t0, size = 26) => colorLine(p, parts, x, y, t0, { size, anchor: 'start' });   // left-aligned coloured line
+const setText = (e, s, t0) => { prog(() => { e.textContent = s; }, t0, 0); pulse(e, t0, 1.3); };
+// A d20 with its roll and a coloured sum after it, left-aligned at x (as in ch08–ch09).
+function roll(p, n, x, y, parts, t0, size = 26) {
+  numDie(p, n, x, y - 9, t0, 22);
+  colorLine(p, parts, x + 38, y, t0 + .3, { size, anchor: 'start' });
+}
+// A die outline of `sides` with the rolled number inside, no label (as in ch09).
+function dieNum(p, sides, n, x, y, t0, size = 44, colr = RULE) {
+  const d = dieShape(p, sides, x, y, colr, t0, size, null, false);
+  T(d, String(n), { y: size * .3, size: size * .8, fill: colr, weight: 700, anchor: 'middle' });
+  return d;
+}
+// Pills in a row centred on cx (as in ch07, ch09).
+const pw = (s, size) => s.length * size * .56 + 44;
+function pillRow(p, items, cx, y, size, colr, t0s) {
+  const w = items.map(s => pw(s, size)), tot = w.reduce((a, b) => a + b + 18, -18);
+  let x = cx - tot / 2;
+  return items.map((s, i) => { const g = pill(p, s, colr, x + w[i] / 2, y, t0s[i], size); x += w[i] + 18; return g; });
+}
+// The twenty faces of a d20 in a row from x0, top y; paint(f, deg, t0) colours face f with a degree of success (as in ch09).
+function faces(p, x0, y, t0, { w = 58, h = 80, gap = 4, size = 26 } = {}) {
+  const X = f => x0 + (f - 1) * (w + gap), cx = f => X(f) + w / 2;
+  const g = G(p, { o: 0 });
+  for (let f = 1; f <= 20; f++) {
+    mk('rect', { x: X(f), y, width: w, height: h, rx: 8, fill: 'none', stroke: COL.faint, 'stroke-width': 2, 'stroke-dasharray': '6 5' }, g);
+    T(g, String(f), { x: cx(f), y: y + h / 2 + size * .36, size, weight: 600, anchor: 'middle' });
+  }
+  show(g, t0);
+  const top = G(p);
+  return {
+    X, cx, w, h,
+    paint(f, deg, t1) {
+      const [, , colr, op] = DEG.find(d => d[0] === deg);
+      const r = mk('rect', { x: X(f), y, width: w, height: h, rx: 8, fill: colr, 'fill-opacity': op, stroke: colr, 'stroke-width': 2.5 }, top);
+      put(r, { o: 0 }); show(r, t1, .3);
+      return r;
+    },
+  };
+}
+// A ring with a letter, no name (tight diagrams, as in ch09).
+function tok(p, letter, colr, x, y, t0, r = 30) {
+  const g = G(p, { x, y, o: 0 });
+  mk('circle', { r, fill: COL.board, stroke: colr, 'stroke-width': 4 }, g);
+  T(g, letter, { y: r * .36, size: r, fill: colr, weight: 700, anchor: 'middle' });
+  show(g, t0);
+  return g;
+}
+// A spell slot: amber square; use(t, spell) crosses it out with the spell named below, tag(t, spell) only names it, free(t) restores it.
+function slotBox(p, x, y, t0, sub = '1-й круг', w = 180, h = 140) {
+  const g = G(p, { o: 0 });
+  mk('rect', { x, y, width: w, height: h, rx: 16, fill: '#22322d', stroke: RULE, 'stroke-width': 3 }, g);
+  const f = mk('rect', { x, y, width: w, height: h, rx: 16, fill: RULE, 'fill-opacity': .25 }, g);
+  T(g, 'ячейка', { x: x + w / 2, y: y + h / 2 - 4, size: 26, weight: 600, anchor: 'middle' });
+  T(g, sub, { x: x + w / 2, y: y + h / 2 + 30, size: 21, fill: COL.dim, anchor: 'middle' });
+  const lab = T(g, '', { x: x + w / 2, y: y + h + 34, size: 23, fill: MAG, weight: 600, anchor: 'middle', o: 0 });
+  const X = path(g, `M${x + 26} ${y + 22}L${x + w - 26} ${y + h - 22}M${x + w - 26} ${y + 22}L${x + 26} ${y + h - 22}`, { stroke: NO, 'stroke-width': 6 }, { d: 0 });
+  show(g, t0);
+  const tag = (t1, s) => { prog(() => { lab.textContent = s; }, t1, 0); show(lab, t1, .3); };
+  return {
+    g,
+    tag,
+    use(t1, s) { if (s) tag(t1, s); draw(X, t1 + .2, .4); tw(f, { o: 0 }, t1 + .2, .4); },
+    free(t1) { tw(X, { d: 0 }, t1, .4); tw(f, { o: 1 }, t1, .4); hide(lab, t1, .4); },
+  };
+}
+// A focus point token.
+function fpTok(p, x, y, t0, r = 30) {
+  const g = G(p, { x, y, o: 0, s: .6 });
+  mk('circle', { r, fill: mix(COL.board, RULE, .35), stroke: RULE, 'stroke-width': 3 }, g);
+  T(g, 'ФП', { y: r * .3, size: r * .7, fill: COL.chalk, weight: 700, anchor: 'middle' });
+  pop(g, t0);
+  return g;
+}
+// A square grid of `cols` × `rows` cells of size c from (x, y); fill(cells, colour, t0) paints [col, row] cells.
+// Distances follow movement: every second diagonal costs 10 feet (dist5, in feet, for a step of (dx, dy) cells).
+const dist5 = (dx, dy) => { const a = Math.max(Math.abs(dx), Math.abs(dy)), b = Math.min(Math.abs(dx), Math.abs(dy)); return 5 * (a + Math.floor(b / 2)); };
+function cellGrid(p, x, y, cols, rows, c, t0, { thin = false } = {}) {
+  const g = G(p, { o: 0 });
+  if (thin) {
+    for (let i = 0; i <= cols; i++) path(g, `M${x + i * c} ${y}V${y + rows * c}`, { stroke: COL.faint, 'stroke-width': 1 });
+    for (let j = 0; j <= rows; j++) path(g, `M${x} ${y + j * c}H${x + cols * c}`, { stroke: COL.faint, 'stroke-width': 1 });
+  } else for (let i = 0; i < cols; i++) for (let j = 0; j < rows; j++)
+    mk('rect', { x: x + i * c + 3, y: y + j * c + 3, width: c - 6, height: c - 6, rx: 6, fill: 'none', stroke: COL.faint, 'stroke-width': 2, 'stroke-dasharray': '6 5' }, g);
+  show(g, t0);
+  const top = G(p);
+  const XY = (i, j) => [x + i * c + c / 2, y + j * c + c / 2];
+  return {
+    XY, c,
+    fill(cells, colr, t1, op = .4, step = 0) {
+      return cells.map(([i, j], k) => {
+        const r = mk('rect', { x: x + i * c + (thin ? 0 : 3), y: y + j * c + (thin ? 0 : 3), width: c - (thin ? 0 : 6), height: c - (thin ? 0 : 6), rx: thin ? 0 : 6, fill: colr, 'fill-opacity': op }, top);
+        put(r, { o: 0 }); show(r, t1 + k * step, .3);
+        return r;
+      });
+    },
+  };
+}
+// The mill yard of chapter 8 (smaller): 7 × 3 cells of 5 feet, barn in the last column.
+const MAP = { x: 100, y: 140, c: 90 };
+const cellXY = (c, r) => [MAP.x + c * MAP.c + MAP.c / 2, MAP.y + r * MAP.c + MAP.c / 2];
+function yard(p, t0) {
+  const g = G(p, { o: 0 }), { x, y, c } = MAP;
+  for (let i = 0; i < 7; i++) for (let j = 0; j < 3; j++)
+    mk('rect', { x: x + i * c + 3, y: y + j * c + 3, width: c - 6, height: c - 6, rx: 6, fill: 'none', stroke: COL.faint, 'stroke-width': 2, 'stroke-dasharray': '6 5' }, g);
+  mk('rect', { x: x + 7 * c + 6, y: y - 10, width: c - 6, height: 3 * c + 20, rx: 6, fill: '#2a2620', stroke: COL.dim, 'stroke-width': 3 }, g);
+  T(g, 'амбар', { x: x + 7.5 * c + 3, y: y + 1.5 * c + 8, size: 22, fill: COL.dim, weight: 600, anchor: 'middle' });
+  T(g, 'мельничный двор · клетка 5 футов', { x: x + 3.5 * c, y: y + 3 * c + 40, size: 22, fill: COL.dim, anchor: 'middle' });
+  show(g, t0);
+}
+function mtok(p, k, c, r, t0) {
+  const [x, y] = cellXY(c, r);
+  return tok(p, PPL[k][0][0], PPL[k][1], x, y, t0, 30);
+}
+
+/* ---------- beats: [id, title, run(m, D), { ask }?] ---------- */
+const BEATS = [
+  ['intro', 'Заклинания', (m, D) => {
+    const g = G(scene, { o: 0, y: 24 });
+    T(g, 'Раздел 6 «Магия» · Глава 14', { x: 800, y: 330, size: 28, fill: COL.dim, anchor: 'middle' });
+    T(g, 'Заклинания', { x: 800, y: 440, size: 70, weight: 600, anchor: 'middle' });
+    tw(g, { o: 1, y: 0 }, .2, 1.1, out);
+    const r = say(scene, 'ячейки, фокусы, области и защиты', 800, 560, Math.max(m('sub'), 1.2), { size: 34, fill: COL.dim });
+    tw(g, { o: 0, y: -24 }, D - .9, .8); hide(r, D - .9, .8);
+  }],
+  ['table', 'За столом', (m) => {
+    const p = panel(0);
+    title(p, 'За столом');
+    who(p, 'Шиппа', HERO, 220, 260, .3, 50);
+    who(p, 'Разбойник', FOE, 500, 260, .4, 50);
+    arrowTo(p, 280, 260, 440, 260, MAG, .7, true);
+    bubble(p, 'Ступор, два действия. Бросай Волю против 17', 400, 140, HERO, m('say'), { size: 26, side: 'left' });
+    who(p, 'Ведущий', GMC, 900, 260, m('gm', -.3), 50);
+    box(p, 990, 200, 540, 130, FOE, m('gm'));
+    say(p, 'бросок за разбойника', 1020, 248, m('gm'), { size: 24, fill: FOE, weight: 700, anchor: 'start' });
+    L(p, [['d20 + Воля +2 против ', COL.chalk], ['17', MAG]], 1020, 300, m('gm', .4), 28);
+    dieShape(p, 6, 700, 250, MAG, m('dmg'), 40, 'd6 · урон');
+    hr(p, 420, m('trad', -.3));
+    pill(p, 'традиция', MAG, 180, 490, m('trad'), 28);
+    L(p, [['список заклинаний класса · бард → ', COL.chalk], ['оккультные', MAG]], 290, 500, m('trad', 3.8), 28);
+    say(p, 'круг заклинания: сила от 1-го до 10-го', 100, 590, m('rank'), { size: 26, anchor: 'start' });
+    const cells = [];
+    for (let i = 0; i < 10; i++) {
+      const g = G(p, { o: 0 }), x = 100 + i * 140;
+      mk('rect', { x, y: 620, width: 120, height: 90, rx: 12, fill: i ? 'none' : mix(COL.board, MAG, .3), stroke: MAG, 'stroke-width': 2.5 }, g);
+      T(g, String(i + 1), { x: x + 60, y: 680, size: 40, fill: MAG, weight: 700, anchor: 'middle' });
+      show(g, m('rank', .5 + i * .12));
+      cells.push(g);
+    }
+    cells.slice(1).forEach(g => tw(g, { o: .3 }, m('one', .4), .5));
+    pulse(cells[0], m('one', .4), 1.15);
+    say(p, '1-й уровень: доступен только 1-й круг', 100, 780, m('one', .6), { size: 28, fill: MAG, weight: 600, anchor: 'start' });
+  }],
+  ['slots', 'Ячейки и репертуар', (m) => {
+    const p = panel(0);
+    title(p, 'Ячейки и репертуар');
+    say(p, 'ячейка = одно сотворение своего круга в день', 100, 150, .4, { size: 25, anchor: 'start' });
+    const s1 = slotBox(p, 140, 230, m('two')), s2 = slotBox(p, 400, 230, m('two', .3));
+    say(p, 'бард 1-го уровня: 2 ячейки 1-го круга', 100, 450, m('two', .6), { size: 25, fill: RULE, weight: 600, anchor: 'start' });
+    s1.use(m('spent')); s2.use(m('spent', .4));
+    say(p, 'потрачены обе → до утра 1-го круга нет', 100, 510, m('spent', 1), { size: 25, fill: NO, weight: 600, anchor: 'start' });
+    s1.free(m('morning')); s2.free(m('morning'));
+    say(p, 'ежедневная подготовка → все ячейки снова', 100, 570, m('morning', .3), { size: 25, fill: OK, weight: 600, anchor: 'start' });
+    box(p, 840, 120, 680, 720, MAG, m('rep', -.2));
+    say(p, 'Репертуар Шиппы', 880, 175, m('rep'), { size: 30, fill: MAG, weight: 700, anchor: 'start' });
+    say(p, 'фокусы', 880, 235, m('can'), { size: 22, fill: COL.dim, weight: 600, anchor: 'start' });
+    ['Ступор', 'Телекинетический снаряд', 'Щит', 'Обнаружение магии', 'Вымысел'].forEach((s, i) =>
+      say(p, s, 900, 280 + i * 44, m('can', .3 + i * .2), { size: 27, anchor: 'start' }));
+    say(p, '1-й круг', 880, 530, m('r1'), { size: 22, fill: COL.dim, weight: 600, anchor: 'start' });
+    say(p, 'Силовой залп', 900, 575, m('r1', .3), { size: 27, anchor: 'start' });
+    say(p, 'Ужас', 900, 619, m('r1', .5), { size: 27, anchor: 'start' });
+    L(p, [['Умиротворение', COL.chalk], ['  от музы-маэстро', COL.dim]], 900, 663, m('muse', 1), 27);
+  }],
+  ['spont', 'Спонтанный и подготовленный заклинатель', (m) => {
+    const p = panel(0);
+    title(p, 'Спонтанный и подготовленный');
+    who(p, 'Шиппа', HERO, 150, 180, .3, 40);
+    say(p, 'бард · спонтанно: выбор в момент сотворения', 210, 188, .4, { size: 24, fill: COL.dim, anchor: 'start' });
+    const pl = [['Силовой залп', 210], ['Ужас', 400], ['Умиротворение', 590]].map(([s, x]) => pill(p, s, MAG, x, 310, .6, 24));
+    const s1 = slotBox(p, 140, 420, .5), s2 = slotBox(p, 400, 420, .6);
+    arrowTo(p, 400, 340, 260, 415, MAG, m('fear'));
+    s1.use(m('fear', .6), 'Ужас');
+    arrowTo(p, 580, 340, 500, 415, MAG, m('heal'));
+    s2.use(m('heal', .6), 'Умиротворение');
+    dieNum(p, 10, 6, 130, 690, m('heal', 3), 32);
+    L(p, [['d10 + 4: 6 + 4 = ', COL.chalk], ['10 ПЗ', OK], [' Бронне', COL.chalk]], 180, 700, m('heal', 3.4), 27);
+    tw(pl[0], { o: .35 }, m('none'), .5);
+    draw(path(p, 'M118 310H302', { stroke: NO, 'stroke-width': 4 }, { d: 0 }), m('none', .3), .4);
+    say(p, 'Силовой залп в репертуаре, но ячеек нет', 100, 780, m('none', .6), { size: 25, fill: NO, weight: 600, anchor: 'start' });
+    path(p, 'M800 130V840', { stroke: COL.faint, 'stroke-width': 2 });
+    who(p, 'Тиль', HERO, 890, 180, m('til', -.3), 40);
+    say(p, 'волшебник · подготовленный', 950, 188, m('til'), { size: 26, fill: COL.dim, anchor: 'start' });
+    say(p, 'утром: каждой ячейке — заклинание из книги', 860, 310, m('til', 2), { size: 24, anchor: 'start' });
+    const t1 = slotBox(p, 880, 420, m('til', 2.6)), t2 = slotBox(p, 1140, 420, m('til', 2.8));
+    t1.tag(m('two'), 'Силовой залп'); t2.tag(m('two', .3), 'Силовой залп');
+    say(p, 'днём: Силовой залп дважды,', 860, 700, m('two', 1.6), { size: 25, anchor: 'start' });
+    say(p, 'остальное из книги — завтра', 860, 744, m('two', 2.6), { size: 25, fill: COL.dim, anchor: 'start' });
+  }],
+  ['cantrip', 'Фокусы', (m) => {
+    const p = panel(0);
+    title(p, 'Фокусы');
+    L(p, [['ячеек не тратят · ', COL.chalk], ['сколько угодно раз в день', OK]], 100, 150, .4, 30);
+    L(p, [['круг фокуса', MAG], [' = уровень героя ÷ 2, с округлением вверх', COL.chalk]], 100, 225, m('auto'), 30);
+    say(p, 'уровень', 300, 310, m('lv'), { size: 24, fill: COL.dim, anchor: 'end' });
+    say(p, 'круг', 300, 370, m('lv'), { size: 24, fill: COL.dim, anchor: 'end' });
+    [1, 2, 3, 4].forEach((lv, i) => {
+      const x = 400 + i * 150, t0 = m('lv', i < 2 ? .3 + i * .3 : 2.2 + (i - 2) * .3);
+      say(p, String(lv), x, 310, t0, { size: 30, weight: 600 });
+      say(p, String(Math.ceil(lv / 2)), x, 370, t0 + .2, { size: 34, fill: MAG, weight: 700 });
+    });
+    box(p, 100, 430, 1400, 400, MAG, m('tp', -.2));
+    L(p, [['Телекинетический снаряд', MAG], [' · Повышенное (+1): урон +1d6', COL.chalk]], 140, 490, m('tp'), 28);
+    say(p, '1-й круг · уровни 1–2', 140, 600, m('tp1'), { size: 26, anchor: 'start' });
+    [0, 1].forEach(i => dieShape(p, 6, 620 + i * 110, 590, RULE, m('tp1', .3 + i * .2), 34, null));
+    say(p, '2d6', 880, 602, m('tp1', .8), { size: 32, fill: RULE, weight: 700, anchor: 'start' });
+    say(p, '2-й круг · уровень 3', 140, 730, m('tp3'), { size: 26, anchor: 'start' });
+    [0, 1, 2].forEach(i => dieShape(p, 6, 620 + i * 110, 720, i < 2 ? RULE : OK, m('tp3', .3 + i * .2), 34, null));
+    say(p, '3d6', 990, 732, m('tp3', 1), { size: 32, fill: OK, weight: 700, anchor: 'start' });
+  }],
+  ['q1', 'Быстрая проверка', () => { panel(0); }, { ask: done => quiz(WIDE, [{
+    id: 'c-slot', prompt: ['Шиппа, бард 1-го уровня.'], build: blanks(Q_SLOT),
+  }, {
+    id: 'c-slot-tf', prompt: ['Верно или неверно?'], build: grid(Q_SLOT_TF, TF, { multi: false, text: true }),
+  }], done) }],
+  ['focus', 'Фокальные заклинания и фокальные пункты', (m) => {
+    const p = panel(0);
+    title(p, 'Фокальные заклинания и фокальные пункты');
+    say(p, 'дают класс и черты', 100, 140, .4, { size: 26, fill: COL.dim, anchor: 'start' });
+    L(p, [['цена: ', COL.chalk], ['1 фокальный пункт (ФП)', RULE], [' за сотворение', COL.chalk]], 420, 140, m('cost'), 26);
+    L(p, [['запас ФП', RULE], [' = числу фокальных заклинаний, но не больше 3', COL.chalk]], 100, 196, m('pool'), 26);
+    box(p, 100, 240, 680, 290, MAG, m('c1', -.2));
+    glyph(p, 'r', 150, 290, m('c1', -.2), .5, MAG);
+    say(p, 'Контрисполнение', 195, 302, m('c1', -.2), { size: 30, fill: MAG, weight: 700, anchor: 'start' });
+    [['ответное действие · 1 ФП', RULE], ['союзник проходит испытание против эффекта,'], ['который действует через слух или зрение:'], ['Шиппа бросает Исполнение,'], ['он берёт лучший из двух результатов', OK]]
+      .forEach(([s, c = COL.chalk], i) => say(p, s, 130, 350 + i * 36, [m('c1', 1.2), m('c1', 3.5), m('c1', 3.5), m('pf'), m('best')][i], { size: 23, fill: c, anchor: 'start' }));
+    box(p, 820, 240, 700, 290, MAG, m('c2', -.2));
+    glyph(p, 'f', 870, 290, m('c2', -.2), .5, MAG);
+    say(p, 'Продолжительная композиция', 915, 302, m('c2', -.2), { size: 30, fill: MAG, weight: 700, anchor: 'start' });
+    say(p, 'свободное действие · 1 ФП', 850, 350, m('c2', .4), { size: 23, fill: RULE, anchor: 'start' });
+    say(p, 'продлевает песню', 850, 386, m('c2', 1.2), { size: 23, anchor: 'start' });
+    say(p, 'запас ФП Шиппы:', 100, 618, m('two'), { size: 28, weight: 600, anchor: 'start' });
+    const fps = [fpTok(p, 400, 608, m('two', .3)), fpTok(p, 480, 608, m('two', .5))];
+    say(p, '= 2', 530, 618, m('two', .8), { size: 30, fill: RULE, weight: 700, anchor: 'start' });
+    glyph(p, 1, 850, 608, m('anth'), .4, MAG);
+    L(p, [['Песнь отваги', MAG], [' — фокус, ФП не тратит', COL.dim]], 885, 618, m('anth'), 26);
+    hr(p, 670, m('ref', -.3));
+    fps.forEach((g, i) => { tw(g, { o: .25 }, m('ref', .2 + i * .2), .4); });
+    L(p, [['ежедневная подготовка → ', COL.chalk], ['весь запас снова', OK]], 100, 730, m('ref', .3), 26);
+    L(p, [['Фокусировка: 10 минут → ', COL.chalk], ['+1 ФП', OK]], 100, 790, m('ref', 3.2), 26);
+    tw(fps[0], { o: 1 }, m('ref', 3.6), .4); pulse(fps[0], m('ref', 3.6), 1.3);
+  }],
+  ['anthem', 'Песнь отваги', (m) => {
+    const p = panel(0);
+    title(p, 'Песнь отваги');
+    say(p, 'композиция — заклинание барда: песня, стихи, танец', 100, 130, .4, { size: 25, fill: COL.dim, anchor: 'start' });
+    L(p, [['за ход — одна композиция · действует тоже одна', RULE]], 100, 176, m('one'), 25);
+    box(p, 100, 210, 1400, 190, MAG, m('an', -.2));
+    glyph(p, 1, 150, 262, m('an', -.2), .45, MAG);
+    say(p, 'Песнь отваги', 185, 274, m('an', -.2), { size: 32, fill: MAG, weight: 700, anchor: 'start' });
+    say(p, 'фокус-композиция · эманация 60 футов · 1 раунд', 420, 274, m('an', .6), { size: 25, anchor: 'start' });
+    say(p, 'бонус состояния вам и союзникам в области:', 140, 330, m('bon'), { size: 23, fill: COL.dim, anchor: 'start' });
+    pillRow(p, ['+1 к проверкам атаки', '+1 к броскам урона', '+1 к испытаниям против ужаса'], 800, 368, 22, RULE, [3.6, 4.8, 5.8].map(d => m('bon', d)));
+    who(p, 'Бронна', HERO, 150, 530, m('br', -.3), 38);
+    const rows = [['без песни · +9', 7, 17, 450, 'br'], ['с песнью · +10', 6, 16, 610, 'with']];
+    rows.forEach(([lab, hit, crit, y, mark], r) => {
+      const F = faces(p, 300, y, m(mark, -.2), { w: 54, h: 58, size: 22 });
+      say(p, lab, 300, y - 12, m(mark, -.2), { size: 22, fill: r ? RULE : COL.dim, weight: 600, anchor: 'start' });
+      for (let f = hit; f < crit; f++) F.paint(f, 's', m(mark, .6 + (f - hit) * .05));
+      for (let f = crit; f <= 20; f++) F.paint(f, 'cs', m(mark, 1.6 + (f - crit) * .05));
+      say(p, `КБ 16: попадание на ${hit}+, крит на ${crit}+`, F.X(20) + F.w, y + 92, m(mark, 1.4), { size: 23, fill: OK, weight: 600, anchor: 'end' });
+    });
+    L(p, [['средний урон за удар ', COL.chalk], ['≈ 7,7 → 9,5', OK], ['   (d8 + 4 → d8 + 5)', COL.dim]], 300, 800, m('avg'), 30);
+  }],
+  ['linger', 'Сколько длится песнь', (m) => {
+    const p = panel(0);
+    title(p, 'Сколько длится песнь');
+    const K = ['b', 't', 'r', 's'], cw = 70, X = (rd, k) => 140 + rd * 338 + k * (cw + 6);
+    const cells = {};
+    for (let rd = 0; rd < 4; rd++) {
+      say(p, `раунд ${rd + 1}`, X(rd, 0), 140, .3, { size: 22, fill: COL.dim, anchor: 'start' });
+      K.forEach((k, i) => {
+        const g = G(p, { o: 0 });
+        mk('rect', { x: X(rd, i), y: 160, width: cw, height: 64, rx: 10, fill: '#22322d', stroke: COL.faint, 'stroke-width': 2 }, g);
+        T(g, PPL[k][0][0], { x: X(rd, i) + cw / 2, y: 204, size: 30, fill: PPL[k][1], weight: 700, anchor: 'middle' });
+        show(g, .3 + rd * .1);
+        cells[rd + k] = g;
+      });
+    }
+    say(p, 'порядок: Бронна, Тиль, разбойник, Шиппа', 800, 108, m('ord'), { size: 22, fill: COL.dim });
+    [0, 1, 2, 3].forEach(rd => pulse(cells[rd + 's'], m('ord', .5), 1.15));
+    // the anthem as a bar from Shippa's turn to the start of her turn `n` rounds later
+    const bar = (n, y, t0) => {
+      const x0 = X(0, 3), x1 = X(n, 3), r = mk('rect', { x: x0, y, width: 0, height: 20, rx: 6, fill: MAG, 'fill-opacity': .6 }, p);
+      prog(q => r.setAttribute('width', (x1 - x0) * q), t0, 1, io);
+    };
+    const ring = (rd, t0) => {
+      const r = mk('rect', { x: X(rd, 0) - 4, y: 156, width: cw + 8, height: 72, rx: 12, fill: 'none', stroke: OK, 'stroke-width': 4 }, p);
+      put(r, { o: 0 }); show(r, t0, .3);
+    };
+    bar(1, 238, m('end'));
+    ring(1, m('end', 2.2));
+    say(p, '1 раунд → Бронне один ход с +1', X(1, 3) + 8, 254, m('end', 2.6), { size: 22, fill: MAG, weight: 600, anchor: 'start' });
+    glyph(p, 'f', 130, 400, m('lc'), .5, MAG);
+    say(p, 'Продолжительная композиция', 170, 412, m('lc'), { size: 30, fill: MAG, weight: 700, anchor: 'start' });
+    pill(p, 'метамагия', RULE, 720, 402, m('lc', 4.4), 22);
+    say(p, 'прямо перед заклинанием', 810, 410, m('lc', 5.6), { size: 23, fill: COL.dim, anchor: 'start' });
+    L(p, [['1 ФП', RULE], [' · Исполнение против ', COL.chalk], ['СЛ 15', RULE]], 130, 470, m('roll'), 27);
+    [['cs', 'композиция длится 4 раунда'], ['s', '3 раунда'], ['f', '1 раунд, но ФП не тратится']].forEach(([k, s], i) => {
+      const [, name, colr] = DEG.find(d => d[0] === k);
+      L(p, [[name + ': ', colr], [s, COL.chalk]], 130, 530 + i * 46, m(k), 26);
+    });
+    L(p, [['Исполнение +7: ', COL.chalk], ['успех на 8+', OK], [' (8 + 7 = 15) · крит. успех на 18+', COL.dim]], 130, 700, m('need'), 26);
+    bar(3, 270, m('three'));
+    [1, 2, 3].forEach(rd => ring(rd, m('three', 1 + rd * .3)));
+    say(p, 'успех → до хода Шиппы в 4-м раунде · Бронне три хода с +1', 800, 330, m('three', 1.4), { size: 24, fill: OK, weight: 600 });
+  }],
+  ['q2', 'Быстрая проверка', () => { panel(0); }, { ask: done => quiz(WIDE, [{
+    id: 'c-focus', prompt: ['Фокальные пункты и песнь отваги.'], build: blanks(Q_FOCUS),
+  }, {
+    id: 'c-focus-tf', prompt: ['Верно или неверно?'], build: grid(Q_FOCUS_TF, TF, { multi: false, text: true }),
+  }], done) }],
+  ['cast', 'Сотворение заклинания', (m) => {
+    const p = panel(0);
+    title(p, 'Сотворение заклинания');
+    say(p, 'занятие «Сотворение заклинания» · цена — значок', 100, 135, .4, { size: 25, fill: COL.dim, anchor: 'start' });
+    glyph(p, 2, 140, 195, m('two'), .45);
+    say(p, 'большинство заклинаний', 200, 205, m('two'), { size: 26, anchor: 'start' });
+    say(p, 'Силовой залп', 100, 282, m('fb'), { size: 30, fill: MAG, weight: 700, anchor: 'start' });
+    glyph(p, 1, 360, 272, m('fb', .4), .45);
+    say(p, '—', 405, 282, m('fb', .6), { size: 28 });
+    glyph(p, 3, 480, 272, m('fb', .8), .45);
+    say(p, 'сколько действий, столько осколков · каждый попадает сам: d4 + 1 урона силой', 100, 340, m('fb', 1.6), { size: 24, anchor: 'start' });
+    [2, 3, 4].forEach((n, i) => dieNum(p, 4, n, 150 + i * 110, 420, m('three', .3 + i * .4), 40));
+    L(p, [['кубики: ', COL.dim], ['2 + 3 + 4 = 9', COL.chalk]], 500, 410, m('three', 2.4), 28);
+    L(p, [['по +1 за осколок: ', COL.dim], ['9 + 3 = ', COL.chalk], ['12 урона', OK]], 500, 456, m('three', 3.2), 28);
+    hr(p, 490, m('man', -.3));
+    pill(p, 'концентрация', RULE, 200, 550, m('man'), 24);
+    pill(p, 'манипуляция', RULE, 430, 550, m('man', .5), 24);
+    L(p, [['манипуляция = жесты → ', COL.chalk], ['провоцирует Внеочередную атаку', NO]], 560, 558, m('man', 4.6), 25);
+    L(p, [['Песнь отваги', MAG], [': только концентрация → рядом с врагом ', COL.chalk], ['безопасно', OK]], 100, 650, m('anth'), 26);
+    L(p, [['сорвано', NO], [' → заклинание пропадает, ячейка и действия потрачены', COL.chalk]], 100, 740, m('dis'), 26);
+  }],
+  ['read', 'Как читать заклинание', (m) => {
+    const p = panel(0);
+    title(p, 'Как читать заклинание');
+    box(p, 80, 110, 860, 540, MAG, .3);
+    const hl = (y, t0, x = 96, w = 828, h = 40) => { const r = put(mk('rect', { x, y: y - 30, width: w, height: h, rx: 8, fill: RULE, 'fill-opacity': .22 }, p), { o: 0 }); show(r, t0, .3); };
+    say(p, 'Ступор', 110, 170, .3, { size: 34, fill: MAG, weight: 700, anchor: 'start' });
+    glyph(p, 2, 300, 160, .3, .42, COL.chalk);
+    say(p, 'Фокус 1', 910, 170, .3, { size: 26, fill: COL.dim, weight: 600, anchor: 'end' });
+    const lines = [['Дескрипторы: фокус, концентрация, манипуляция,', 220], ['ментальный, несмертельное', 252], ['Традиции: мистическая, сакральная, оккультная', 300],
+      ['Дистанция 60 футов; Цели 1 существо', 350], ['Защита Воля; Длительность 1 раунд', 400],
+      ['Наносит 1d6 ментального урона, обычное испытание', 470], ['Воли. При критическом провале цель также', 502], ['получает шок 1.', 534], ['Повышенное (+2): урон увеличивается на 1d6.', 600]];
+    lines.forEach(([s, y], i) => say(p, s, 110, y, .4 + i * .05, { size: 24, anchor: 'start' }));
+    path(p, 'M100 430H920', { stroke: COL.faint, 'stroke-width': 1.5 });
+    const note = (s, y, t0) => say(p, s, 980, y, t0, { size: 24, fill: RULE, weight: 600, anchor: 'start' });
+    hl(170, m('act'), 262, 76, 44); note('значок — цена в действиях', 175, m('act'));
+    hl(350, m('rng'), 96, 290); note('60 футов = 12 клеток', 345, m('rng'));
+    hl(350, m('tg'), 400, 300); note('цель видна, нет сплошной преграды', 390, m('tg'));
+    hl(400, m('def'), 96, 220); note('чем защищается цель', 435, m('def'));
+    hl(400, m('dur'), 330, 380); note('нет строки → эффект мгновенный', 475, m('dur'));
+    hl(600, m('hi')); note('что меняется на круге выше', 605, m('hi'));
+  }],
+  ['areas1', 'Области: эманация и взрыв', (m) => {
+    const p = panel(0);
+    title(p, 'Области: эманация и взрыв');
+    say(p, 'задевают всех в области · 4 вида', 800, 118, .4, { size: 24, fill: COL.dim });
+    const c = 15, gx = 120, gy = 200, E = cellGrid(p, gx, gy, 25, 25, c, m('em', -.4), { thin: true });
+    E.fill([[12, 12]], HERO, m('em', -.4), .9);
+    const em = [];
+    for (let i = 0; i < 25; i++) for (let j = 0; j < 25; j++) if ((i !== 12 || j !== 12) && dist5(i - 12, j - 12) <= 60) em.push([i, j, dist5(i - 12, j - 12)]);
+    em.sort((a, b) => a[2] - b[2]);
+    E.fill(em.map(([i, j]) => [i, j]), MAG, m('em', .4), .45, 1.6 / em.length);
+    say(p, 'Песнь отваги · эманация 60 футов', gx + 187, 170, m('em'), { size: 24, fill: MAG, weight: 600 });
+    arrowTo(p, gx + 12.5 * c, gy + 12.5 * c, gx + 25 * c - 2, gy + 12.5 * c, RULE, m('em', 6.4));
+    say(p, '12 клеток', gx + 19 * c, gy + 12.5 * c - 14, m('em', 6.4), { size: 22, fill: RULE, weight: 700 });
+    say(p, 'в центре — клетка Шиппы', gx + 187, 620, m('em', 7), { size: 22, fill: HERO });
+    say(p, 'расстояние — как при движении → край скруглён', gx + 187, 660, m('diag'), { size: 22, fill: COL.dim });
+    const bc = 70, bx = 760, by = 200, B = cellGrid(p, bx, by, 8, 6, bc, m('bu', -.3));
+    say(p, 'Сон · взрыв 5 футов', bx + 280, 170, m('bu'), { size: 24, fill: MAG, weight: 600 });
+    B.fill([[3, 2], [4, 2], [3, 3], [4, 3]], MAG, m('bu', 6.2), .45);
+    const cn = G(p, { x: bx + 4 * bc, y: by + 3 * bc, o: 0 });
+    mk('circle', { r: 10, fill: RULE }, cn);
+    show(cn, m('bu', 1.6));
+    say(p, 'угол клетки в пределах дистанции', bx + 280, 660, m('bu', 1.8), { size: 22, fill: RULE });
+    say(p, '4 клетки вокруг угла', bx + 280, 700, m('bu', 7), { size: 22, fill: MAG, weight: 600 });
+    const big = mk('rect', { x: bx + 4 * bc + 6, y: by + 3 * bc + 6, width: 2 * bc - 12, height: 2 * bc - 12, rx: 10, fill: FOE, 'fill-opacity': .15, stroke: FOE, 'stroke-width': 4 }, p);
+    put(big, { o: 0 }); show(big, m('part'));
+    L(p, [['большое существо, одна клетка в области → ', COL.chalk], ['задето', NO]], bx, 760, m('part', .6), 23);
+  }],
+  ['areas2', 'Области: конус и линия', (m) => {
+    const p = panel(0);
+    title(p, 'Области: конус и линия');
+    const c = 72, C = cellGrid(p, 100, 180, 7, 6, c, .3);
+    const at = (g, i, j) => g.XY(i, j);
+    tok(p, 'Ш', HERO, ...at(C, 1, 1), .4, 26);
+    const rb = tok(p, 'Р', FOE, ...at(C, 3, 3), .5, 26), br = tok(p, 'Б', HERO, ...at(C, 4, 2), .6, 26);
+    C.fill([[2, 2], [3, 2], [4, 2], [2, 3], [3, 3], [2, 4]], MAG, m('cc'), .45, .15);
+    say(p, 'Цветные брызги · конус 15 футов', 352, 160, m('cc'), { size: 24, fill: MAG, weight: 600 });
+    say(p, 'четверть круга из клетки Шиппы', 100, 640, .6, { size: 22, fill: COL.dim, anchor: 'start' });
+    say(p, 'по диагонали: по 3 клетки с каждого края', 100, 680, m('cc', 3.4), { size: 22, fill: MAG, weight: 600, anchor: 'start' });
+    const Ln = cellGrid(p, 760, 180, 8, 3, c, m('ln', -.3));
+    tok(p, 'Ш', HERO, ...at(Ln, 0, 1), m('ln', -.3), 26);
+    Ln.fill([1, 2, 3, 4, 5, 6].map(i => [i, 1]), MAG, m('ln', 3.4), .45, .15);
+    say(p, 'Тёмные нити · линия 30 футов', 760 + 288, 160, m('ln', 3.2), { size: 24, fill: MAG, weight: 600 });
+    say(p, 'ширина 5 футов · 6 клеток подряд', 760 + 288, 430, m('ln', 5), { size: 22, fill: MAG });
+    L(p, [['есть область, нет строки «Цели» → ', COL.chalk], ['задевает всех', NO]], 760, 530, m('all'), 26);
+    const ring = mk('circle', { cx: st(br).x, cy: st(br).y, r: 34, fill: 'none', stroke: NO, 'stroke-width': 4 }, p);
+    put(ring, { o: 0 }); show(ring, m('br', 1));
+    grow(br, 1, m('br', 1)); grow(rb, 1, m('br', 2.2));
+    L(p, [['Бронна рядом с разбойником → ', COL.chalk], ['тоже в конусе', NO]], 760, 600, m('br', 1.4), 26);
+  }],
+  ['q3', 'Быстрая проверка', () => { panel(0); }, { ask: done => quiz(WIDE, [{
+    id: 'c-area', prompt: ['Какая это область?'], build: grid(Q_AREA, AREAS, { multi: false, text: true }),
+  }, {
+    id: 'c-area-n', prompt: ['Посчитайте.'], build: blanks(Q_AREA_N),
+  }], done) }],
+  ['attack', 'Атака заклинанием', (m) => {
+    const p = panel(0);
+    title(p, 'Атака заклинанием');
+    colorLine(p, [['d20 + ', COL.chalk], ['ключевая характеристика', HERO], [' + ', COL.chalk], ['бонус умения', RULE], [' против КБ', COL.chalk]], 800, 140, .4, { size: 32 });
+    colorLine(p, [['Шиппа: ', COL.chalk], ['Харизма +4', HERO], [' + ', COL.chalk], ['изучен +3', RULE], [' = +7', COL.chalk]], 800, 196, m('sum'), { size: 30 });
+    L(p, [['Телекинетический снаряд', MAG], [' · камень · 2d6 · критическое попадание — вдвое больше', COL.chalk]], 100, 268, m('tp'), 26);
+    const F = faces(p, 230, 300, m('hit', -.3), { w: 58, h: 62, size: 24 });
+    say(p, 'кубик', 210, 340, m('hit', -.3), { size: 22, fill: COL.dim, anchor: 'end' });
+    for (let f = 9; f <= 18; f++) F.paint(f, 's', m('hit', .4 + (f - 9) * .05));
+    F.paint(19, 'cs', m('hit', 3)); F.paint(20, 'cs', m('hit', 3.1));
+    const xAC = (F.X(8) + F.w + F.X(9)) / 2;
+    draw(path(p, `M${xAC} 290V372`, { stroke: RULE, 'stroke-width': 4 }, { d: 0 }), m('hit', .2), .4);
+    say(p, 'КБ 16: попадание 9+ (9 + 7 = 16), крит 19+', F.X(20) + F.w, 404, m('hit', 1), { size: 23, fill: OK, weight: 600, anchor: 'end' });
+    hr(p, 440, m('map', -.3));
+    pill(p, 'атака', RULE, 160, 490, m('map'), 24);
+    say(p, 'идёт в счёт штрафа за последовательные атаки', 230, 498, m('map', .6), { size: 24, fill: COL.dim, anchor: 'start' });
+    const t1 = turnCells(p, 100, 530, m('map', 3), { w: 190, h: 100, react: false });
+    t1.spend(0, 'Снаряд', m('map', 3.4), 'атака 1');
+    t1.spend(1, 'Удар', m('map', 4.6), 'рапира');
+    L(p, [['рапира: +6 ', COL.chalk], ['− 5', NO], [' = +1', COL.chalk]], 740, 595, m('map', 5), 28);
+    const t2 = turnCells(p, 100, 680, m('save', -.2), { w: 190, h: 100, react: false });
+    t2.spend(0, 'Ступор', m('save'), 'испытание');
+    t2.spend(1, 'Удар', m('save', 2.4), 'рапира');
+    L(p, [['рапира: ', COL.chalk], ['+6, без штрафа', OK]], 740, 745, m('save', 2.8), 28);
+  }],
+  ['dc', 'СЛ заклинаний и обычное испытание', (m) => {
+    const p = panel(0);
+    title(p, 'СЛ заклинаний и обычное испытание');
+    colorLine(p, [['СЛ заклинаний = 10 + ', COL.chalk], ['ключевая характеристика', HERO], [' + ', COL.chalk], ['бонус умения', RULE]], 800, 140, .4, { size: 32 });
+    say(p, 'бросает цель, её итог сравнивают с вашей СЛ', 800, 186, .8, { size: 24, fill: COL.dim });
+    // Shippa's numbers in two cards: what she rolls (attack) and what the target rolls against (DC).
+    [[300, 'атака заклинанием', 'бросает Шиппа', 'd20 + 4 + 3', '+7', 'sum'], [1300, 'СЛ заклинаний', 'бросает цель', '10 + 4 + 3', '17', 'sum']].forEach(([cx, head, who, f, v, mk_], i) => {
+      const t0 = m(mk_, i * .8), g = G(p, { o: 0 });
+      mk('rect', { x: cx - 230, y: 216, width: 460, height: 110, rx: 14, fill: 'none', stroke: i ? MAG : HERO, 'stroke-width': 2.5 }, g);
+      say(g, head, cx, 252, 0, { size: 24, fill: i ? MAG : HERO, weight: 700 });
+      colorLine(g, [[f + ' = ', COL.chalk], [v, i ? MAG : HERO]], cx, 302, 0, { size: 30 });
+      say(g, who, cx, 352, 0, { size: 20, fill: COL.dim });
+      show(g, t0);
+    });
+    say(p, 'Харизма +4 — ключевая у барда, изучен +3', 800, 268, m('sum', .3), { size: 22, fill: COL.dim });
+    colorLine(p, [['17 = 7 + 10', COL.chalk]], 800, 312, m('ten'), { size: 28 });
+    pill(p, 'обычное испытание', RULE, 800, 392, m('basic'), 28);
+    say(p, 'урон зависит от степени успеха цели', 800, 446, m('basic', 1.4), { size: 24, fill: COL.dim });
+    const G4 = [['cs', '0', 'урона нет'], ['s', '½', 'половина'], ['f', '×1', 'полный урон'], ['cf', '×2', 'двойной']];
+    G4.forEach(([k, v, s], i) => {
+      const [, name, colr, op] = DEG.find(d => d[0] === k), x = 120 + i * 350, t0 = m(k);
+      const r = mk('rect', { x, y: 470, width: 320, height: 190, rx: 14, fill: colr, 'fill-opacity': op, stroke: colr, 'stroke-width': 2.5 }, p);
+      put(r, { o: 0 }); show(r, t0);
+      say(p, name, x + 160, 512, t0, { size: 26, weight: 700 });
+      say(p, v, x + 160, 584, t0 + .2, { size: 48, fill: COL.chalk, weight: 700 });
+      say(p, s, x + 160, 632, t0 + .3, { size: 22, fill: COL.chalk });
+    });
+    say(p, 'урон бросает заклинатель, один раз', 800, 718, m('once'), { size: 28, weight: 600 });
+    say(p, '½ — с округлением вниз, но не меньше 1', 800, 766, m('once', 2.6), { size: 26, fill: COL.dim });
+  }],
+  ['daze', 'Ступор по разбойнику', (m) => {
+    const p = panel(0);
+    title(p, 'Ступор по разбойнику');
+    L(p, [['разбойник: Воля +2 против ', FOE], ['СЛ 17', MAG]], 100, 140, .4, 28);
+    dieNum(p, 6, 4, 1010, 130, 1.4, 30);
+    L(p, [['урон Шиппы: d6 → 4', COL.chalk]], 1060, 140, 1.4, 28);
+    const F = faces(p, 170, 220, .3, { w: 62 });
+    say(p, 'кубик', 150, 270, .3, { size: 22, fill: COL.dim, anchor: 'end' });
+    say(p, 'итог', 150, 356, .5, { size: 22, fill: COL.dim, anchor: 'end' });
+    const tot = G(p, { o: 0 });
+    for (let f = 1; f <= 20; f++) T(tot, String(f + 2), { x: F.cx(f), y: 356, size: 24, fill: COL.dim, anchor: 'middle' });
+    show(tot, .5);
+    const band = (a, b, s, colr, t0) => say(p, s, (F.X(a) + F.X(b) + F.w) / 2, 410, t0, { size: 23, fill: colr, weight: 700 });
+    for (let f = 1; f <= 5; f++) F.paint(f, 'cf', m('cf', .5 + f * .05));
+    band(1, 5, 'крит. провал', NO, m('cf', 1));
+    for (let f = 6; f <= 14; f++) F.paint(f, 'f', m('f', .3 + (f - 6) * .05));
+    band(6, 14, 'провал', NO, m('f', .6));
+    for (let f = 15; f <= 19; f++) F.paint(f, 's', m('s', .3 + (f - 15) * .05));
+    band(15, 19, 'успех', OK, m('s', .6));
+    F.paint(20, 'cs', m('nat', 3));
+    pulse(tot.children[19], m('nat'), 1.4);
+    L(p, [['1–5: итог 3–7, на 10 ниже СЛ → ', COL.chalk], ['4 × 2 = 8 урона и шок 1', NO]], 170, 500, m('cf', 1.4));
+    L(p, [['6–14: итог 8–16 → ', COL.chalk], ['4 урона', NO]], 170, 550, m('f', 1));
+    L(p, [['15–19: итог 17–21 → ', COL.chalk], ['4 ÷ 2 = 2 урона', OK]], 170, 600, m('s', 1));
+    L(p, [['20: итог 22 — успех, натуральная 20 → ', COL.chalk], ['крит. успех, 0 урона', OK]], 170, 650, m('nat', 1));
+  }],
+  ['q4', 'Быстрая проверка', () => { panel(0); }, { ask: done => quiz(WIDE, [{
+    id: 'c-dc', prompt: ['Шиппа: атака заклинанием +7, СЛ заклинаний 17, рапира +6. Разбойник: КБ 16.'], build: blanks(Q_DC),
+  }], done) }],
+  ['heighten', 'Повышение', (m) => {
+    const p = panel(0);
+    title(p, 'Повышение');
+    say(p, 'сотворить кругом выше, чем в заголовке', 800, 130, .4, { size: 26, fill: COL.dim });
+    L(p, [['подготовленный: ', COL.chalk], ['ячейка повыше', RULE]], 100, 200, m('prep'), 27);
+    say(p, 'Огненный шар · +2d6 за круг', 100, 270, m('fb'), { size: 27, fill: MAG, weight: 700, anchor: 'start' });
+    [[3, 6, 'fb', .8], [4, 8, 'f4', 0], [5, 10, 'f5', 0]].forEach(([rk, n, mark, d], r) => {
+      const y = 340 + r * 90, t0 = m(mark, d);
+      say(p, rk + '-й круг', 100, y + 10, t0, { size: 25, anchor: 'start' });
+      for (let k = 0; k < n; k++) {
+        const e = mk('rect', { x: 240 + k * 44, y: y - 22, width: 36, height: 36, rx: 6, fill: '#22322d', stroke: k < 6 ? RULE : OK, 'stroke-width': 3 }, p);
+        put(e, { o: 0 }); show(e, t0 + .2 + k * .04, .2);
+      }
+      say(p, n + 'd6', 240 + n * 44 + 10, y + 10, t0 + .6, { size: 28, fill: n > 6 ? OK : RULE, weight: 700, anchor: 'start' });
+    });
+    path(p, 'M800 170V840', { stroke: COL.faint, 'stroke-width': 2 });
+    say(p, 'спонтанный: повышает только то,', 840, 200, m('sp'), { size: 26, anchor: 'start' });
+    say(p, 'что знает на нужном круге', 840, 240, m('sp', .6), { size: 26, anchor: 'start' });
+    L(p, [['Шиппа, 3-й уровень: ', HERO], ['ячейки 2-го круга', RULE]], 840, 320, m('so'), 25);
+    box(p, 840, 360, 680, 150, OK, m('so', 3.6));
+    say(p, 'Умиротворение, выученное 2-м кругом', 870, 410, m('so', 3.6), { size: 24, anchor: 'start' });
+    say(p, '2d10 + 8', 870, 470, m('so', 5.5), { size: 34, fill: OK, weight: 700, anchor: 'start' });
+    box(p, 840, 540, 680, 150, COL.dim, m('low'));
+    say(p, 'иначе: Умиротворение 1-го круга в ячейке 2-го', 870, 590, m('low'), { size: 24, anchor: 'start' });
+    L(p, [['1d10 + 4', COL.dim], ['  без прибавки', NO]], 870, 650, m('low', .8), 30);
+  }],
+  ['neutral', 'Нейтрализация', (m) => {
+    const p = panel(0);
+    title(p, 'Нейтрализация');
+    L(p, [['снять чужой магический эффект · например, ', COL.chalk], ['Рассеивание магии', MAG]], 100, 150, .4, 27);
+    L(p, [['проверка: d20 + ', COL.chalk], ['Харизма', HERO], [' + ', COL.chalk], ['умение', RULE], ['  (как атака заклинанием)', COL.dim]], 100, 230, m('chk'), 27);
+    L(p, [['против ', COL.chalk], ['СЛ заклинаний', MAG], [' того, кто создал эффект', COL.chalk]], 100, 280, m('chk', 2.4), 27);
+    say(p, 'снимается эффект круга', 1000, 360, m('res', -.2), { size: 22, fill: COL.dim, anchor: 'start' });
+    [['cs', 'до вашего круга + 3', 3.6], ['s', 'до вашего круга + 1', 0], ['f', 'только ниже вашего круга', 5.2], ['cf', 'ничего', 7]].forEach(([k, s, d], i) => {
+      const [, name, colr, op] = DEG.find(e => e[0] === k), y = 380 + i * 90, t0 = m('res', d);
+      const r = mk('rect', { x: 100, y, width: 1400, height: 76, rx: 12, fill: colr, 'fill-opacity': op * .7, stroke: colr, 'stroke-width': 2 }, p);
+      put(r, { o: 0 }); show(r, t0);
+      say(p, name, 140, y + 48, t0, { size: 28, fill: colr, weight: 700, anchor: 'start' });
+      say(p, s, 1000, y + 48, t0 + .2, { size: 28, weight: 600, anchor: 'start' });
+    });
+  }],
+  ['turn', 'Ход Шиппы целиком', (m) => {
+    const p = panel(0);
+    title(p, 'Ход Шиппы целиком');
+    yard(p, .2);
+    const T0 = { s: [0, 1], t: [1, 2], r: [5, 1], b: [6, 1] }, tk = {};
+    Object.entries(T0).forEach(([k, [c, r]], i) => { tk[k] = mtok(p, k, c, r, .3 + i * .08); });
+    const stone = G(p, { x: cellXY(1, 0)[0], y: cellXY(1, 0)[1], o: 0 });
+    mk('circle', { r: 14, fill: COL.dim, stroke: COL.chalk, 'stroke-width': 2 }, stone);
+    show(stone, .6);
+    draw(path(p, `M${cellXY(0, 1)[0] + 36} ${cellXY(0, 1)[1]}H${cellXY(5, 1)[0] - 36}`, { stroke: COL.dim, 'stroke-width': 2, 'stroke-dasharray': '8 6' }, { d: 0 }), .8, .5);
+    say(p, '25 футов', (cellXY(0, 1)[0] + cellXY(5, 1)[0]) / 2, cellXY(0, 1)[1] - 12, .9, { size: 20, fill: COL.dim });
+    box(p, 900, 130, 620, 110, FOE, .4);
+    say(p, 'Разбойник · КБ 16', 930, 178, .4, { size: 26, fill: FOE, weight: 700, anchor: 'start' });
+    const hp = say(p, 'ПЗ 18', 1490, 178, .4, { size: 30, fill: FOE, weight: 700, anchor: 'end' });
+    say(p, 'рядом с Бронной', 930, 218, .5, { size: 22, fill: COL.dim, anchor: 'start' });
+    box(p, 900, 260, 620, 150, HERO, .5);
+    say(p, 'Шиппа · ФП', 930, 304, .5, { size: 26, fill: HERO, weight: 700, anchor: 'start' });
+    const fp = [fpTok(p, 1200, 296, .6, 24), fpTok(p, 1260, 296, .7, 24)];
+    say(p, 'ячейки 1-го круга', 930, 372, .6, { size: 22, fill: COL.dim, anchor: 'start' });
+    const sq = [0, 1].map(i => { const e = mk('rect', { x: 1180 + i * 60, y: 344, width: 44, height: 44, rx: 8, fill: mix(COL.board, RULE, .3), stroke: RULE, 'stroke-width': 3 }, p); put(e, { o: 0 }); show(e, .7); return e; });
+    // the turn: a free action cell and three action cells
+    const fc = G(p, { o: 0 });
+    mk('rect', { x: 100, y: 490, width: 140, height: 100, rx: 14, fill: '#22322d', stroke: RULE, 'stroke-width': 2.5, 'stroke-dasharray': '9 6' }, fc);
+    glyph(fc, 'f', 170, 522, 0, .4);
+    show(fc, .5);
+    const tc = turnCells(p, 260, 490, .5, { w: 170, h: 100, react: false });
+    const fcl = say(p, 'Продолж.', 170, 566, m('lc'), { size: 18, weight: 600 });
+    const ff = put(mk('rect', { x: 100, y: 490, width: 140, height: 100, rx: 14, fill: RULE, 'fill-opacity': .28 }, p), { o: 0 }); show(ff, m('lc'), .3);
+    tw(fp[1], { o: .25 }, m('lc', 3.2), .4);
+    roll(p, 10, 900, 480, [['10 + 7 = 17 ≥ СЛ 15 → ', COL.chalk], ['успех: 3 раунда', OK]], m('lc', 4.6), 23);
+    tc.spend(0, 'Песнь отваги', m('an'));
+    const aura = mk('rect', { x: MAP.x, y: MAP.y, width: 7 * MAP.c, height: 3 * MAP.c, rx: 8, fill: MAG, 'fill-opacity': .14, stroke: MAG, 'stroke-width': 2 }, p);
+    put(aura, { o: 0 }); show(aura, m('an', .4));
+    L(p, [['песнь: +1 к атакам и урону до 4-го раунда', MAG]], 900, 530, m('an', .6), 22);
+    tc.span(1, 2, 'Телекинетический снаряд', m('tp'));
+    L(p, [['снаряд: +7 + 1 = +8 против КБ 16', COL.chalk]], 900, 576, m('tp', 3), 23);
+    roll(p, 12, 900, 622, [['12 + 8 = 20 → ', COL.chalk], ['попадание', OK]], m('hit'), 23);
+    tw(stone, { x: cellXY(5, 1)[0] - 20, y: cellXY(5, 1)[1] - 20 }, m('hit', .6), .7);
+    hide(stone, m('hit', 1.4), .3);
+    L(p, [['2d6: 3 + 4 = 7, + 1 = ', COL.chalk], ['8 урона', NO]], 900, 668, m('dmg'), 23);
+    setText(hp, 'ПЗ 10', m('dmg', 2.4));
+    hr(p, 630, m('br', -.3), 100, 820);
+    pulse(tk.b, m('br'), 1.3);
+    say(p, 'раунд 2 · Бронна: длинный меч +9 + 1 = +10', 100, 680, m('br'), { size: 23, fill: HERO, weight: 600, anchor: 'start' });
+    roll(p, 6, 100, 730, [['6 + 10 = 16 → ', COL.chalk], ['попадание', OK]], m('br', 3.4), 23);
+    say(p, 'без песни: 6 + 9 = 15 — промах', 138, 776, m('br', 6), { size: 22, fill: COL.dim, anchor: 'start' });
+    L(p, [['d8: 3 + 4 + 1 = ', COL.chalk], ['8 урона', NO], [' · ПЗ 2, разбойник бросает дубинку', COL.dim]], 100, 830, m('bd'), 23);
+    setText(hp, 'ПЗ 2', m('bd', 1));
+    sq.forEach(e => pulse(e, m('slots', .3), 1.25));
+    L(p, [['ячейки 1-го круга ', COL.chalk], ['не тронуты', OK]], 900, 760, m('slots', .4), 25);
+  }],
+  ['sheet', 'Блок заклинаний на листе', (m) => {
+    const p = panel(0);
+    title(p, 'Блок заклинаний на листе');
+    box(p, 100, 100, 1400, 760, COL.faint, .2);
+    const lab = (s, x, y, t0) => say(p, s, x, y, t0, { size: 20, fill: COL.dim, weight: 600, anchor: 'start' });
+    lab('Атака заклинанием', 140, 160, m('atk', -.3));
+    say(p, '+7', 140, 220, m('atk', 3.8), { size: 46, fill: RULE, weight: 700, anchor: 'start' });
+    L(p, [['Харизма +4', HERO], [' + ', COL.dim], ['изучен +3', RULE]], 230, 214, m('atk', 4.2), 22);
+    lab('СЛ заклинаний', 640, 160, m('dc', -.3));
+    say(p, '17', 640, 220, m('dc', 2.4), { size: 46, fill: MAG, weight: 700, anchor: 'start' });
+    say(p, '= 7 + 10', 720, 214, m('dc', 2.6), { size: 22, fill: COL.dim, anchor: 'start' });
+    lab('Ячейки 1-го круга', 140, 290, m('sl', -.3));
+    const sq = [0, 1].map(i => { const e = mk('rect', { x: 140 + i * 70, y: 310, width: 54, height: 54, rx: 8, fill: 'none', stroke: RULE, 'stroke-width': 3 }, p); put(e, { o: 0 }); show(e, m('sl', .3 + i * .2)); return e; });
+    const x0 = path(p, 'M150 320L184 354M184 320L150 354', { stroke: NO, 'stroke-width': 5 }, { d: 0 });
+    draw(x0, m('sl', 3), .4); tw(x0, { o: 0 }, m('sl', 5), .5);
+    lab('Фокальные пункты', 640, 290, m('fp', -.3));
+    [0, 1].forEach(i => { const e = mk('rect', { x: 640 + i * 70, y: 310, width: 54, height: 54, rx: 8, fill: 'none', stroke: RULE, 'stroke-width': 3 }, p); put(e, { o: 0 }); show(e, m('fp', 1.5 + i * .2)); });
+    hr(p, 410, m('sp', -.3), 120, 1480);
+    const cx = [140, 520, 680, 960, 1200];
+    ['заклинание', 'цена', 'дистанция, область', 'защита', 'урон, эффект'].forEach((s, i) => lab(s, cx[i], 450, m('sp')));
+    const R = [['Ступор', 2, '60 фт', 'Воля (обычное)', '1d6 ментальный'], ['Телекинетический снаряд', 2, '30 фт', 'КБ', '2d6'],
+      ['Силовой залп', '1–3', '120 фт', '—', '1d4 + 1 за осколок'], ['Песнь отваги', 1, 'эманация 60 фт', '—', '+1 атака и урон']];
+    R.forEach(([n, a, rg, d, e], i) => {
+      const y = 510 + i * 70, t0 = m('sp', 1 + i * .5);
+      say(p, n, cx[0], y, t0, { size: 25, fill: MAG, weight: 700, anchor: 'start' });
+      if (typeof a === 'number') glyph(p, a, cx[1] + 30, y - 9, t0, .32, COL.chalk);
+      else say(p, a + ' действия', cx[1], y, t0, { size: 22, anchor: 'start' });
+      [[rg, 2], [d, 3], [e, 4]].forEach(([s, k]) => say(p, s, cx[k], y, t0 + .1, { size: 23, anchor: 'start' }));
+    });
+  }],
+  ['wrap', 'Итоги', (m) => {
+    const p = panel(0);
+    numbered(p, [['Ячейки тратятся за день и возвращаются утром; фокусы — без ячеек.', 'w1'],
+      ['Фокальные заклинания тратят ФП; Фокусировка: 10 минут → 1 ФП.', 'w2'],
+      ['СЛ заклинаний = атака заклинанием + 10: у Шиппы +7 и 17.', 'w3'],
+      ['Обычное испытание: успех ½, провал — весь урон, крит. провал ×2.', 'w4']], m, 220, 140, 29);
+  }],
+  ['final1', 'Практика главы', () => { panel(0); }, { ask: done => quiz(SCREEN, [{
+    id: 'p-tf', prompt: ['Верно или неверно?'], build: grid(P_TF, TF, { multi: false, text: true }),
+  }], done, 'Практика главы   1 из 3') }],
+  ['final2', 'Практика главы', () => {}, { ask: done => quiz(SCREEN, [{
+    id: 'p-num', prompt: ['Числа заклинателя.'], build: blanks(P_NUM),
+  }], done, 'Практика главы   2 из 3') }],
+  ['final3', 'Практика главы', () => {}, { ask: done => quiz(SCREEN, [{
+    id: 'p-turn', prompt: ['Ход Шиппы: атака заклинанием +7, Исполнение +7. Разбойник: КБ 16.'], build: blanks(P_TURN),
+  }], done, 'Практика главы   3 из 3') }],
+  ['finish', 'Готово', () => {}, { ask: finishCard }],
+].map(([id, title, run, extra]) => ({ id, title, run, ...extra }));
+
+/* ---------- question data ---------- */
+const AREAS = [['em', 'эманация'], ['bu', 'взрыв'], ['co', 'конус'], ['li', 'линия']];
+const Q_SLOT = [
+  { parts: ['Ячеек 1-го круга у барда 1-го уровня: ', { box: '2' }], why: 'Две ячейки 1-го круга.', hint: 'Столько же, сколько клеток на листе Шиппы.' },
+  { parts: ['«Умиротворение» лечит 1d10 + 4, на d10 выпало 3. Бронна получает ПЗ: ', { box: '7' }], why: '3 + 4 = 7.', hint: 'Кубик плюс 4.' },
+  { parts: ['Круг фокусов Шиппы на 3-м уровне: ', { box: '2' }], why: '3 ÷ 2 = 1,5, вверх — 2.', hint: 'Половина уровня с округлением вверх.' },
+  { parts: ['Урон «Телекинетического снаряда» 2-го круга: ', { box: '3' }, ' d6'], why: '2d6 на 1-м круге и ещё 1d6 за круг.', hint: 'Повышенное (+1): +1d6 за каждый круг.' },
+];
+const Q_SLOT_TF = [
+  { parts: ['Фокус тратит ячейку заклинания.'], ans: ['f'], why: 'Фокусы творят сколько угодно раз, без ячеек.' },
+  { parts: ['Бард выбирает заклинание для ячейки в момент сотворения.'], ans: ['t'], why: 'Он спонтанный заклинатель.' },
+  { parts: ['Днём Тиль может сотворить любое заклинание из своей книги.'], ans: ['f'], why: 'Только то, что утром положил в ячейки.' },
+];
+const Q_FOCUS = [
+  { parts: ['Запас фокальных пунктов Шиппы: ', { box: '2' }], why: 'Два фокальных заклинания — два ФП.', hint: 'Столько, сколько фокальных заклинаний, но не больше 3.' },
+  { parts: ['Шиппа потратила оба ФП. Фокусировкой она вернёт оба за ', { box: '20' }, ' минут'], why: '10 минут на каждый ФП.', hint: '1 ФП за 10 минут.' },
+  { parts: ['Бронна под песнью отваги: длинный меч +', { box: '10' }], why: '9 + 1 = 10.', hint: 'Бонус песни +1.' },
+  { parts: ['Тогда по КБ 16 она попадает, если на кубике не меньше: ', { box: '6' }], why: '6 + 10 = 16.', hint: '16 − 10.' },
+  { parts: ['Продолжительная композиция, 11 против СЛ 15. Раундов песни: ', { box: '1' }], why: 'Провал: 1 раунд, ФП не тратится.', hint: '11 меньше 15, но не на 10.' },
+];
+const Q_FOCUS_TF = [
+  { parts: ['Песнь отваги тратит фокальный пункт.'], ans: ['f'], why: 'Это фокус, ФП она не тратит.' },
+  { parts: ['Две композиции Шиппы могут действовать одновременно.'], ans: ['f'], why: 'Действует только одна композиция.' },
+];
+const Q_AREA = [
+  { parts: ['Расходится от всех сторон клетки заклинателя.'], ans: ['em'], why: 'Эманация, как у песни отваги.' },
+  { parts: ['Расходится от угла клетки, выбранного в пределах дистанции.'], ans: ['bu'], why: 'Взрыв, как у «Сна».' },
+  { parts: ['Выходит из вашей клетки четвертью круга.'], ans: ['co'], why: 'Конус, как у «Цветных брызг».' },
+  { parts: ['Идёт от вас по прямой шириной 5 футов.'], ans: ['li'], why: 'Линия, как у «Тёмных нитей».' },
+];
+const Q_AREA_N = [
+  { parts: ['«Силовой залп» за 2 действия, на d4 выпало 1 и 4. Урон: ', { box: '7' }], why: '(1 + 1) + (4 + 1) = 7.', hint: 'Два осколка, каждый d4 + 1.' },
+  { parts: ['«Тёмные нити», линия 30 футов. Клеток подряд: ', { box: '6' }], why: '30 ÷ 5 = 6.', hint: 'Клетка — 5 футов.' },
+];
+const Q_DC = [
+  { parts: ['Снаряд попадает, если на кубике не меньше: ', { box: '9' }], why: '9 + 7 = 16.', hint: '16 − 7.' },
+  { parts: ['Снаряд, потом Удар рапирой. Рапира: +', { box: '1' }], why: 'Снаряд — атака, рапира вторая: 6 − 5 = 1.', hint: 'У снаряда дескриптор «атака».' },
+  { parts: ['«Ступор», потом Удар рапирой. Рапира: +', { box: '6' }], why: 'Заклинание с испытанием атакой не считается.', hint: 'Идёт ли «Ступор» в счёт атак?' },
+  { parts: ['«Ступор»: Шиппа выбросила 6 урона, у разбойника успех. Урон: ', { box: '3' }], why: 'Успех — половина: 6 ÷ 2 = 3.', hint: 'Успех при обычном испытании — половина урона.' },
+  { parts: ['Тот же бросок, у разбойника критический провал. Урон: ', { box: '12' }], why: 'Критический провал — двойной: 6 × 2 = 12.', hint: 'Критический провал — двойной урон.' },
+];
+const P_TF = [
+  { parts: ['Утром все ячейки заклинаний возвращаются.'], ans: ['t'], why: 'При ежедневной подготовке.' },
+  { parts: ['Запас фокальных пунктов может быть больше трёх.'], ans: ['f'], why: 'Не больше 3.' },
+  { parts: ['Песнь отваги даёт +1 и врагам в области.'], ans: ['f'], why: 'Только вам и союзникам.' },
+  { parts: ['У песни отваги нет манипуляции, поэтому петь её рядом с врагом безопасно.'], ans: ['t'], why: 'Внеочередную атаку провоцирует манипуляция.' },
+  { parts: ['При провале Продолжительной композиции ФП всё равно тратится.'], ans: ['f'], why: 'Провал: 1 раунд, ФП не тратится.' },
+  { parts: ['Заклинание с испытанием идёт в счёт штрафа за последовательные атаки.'], ans: ['f'], why: 'В счёт идут только действия с дескриптором «атака».' },
+  { parts: ['Спонтанный заклинатель повышает только то, что знает на нужном круге.'], ans: ['t'], why: 'Иначе ячейка повыше даёт обычное заклинание.' },
+];
+const P_NUM = [
+  { parts: ['Ключевая характеристика +3, бонус умения +3. Атака заклинанием: +', { box: '6' }], why: '3 + 3 = 6.', hint: 'Характеристика плюс бонус умения.' },
+  { parts: ['СЛ заклинаний того же героя: ', { box: '16' }], why: '10 + 6 = 16.', hint: 'Атака заклинанием плюс 10.' },
+  { parts: ['«Огненный шар» 4-го круга: ', { box: '8' }, ' d6'], why: '6d6 на 3-м круге + 2d6.', hint: '+2d6 за каждый круг выше 3-го.' },
+  { parts: ['Круг фокусов героя 5-го уровня: ', { box: '3' }], why: '5 ÷ 2 = 2,5, вверх — 3.', hint: 'Половина уровня, округление вверх.' },
+  { parts: ['Нейтрализация: ваш круг 2, успех. Самый высокий круг эффекта, который вы снимете: ', { box: '3' }], why: 'Успех — до вашего круга + 1: 2 + 1 = 3.', hint: 'Успех: ваш круг плюс 1.' },
+];
+const P_TURN = [
+  { parts: ['Продолжительная композиция, на кубике 9. Итог: ', { box: '16' }], why: '9 + 7 = 16 ≥ 15: успех.', hint: 'Кубик плюс Исполнение.' },
+  { parts: ['Против СЛ 15 это успех. Песнь продлится раундов: ', { box: '3' }], why: 'Успех — 3 раунда.', hint: 'Крит. успех 4, успех 3, провал 1.' },
+  { parts: ['Снаряд под песнью: +', { box: '8' }], why: '7 + 1 = 8.', hint: 'Песнь даёт +1 к атаке.' },
+  { parts: ['На кубике 9. Итог: ', { box: '17' }], why: '9 + 8 = 17 ≥ 16: попадание.', hint: 'Кубик плюс 8.' },
+  { parts: ['Урон 2d6: выпало 2 и 5, плюс песнь. Урон: ', { box: '8' }], why: '2 + 5 + 1 = 8.', hint: 'Песнь даёт +1 к урону.' },
+];
+boot();
+</script>
+</body>
+</html>
