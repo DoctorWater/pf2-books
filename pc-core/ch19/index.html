@@ -1,0 +1,542 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Магические предметы и руны — Первый герой</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%231d2b27'/%3E%3Ctext x='32' y='45' text-anchor='middle' font-size='48' fill='%23f0b45a'%3E∞%3C/text%3E%3C/svg%3E">
+<link rel="stylesheet" href="../lib/engine.css">
+<link rel="expect" href="#bar" blocking="render"><!-- hold the first frame until the player exists, so the page transition can run -->
+</head>
+<body>
+<script src="../lib/engine.js"></script>
+<script src="../lib/pf.js"></script>
+<script src="audio/ru/timings.js"></script>
+<script>
+'use strict';
+const CHAPTER = { number: 19, title: 'Магические предметы и руны', minutes: 14, language: 'ru', next: '../ch20/' };
+
+/* ---------- chapter drawing helpers (shared ones: lib/pf.js) ---------- */
+// Item bonus and runes ITEM (purple, as the item bonus in ch03), gold GOLD, levels and numbers RULE, the GM GMC, a hero HERO.
+const ITEM = COL.real, GOLD = COL.int;
+const hr = (p, y, t0, x1 = 80, x2 = 1520) => draw(path(p, `M${x1} ${y}H${x2}`, { stroke: COL.faint, 'stroke-width': 2 }, { d: 0 }), t0, .5);
+const box = (p, x, y, w, h, colr, t0, dash) => { const r = mk('rect', { x, y, width: w, height: h, rx: 18, fill: '#22322d', stroke: colr, 'stroke-width': 2.5, ...(dash ? { 'stroke-dasharray': '8 6' } : {}) }, p); put(r, { o: 0 }); show(r, t0); return r; };
+const title = (p, s, t0 = .2, x = 800) => say(p, s, x, 62, t0, { size: 36, weight: 600 });
+const L = (p, parts, x, y, t0, size = 26) => colorLine(p, parts, x, y, t0, { size, anchor: 'start' });
+const pw = (s, size) => s.length * size * .56 + 44;
+// Pills of their own colours [[text, colour, t0], …] in a row centred on cx.
+function pillsC(p, items, cx, y, size = 24) {
+  const w = items.map(([s]) => pw(s, size)), tot = w.reduce((a, b) => a + b + 16, -16);
+  let x = cx - tot / 2;
+  return items.map(([s, c, t0], i) => { const g = pill(p, s, c, x + w[i] / 2, y, t0, size); x += w[i] + 16; return g; });
+}
+// A numbered step: amber disc with n, text after it.
+function step(p, n, str, x, y, t0, size = 27, colr = COL.chalk) {
+  const g = G(p, { x: -20, o: 0 });
+  mk('circle', { cx: x, cy: y - size * .36, r: 22, fill: mix(COL.board, RULE, .3), stroke: RULE, 'stroke-width': 2.5 }, g);
+  T(g, String(n), { x, y: y - size * .36 + 9, size: 24, fill: RULE, weight: 700, anchor: 'middle' });
+  if (typeof str === 'string') T(g, str, { x: x + 40, y, size, fill: colr, weight: 500 });
+  else { const e = T(g, '', { x: x + 40, y, size, weight: 500 }); str.forEach(([s, c = COL.chalk]) => { mk('tspan', { fill: c }, e).textContent = s; }); }
+  tw(g, { o: 1, x: 0 }, t0, .5, out);
+  return g;
+}
+// A table: head [labels], rows [[cell | [cell, colour]]] with column widths cw; rows appear one by one: at(k, t0), lit(k, t0) frames a row.
+function tbl(p, x, y, cw, head, rows, { rh = 54, size = 25 } = {}) {
+  const W = cw.reduce((a, b) => a + b, 0), cx = []; let a = x;
+  cw.forEach(w => { cx.push(a + 14); a += w; });
+  const h = G(p, { o: 0 });
+  head.forEach((s, i) => T(h, s, { x: cx[i], y: y + 22, size: 20, fill: COL.dim, weight: 600 }));
+  path(h, `M${x} ${y + 36}H${x + W}`, { stroke: COL.faint, 'stroke-width': 2 });
+  const R = rows.map((r, k) => {
+    const g = G(p, { o: 0 }), yy = y + 36 + k * rh;
+    r.forEach((c, i) => { const [s, col = COL.chalk] = Array.isArray(c) ? c : [c]; T(g, s, { x: cx[i], y: yy + rh / 2 + size * .36, size, fill: col, weight: 600 }); });
+    return g;
+  });
+  return {
+    head: t => show(h, t), at: (k, t) => show(R[k], t, .4),
+    lit(k, t) { const r = mk('rect', { x: x + 2, y: y + 40 + k * rh, width: W - 4, height: rh - 8, rx: 10, fill: RULE, 'fill-opacity': .14, stroke: RULE, 'stroke-width': 2 }, p); put(r, { o: 0 }); show(r, t, .3); },
+  };
+}
+// The twenty faces of a d20 in a row from x0, top y; paint(f, deg, t0) colours face f (as in ch16).
+function faces(p, x0, y, t0, { w = 58, h = 80, gap = 4, size = 26 } = {}) {
+  const X = f => x0 + (f - 1) * (w + gap), cx = f => X(f) + w / 2;
+  const g = G(p, { o: 0 });
+  for (let f = 1; f <= 20; f++) {
+    mk('rect', { x: X(f), y, width: w, height: h, rx: 8, fill: 'none', stroke: COL.faint, 'stroke-width': 2, 'stroke-dasharray': '6 5' }, g);
+    T(g, String(f), { x: cx(f), y: y + h / 2 + size * .36, size, weight: 600, anchor: 'middle' });
+  }
+  show(g, t0);
+  const top = G(p);
+  return { X, cx, w, h, paint(f, deg, t1) {
+    const [, , colr, op] = DEG.find(d => d[0] === deg);
+    const r = mk('rect', { x: X(f), y, width: w, height: h, rx: 8, fill: colr, 'fill-opacity': op, stroke: colr, 'stroke-width': 2.5 }, top);
+    put(r, { o: 0 }); show(r, t1, .3);
+    return r;
+  } };
+}
+// A dashed square slot (a place for a rune or an invested item); returns {g, fill(label, colour, t0), clear(t0), mark(colour, t0)}.
+function rslot(p, x, y, w, h, t0, label = '') {
+  const g = G(p, { o: 0 });
+  const r = mk('rect', { x, y, width: w, height: h, rx: 12, fill: '#22322d', stroke: COL.faint, 'stroke-width': 2.5, 'stroke-dasharray': '8 6' }, g);
+  const f = mk('rect', { x: x + 3, y: y + 3, width: w - 6, height: h - 6, rx: 10, fill: ITEM, 'fill-opacity': .5 }, g);
+  put(f, { o: 0 });
+  const tx = T(g, label, { x: x + w / 2, y: y + h / 2 + 7, size: 20, fill: COL.chalk, weight: 600, anchor: 'middle', o: label ? 1 : 0 });
+  show(g, t0);
+  return {
+    g, fill(s, t, colr = ITEM) { prog(() => { tx.textContent = s; put(f, { c_fill: colr }); }, t, 0); tw(f, { o: 1 }, t, .3); tw(tx, { o: 1 }, t, .3); },
+    clear(t) { tw(f, { o: 0 }, t, .4); tw(tx, { o: 0 }, t, .4); },
+    mark(colr, t) { prog(() => { put(r, { c_stroke: colr }); }, t, 0); pulse(g, t, 1.08); },
+  };
+}
+
+// A die outline with the number or name inside (the die label of dieShape sits below it).
+const dn = (p, sides, x, y, c, t0, size, txt) => { const g = dieShape(p, sides, x, y, c, t0, size, null, false); T(g, txt, { y: sides === 6 ? 12 : 14, size: 34, fill: c, weight: 700, anchor: 'middle' }); return g; };
+
+/* ---------- beats: [id, title, run(m, D), { ask }?] ---------- */
+const BEATS = [
+  ['intro', 'Магические предметы и руны', (m, D) => {
+    const g = G(scene, { o: 0, y: 24 });
+    T(g, 'Раздел 8 «Развитие» · Глава 19', { x: 800, y: 330, size: 28, fill: COL.dim, anchor: 'middle' });
+    T(g, 'Магические предметы и руны', { x: 800, y: 440, size: 70, weight: 600, anchor: 'middle' });
+    tw(g, { o: 1, y: 0 }, .2, 1.1, out);
+    const r = say(scene, 'уровень предмета, руны, зелья и сокровища', 800, 560, Math.max(m('sub'), 1.2), { size: 34, fill: COL.dim });
+    tw(g, { o: 0, y: -24 }, D - .9, .8); hide(r, D - .9, .8);
+  }],
+  ['item', 'Руны и уровень предмета', (m) => {
+    const p = panel(0);
+    title(p, 'Зачем руны. Уровень предмета');
+    // attack bars: Shippa now and what the game expects of a level 5 hero
+    const U = 40, bx = 440;
+    const row = (y, label, t0, rune) => {
+      say(p, label, 100, y + 8, t0, { size: 24, fill: COL.dim, anchor: 'start' });
+      const g = G(p, { o: 0 });
+      mk('rect', { x: bx, y: y - 28, width: 4 * U, height: 56, rx: 8, fill: HERO, 'fill-opacity': .5 }, g);
+      T(g, 'Ловкость +4', { x: bx + 2 * U, y: y + 7, size: 19, weight: 600, anchor: 'middle' });
+      mk('rect', { x: bx + 4 * U, y: y - 28, width: 7 * U, height: 56, rx: 8, fill: RULE, 'fill-opacity': .5 }, g);
+      T(g, 'уровень и умение +7', { x: bx + 7.5 * U, y: y + 7, size: 19, weight: 600, anchor: 'middle' });
+      show(g, t0);
+      if (rune) {
+        const r = G(p, { o: 0 });
+        mk('rect', { x: bx + 11 * U + 6, y: y - 28, width: 70, height: 56, rx: 8, fill: 'none', stroke: ITEM, 'stroke-width': 3, 'stroke-dasharray': '8 6' }, r);
+        T(r, 'руны', { x: bx + 11 * U + 41, y: y + 7, size: 19, fill: ITEM, weight: 700, anchor: 'middle' });
+        show(r, rune);
+      }
+    };
+    row(150, 'Шиппа, 5-й уровень', .4);
+    L(p, [['рапира ', COL.chalk], ['+11', RULE], [' · d6', COL.chalk]], 1030, 158, .8, 28);
+    row(245, 'расчёт игры для 5-го', m('foe'), m('foe', 1.5));
+    L(p, [['у Шиппы пока ', COL.chalk], ['нет рун', NO]], 1030, 253, m('foe', 3), 26);
+    say(p, 'руны дают бонус поверх умения и уровня', 800, 330, m('foe', 5.2), { size: 27, fill: ITEM, weight: 600 });
+    hr(p, 372, m('lvl', -.3));
+    L(p, [['уровень предмета', RULE], [' — сложность вещи и сила магии в ней', COL.chalk]], 100, 420, m('lvl'), 27);
+    pillsC(p, [['обычная рапира · 0', RULE, m('lvl', 6)], ['обычный доспех · 0', RULE, m('lvl', 6.6)], ['уровень не указан = 0', COL.dim, m('lvl', 5)]], 800, 482, 22);
+    // the scale of item levels 0…8
+    const cxs = i => 300 + i * 125, sy = 585;
+    say(p, 'уровень', 130, sy + 38, m('use', -.6), { size: 22, fill: COL.dim, anchor: 'start' });
+    const cells = [];
+    for (let i = 0; i <= 8; i++) {
+      const g = G(p, { o: 0 });
+      cells.push(mk('rect', { x: cxs(i) - 50, y: sy, width: 100, height: 56, rx: 10, fill: '#22322d', stroke: COL.faint, 'stroke-width': 2.5 }, g));
+      T(g, String(i), { x: cxs(i), y: sy + 38, size: 26, fill: COL.chalk, weight: 600, anchor: 'middle' });
+      show(g, m('use', -.6 + i * .06));
+    }
+    pill(p, 'герой 3-го', HERO, cxs(3), 700, m('use', 1.2), 22);
+    pill(p, 'вещь 4-го', ITEM, cxs(4) + 20, 765, m('use', 3), 22);
+    yesNo(p, true, cxs(4) + 190, 765, m('use', 4.6), .8);
+    say(p, 'пользоваться можно любой вещью', cxs(4) + 230, 775, m('use', 4.6), { size: 24, fill: OK, weight: 600, anchor: 'start' });
+    yesNo(p, false, 400, 835, m('make'), .8);
+    say(p, 'создать самому: не выше своего уровня', 450, 845, m('make'), { size: 24, fill: NO, weight: 600, anchor: 'start' });
+    const gmBox = (i, t0) => { const r = mk('rect', { x: cxs(i) - 54, y: sy - 4, width: 108, height: 64, rx: 12, fill: 'none', stroke: GMC, 'stroke-width': 3.5 }, p); put(r, { o: 0 }); show(r, t0, .3); };
+    gmBox(3, m('gm', 1.8)); gmBox(4, m('gm', 2.6));
+    pill(p, 'награды: уровень героев и на 1 выше', GMC, 800, 548, m('gm', 1), 22);
+  }],
+  ['invest', 'Настройка на предмет', (m) => {
+    const p = panel(0);
+    title(p, 'Настройка на предмет');
+    pill(p, 'занятие «Настройка на предмет»', RULE, 470, 130, .5, 24);
+    pill(p, 'в описании: «настроенность»', ITEM, 1130, 130, m('how', -4.2), 24);
+    // two cloaks
+    box(p, 100, 190, 650, 130, COL.faint, m('how', 7.2));
+    box(p, 850, 190, 650, 130, ITEM, m('how', 9.5));
+    say(p, 'плащ не настроен', 140, 240, m('how', 7.2), { size: 28, weight: 700, anchor: 'start' });
+    say(p, 'защитит от дождя, магии нет', 140, 290, m('how', 7.4), { size: 24, fill: COL.dim, anchor: 'start' });
+    say(p, 'плащ настроен', 890, 240, m('how', 9.5), { size: 28, fill: ITEM, weight: 700, anchor: 'start' });
+    say(p, 'магия работает', 890, 290, m('how', 9.7), { size: 24, anchor: 'start' });
+    L(p, [['настройка: ', COL.chalk], ['одно или несколько Взаимодействий', RULE], [' — как надеть вещь. Действует, пока вещь на герое', COL.chalk]], 100, 380, m('how', 1), 25);
+    // ten slots
+    const sx = i => 230 + i * 125, sy = 480;
+    say(p, 'не больше 10 предметов в день', 800, 450, m('ten'), { size: 26, fill: RULE, weight: 700 });
+    const S10 = [];
+    for (let i = 0; i < 10; i++) S10.push(rslot(p, sx(i) - 50, sy, 100, 96, m('ten', .1 + i * .1)));
+    S10[0].fill('плащ', m('ten', 1.2));
+    S10[0].mark(NO, m('off'));
+    L(p, [['снял — настройка слетает, но вещь ', COL.chalk], ['всё равно в пределе', NO]], 230, 640, m('off', 1), 25);
+    pill(p, 'ежедневные приготовления: предел с нуля', DOWN, 800, 700, m('reset', .2), 24);
+    S10[0].clear(m('reset', 1.8)); S10[0].mark(COL.faint, m('reset', 1.8));
+    S10[0].fill('доспех', m('armor', 1), ITEM);
+    S10[0].mark(ITEM, m('armor', 1));
+    L(p, [['настроено: ', COL.chalk], ['1 из 10', OK]], 230, 790, m('armor', 1.2), 30);
+    say(p, 'броня с любой руной получает дескриптор «настроенный»', 560, 790, m('armor', .2), { size: 24, fill: ITEM, weight: 600, anchor: 'start', });
+    say(p, 'о пределе вспомнят позже: плащи и кольца', 800, 850, m('late'), { size: 24, fill: COL.dim });
+  }],
+  ['act', 'Активация', (m) => {
+    const p = panel(0);
+    title(p, 'Активация');
+    box(p, 100, 130, 650, 200, OK, .4);
+    say(p, 'работает сам', 140, 185, .5, { size: 30, fill: OK, weight: 700, anchor: 'start' });
+    say(p, 'горящий топор: огонь срабатывает', 140, 240, .8, { size: 25, anchor: 'start' });
+    say(p, 'при ударе, без действий', 140, 278, 1, { size: 25, anchor: 'start' });
+    box(p, 850, 130, 650, 200, RULE, m('cost'));
+    say(p, 'Активация', 890, 185, m('cost'), { size: 30, fill: RULE, weight: 700, anchor: 'start' });
+    actGlyph(p, 2, 1380, 180, RULE, m('cost', .4));
+    say(p, 'в описании: сколько действий', 890, 240, m('cost', 1.2), { size: 25, anchor: 'start' });
+    say(p, 'и какой эффект', 890, 278, m('cost', 2.2), { size: 25, anchor: 'start' });
+    L(p, [['настроенный предмет: ', COL.chalk], ['только если настроен на вас', HERO]], 100, 440, m('inv'), 27);
+    L(p, [['лимит в день: ', COL.chalk], ['обновляется при ежедневных приготовлениях', DOWN]], 100, 520, m('lim'), 27);
+    L(p, [['прервали: ', COL.chalk], ['действия потеряны', NO]], 100, 600, m('cut'), 27);
+    say(p, 'пока нужны две простые активации', 800, 700, m('two'), { size: 26, fill: COL.dim });
+    pillsC(p, [['выпить зелье', ITEM, m('two', 1.6)], ['прочесть свиток', ITEM, m('two', 2.6)]], 800, 780, 28);
+  }],
+  ['q1', 'Быстрая проверка', () => { panel(0); }, { ask: done => quiz(WIDE, [{
+    id: 'c-inv', prompt: ['Предметы и настройка.'], build: blanks(Q_INV),
+  }, {
+    id: 'c-inv-tf', prompt: ['Верно или неверно?'], build: grid(Q_INV_TF, TF, { multi: false, text: true }),
+  }], done) }],
+  ['rune', 'Что такое руна', (m) => {
+    const p = panel(0);
+    title(p, 'Что такое руна');
+    pill(p, 'магический знак на оружии или доспехе', ITEM, 470, 130, .5, 24);
+    pill(p, 'свободное время · Создание предмета', DOWN, 1130, 130, m('name', -5.4), 24);
+    say(p, 'название: усиление · фундаментальные · атрибутивные · основа', 800, 205, m('name'), { size: 22, fill: COL.dim });
+    const nm = (parts, y, t0) => {
+      let x = 160;
+      parts.forEach(([s, c], i) => { const w = pw(s, 26); pill(p, s, c, x + w / 2, y, t0 + i * .5, 26); x += w + 18; });
+    };
+    nm([['+1', ITEM], ['разящая', ITEM], ['рапира', COL.chalk]], 270, m('name', .8));
+    nm([['+2', ITEM], ['улучшенная', ITEM], ['укреплённая', ITEM], ['кольчуга', COL.chalk]], 360, m('name', 4.4));
+    hr(p, 430, m('two', -.3));
+    say(p, 'Фундаментальные: удар, урон, защита', 100, 475, m('two'), { size: 27, fill: RULE, weight: 700, anchor: 'start' });
+    [['усиления оружия', 'оружие'], ['разящая', 'оружие'], ['усиления брони', 'броня'], ['укреплённая', 'броня'], ['армированная', 'щит']].forEach(([a, b], i) => {
+      const t0 = m('tbl', .1 + i * 1.2);
+      say(p, a, 120, 535 + i * 56, t0, { size: 26, fill: ITEM, weight: 600, anchor: 'start' });
+      say(p, b, 470, 535 + i * 56, t0, { size: 26, fill: COL.dim, anchor: 'start' });
+    });
+    say(p, 'Атрибутивные: особый эффект', 900, 475, m('prop'), { size: 27, fill: RULE, weight: 700, anchor: 'start' });
+    say(p, 'огонь на ударах', 920, 535, m('prop', 1.2), { size: 26, anchor: 'start' });
+    say(p, 'сопротивление энергии на броне', 920, 591, m('prop', 2.4), { size: 26, anchor: 'start' });
+    say(p, 'нужен только их лимит', 920, 680, m('prop', 4.2), { size: 25, fill: COL.dim, anchor: 'start' });
+  }],
+  ['limit', 'Лимит атрибутивных рун', (m) => {
+    const p = panel(0);
+    title(p, 'Лимит атрибутивных рун');
+    say(p, 'сколько указано в руне усиления', 800, 120, .5, { size: 26, fill: COL.dim });
+    const rowSlots = (y, label, n, t0) => {
+      pill(p, label, ITEM, 330, y, t0, 26);
+      for (let i = 0; i < n; i++) rslot(p, 560 + i * 90, y - 32, 74, 64, t0 + .3 + i * .2);
+      say(p, 'атрибутивных: ' + n, 560 + n * 90 + 24, y + 9, t0 + .6, { size: 25, fill: RULE, weight: 600, anchor: 'start' });
+    };
+    rowSlots(200, '+1 руна усиления', 1, m('pot'));
+    rowSlots(290, '+2 руна усиления', 2, m('pot', 1.8));
+    pill(p, 'разящая', ITEM, 270, 390, m('fund'), 26); pill(p, 'укреплённая', ITEM, 480, 390, m('fund', .5), 26);
+    say(p, 'фундаментальные: в лимит не входят', 640, 399, m('fund', 1.2), { size: 25, fill: OK, weight: 600, anchor: 'start' });
+    pill(p, 'щит', COL.chalk, 270, 480, m('shield'), 26);
+    yesNo(p, false, 360, 480, m('shield', .6), .8);
+    say(p, 'атрибутивные руны не ложатся вообще', 410, 489, m('shield', .6), { size: 25, fill: NO, weight: 600, anchor: 'start' });
+    hr(p, 540, m('lvl', -.3));
+    L(p, [['уровень рунного предмета', RULE], [' = самый высокий из уровней основы и рун', COL.chalk]], 100, 590, m('lvl'), 26);
+    const b3 = (x, w, a, b, c, t0) => { box(p, x, 650, w, 130, c, t0); say(p, a, x + w / 2, 705, t0, { size: 25, anchor: 'middle' }); say(p, b, x + w / 2, 752, t0, { size: 36, fill: c, weight: 700 }); };
+    b3(100, 440, '+1 разящая булава', '4', RULE, m('lvl', 4.2));
+    b3(620, 340, 'ледяная руна', '8', ITEM, m('lvl', 7.8));
+    b3(1040, 460, 'предмет', '8', OK, m('eight'));
+    say(p, '+', 580, 730, m('lvl', 7.8), { size: 40, fill: COL.dim });
+    say(p, '→', 1000, 730, m('eight'), { size: 40, fill: COL.dim });
+  }],
+  ['pot', 'Руна усиления оружия', (m) => {
+    const p = panel(0);
+    title(p, 'Руна усиления оружия');
+    pillsC(p, [['+1 руна усиления оружия', ITEM, .5], ['2-й уровень', RULE, 3], ['35 зм', GOLD, 3.6]], 800, 135, 26);
+    const bw = 300, bx = i => 130 + i * 340;
+    [['Ловкость', HERO], ['уровень', RULE], ['умение', RULE]].forEach(([s, c], i) => {
+      const t0 = m('kind', 2.2 + i * .9);
+      box(p, bx(i), 220, bw, 70, c, t0); say(p, s, bx(i) + bw / 2, 265, t0, { size: 27, fill: c, weight: 600 });
+      if (i < 2) say(p, '+', bx(i) + bw + 20, 265, t0, { size: 34, fill: COL.dim });
+    });
+    say(p, '+', bx(2) + bw + 20, 265, m('kind', 4), { size: 34, fill: COL.dim });
+    box(p, bx(3), 220, bw, 70, ITEM, m('kind', 4)); say(p, 'бонус предмета +1', bx(3) + bw / 2, 265, m('kind', 4), { size: 27, fill: ITEM, weight: 700 });
+    say(p, 'проверка атаки', 800, 330, m('kind', 4.6), { size: 22, fill: COL.dim });
+    const t = tbl(p, 100, 380, [330, 190, 270, 270, 340], ['руна', 'уровень предмета', 'цена', 'бонус к атаке', 'атрибутивных рун'], [
+      [['+1', ITEM], '2', ['35 зм', GOLD], ['+1', ITEM], '1'], [['+2', ITEM], '10', ['935 зм', GOLD], ['+2', ITEM], '2'], [['+3', ITEM], '16', ['8 935 зм', GOLD], ['+3', ITEM], '3']]);
+    t.head(.9); t.at(0, 1.2); t.at(1, m('tbl')); t.at(2, m('tbl', 5.8));
+    hr(p, 640, m('shi', -.3));
+    L(p, [['Шиппа, 2-й уровень: рапира ', COL.chalk], ['+7', RULE], [' → ', COL.dim], ['+8', ITEM]], 100, 710, m('shi'), 32);
+    say(p, '+1 руна на рапиру', 100, 760, m('shi', .6), { size: 22, fill: COL.dim, anchor: 'start' });
+  }],
+  ['strike', 'Разящая руна', (m) => {
+    const p = panel(0);
+    title(p, 'Разящая руна');
+    dn(p, 6, 330, 175, RULE, .5, 52, 'd6'); say(p, 'один кубик', 330, 270, .5, { size: 26, fill: RULE, weight: 700 });
+    say(p, '→', 480, 180, 3.2, { size: 50, fill: ITEM });
+    dn(p, 6, 600, 175, ITEM, 3.2, 52, 'd6'); dn(p, 6, 740, 175, ITEM, 3.6, 52, 'd6'); say(p, 'два кубика', 670, 270, 3.6, { size: 26, fill: ITEM, weight: 700 });
+    say(p, 'размер кубика тот же · Сила и слагаемые не меняются', 1180, 195, 6, { size: 24, fill: COL.dim });
+    const t = tbl(p, 100, 355, [330, 220, 300, 240], ['руна', 'уровень предмета', 'цена', 'кубиков'], [
+      [['разящая', ITEM], '4', ['65 зм', GOLD], ['2', RULE]], [['улучшенная', ITEM], '12', ['1 065 зм', GOLD], ['3', RULE]], [['высшая', ITEM], '19', ['31 065 зм', GOLD], ['4', RULE]]]);
+    t.head(m('tbl', -.3)); t.at(0, m('tbl')); t.at(1, m('tbl', 3.3)); t.at(2, m('tbl', 5.4));
+    hr(p, 600, m('shi', -.3));
+    L(p, [['Шиппа, 4-й уровень: ', COL.chalk], ['d6', RULE], [' → ', COL.dim], ['2d6', ITEM], ['  · Сила 0: урон = кубики', COL.chalk]], 100, 650, m('shi'), 28);
+    L(p, [['среднее ', COL.dim], ['3,5', COL.chalk], [' → ', COL.dim], ['7', OK]], 100, 700, m('shi', 4.4), 28);
+    L(p, [['обычное попадание: ', COL.chalk], ['от 2 до 12', RULE]], 100, 755, m('rng'), 28);
+    L(p, [['по застигнутому врасплох ', COL.chalk], ['+1d4', FOE], [' Атакующего исподтишка: ', COL.chalk], ['не удваивается', NO]], 100, 810, m('sneak'), 26);
+  }],
+  ['crit', 'Критическое попадание с разящей', (m) => {
+    const p = panel(0);
+    title(p, 'Критическое попадание с разящей руной');
+    L(p, [['2d6', ITEM], [' × 2', RULE], [' + смертоносный ', COL.chalk], ['d8', FOE]], 100, 140, .5, 30);
+    say(p, 'кубиков смертоносного:', 100, 215, 2, { size: 24, fill: COL.dim, anchor: 'start' });
+    pillsC(p, [['разящая: 1', ITEM, 4], ['улучшенная: 2', ITEM, 5.2], ['высшая: 3', ITEM, 6.4]], 880, 210, 24);
+    hr(p, 270, m('roll', -.4));
+    const d = (x, v, c, t0) => dn(p, 6, x, 330, c, t0, 48, v);
+    d(230, '3', ITEM, m('roll')); d(390, '5', ITEM, m('roll', .6));
+    say(p, '= 8', 520, 355, m('roll', 1.6), { size: 40, weight: 700, anchor: 'start' });
+    L(p, [['8 × 2 = ', COL.chalk], ['16', RULE]], 700, 355, m('dbl'), 40);
+    say(p, '+', 1010, 355, m('det'), { size: 40, fill: COL.dim });
+    dn(p, 8, 1110, 330, FOE, m('det'), 48, '4');
+    L(p, [['= ', COL.chalk], ['20', OK], [' колющего урона', COL.chalk]], 700, 470, m('sum'), 44);
+    hr(p, 560, m('avg', -.3));
+    L(p, [['среднее: 2d6 × 2 + d8 = 14 + 4,5 = ', COL.chalk], ['18,5', OK]], 100, 630, m('avg'), 34);
+    L(p, [['без руны было: ', COL.dim], ['11,5', COL.dim]], 100, 700, m('avg', 4.2), 30);
+  }],
+  ['q2', 'Быстрая проверка', () => { panel(0); }, { ask: done => quiz(WIDE, [{
+    id: 'c-rune', prompt: ['Руны и урон.'], build: blanks(Q_RUNE),
+  }, {
+    id: 'c-rune-tf', prompt: ['Верно или неверно?'], build: grid(Q_RUNE_TF, TF, { multi: false, text: true }),
+  }], done) }],
+  ['armor', 'Руна усиления брони', (m) => {
+    const p = panel(0);
+    title(p, 'Руна усиления брони');
+    pillsC(p, [['+1 руна усиления брони', ITEM, .5], ['5-й уровень', RULE, 2.8], ['160 зм', GOLD, 3.4]], 800, 135, 26);
+    say(p, 'бонус предмета брони +1 и одна атрибутивная руна', 800, 195, 6, { size: 24, fill: COL.dim });
+    const t = tbl(p, 100, 225, [330, 200, 270, 270, 330], ['руна', 'уровень предмета', 'цена', 'бонус к КБ', 'атрибутивных рун'], [
+      [['+1', ITEM], '5', ['160 зм', GOLD], ['+1', ITEM], '1'], [['+2', ITEM], '11', ['1 060 зм', GOLD], ['+2', ITEM], '2'], [['+3', ITEM], '18', ['20 560 зм', GOLD], ['+3', ITEM], '3']], { rh: 50 });
+    t.head(.9); t.at(0, 2.8); t.at(1, m('tbl')); t.at(2, m('tbl', 1.8));
+    hr(p, 475, m('st', -.3));
+    L(p, [['клёпаный кожаный доспех: бонус ', COL.chalk], ['+2', RULE], [' → с руной ', COL.chalk], ['+3', ITEM]], 100, 525, m('st'), 30);
+    pill(p, 'предел Ловкости: режет модификатор Ловкости', HERO, 480, 610, m('dex'), 23);
+    pill(p, 'бонус предмета: не режет', ITEM, 1190, 610, m('dex', 3.2), 23);
+    hr(p, 665, m('res', -.3));
+    L(p, [['Укреплённая руна', ITEM], [' — бонус предмета к испытаниям: +1, +2, +3', COL.chalk]], 100, 715, m('res'), 28);
+    L(p, [['первая: 8-й уровень, 340 зм', COL.dim]], 100, 765, m('res', 5.5), 24);
+    say(p, 'Шиппе нужна позже: на уровнях 2–5 в списке её нет', 100, 815, m('res', 7.5), { size: 24, fill: COL.dim, anchor: 'start' });
+  }],
+  ['plan', 'Рунный график Шиппы', (m) => {
+    const p = panel(0);
+    title(p, 'Шиппа: рунный график');
+    const t = tbl(p, 100, 110, [190, 700, 220, 290], ['уровень', 'что получает', 'цена', 'всего потрачено'], [
+      [['2', RULE], '+1 руна усиления оружия на рапиру', ['35 зм', GOLD], '35 зм'],
+      [['3', RULE], 'ничего нового', '0', '35 зм'],
+      [['4', RULE], 'разящая руна на рапиру', ['65 зм', GOLD], '100 зм'],
+      [['5', RULE], '+1 руна усиления брони на клёпаный доспех', ['160 зм', GOLD], ['260 зм', OK]]], { rh: 58 });
+    t.head(.5); [m('l2'), m('l3'), m('l4'), m('l5')].forEach((tt, k) => t.at(k, tt));
+    const U = 4, x0 = 300, y = 470;
+    const seg = (a, b, c, s, t0) => { const g = G(p, { o: 0 }); mk('rect', { x: x0 + a * U, y, width: (b - a) * U - 3, height: 60, rx: 8, fill: c, 'fill-opacity': .55, stroke: c, 'stroke-width': 2.5 }, g); T(g, s, { x: x0 + (a + b) / 2 * U - 2, y: y + 38, size: 22, weight: 700, anchor: 'middle' }); show(g, t0); };
+    say(p, 'потрачено', 100, y + 38, m('l2'), { size: 22, fill: COL.dim, anchor: 'start' });
+    seg(0, 35, ITEM, '35', m('l2', .6)); seg(35, 100, ITEM, '65', m('l4', .6)); seg(100, 260, ITEM, '160', m('l5', .6));
+    say(p, '= 260 зм', x0 + 260 * U + 40, y + 40, m('l5', 3), { size: 30, fill: OK, weight: 700, anchor: 'start' });
+    hr(p, 580, m('why', -.3));
+    L(p, [['каждая руна — на уровне самой руны: ', COL.chalk], ['2 · 4 · 5', RULE]], 100, 635, m('why'), 27);
+    say(p, 'это план для Шиппы, правилами он не требуется', 100, 685, m('why', 3.2), { size: 24, fill: COL.dim, anchor: 'start' });
+    L(p, [['усиление оружия первым: ', COL.chalk], ['без него нет атрибутивных рун', RULE], [', и оно дешевле всего', COL.chalk]], 100, 760, m('order'), 26);
+    L(p, [['разящая: ', COL.chalk], ['65 против 35', GOLD], [' — почти вдвое дороже, зато кубиков вдвое больше', COL.chalk]], 100, 815, m('order', 5.2), 26);
+  }],
+  ['nums', 'Числа Шиппы с рунами', (m) => {
+    const p = panel(0);
+    title(p, 'Числа Шиппы с рунами');
+    const t = tbl(p, 100, 110, [170, 190, 280, 240], ['уровень', 'КБ', 'рапира', 'урон'], [
+      [['1', RULE], '18', '+6', 'd6'], [['2', RULE], '19', [ '+8', ITEM], 'd6'], [['3', RULE], '20', ['+9', ITEM], 'd6'],
+      [['4', RULE], '21', ['+10', ITEM], ['2d6', ITEM]], [['5', RULE], ['23', ITEM], ['+12', ITEM], ['2d6', ITEM]]], { rh: 52 });
+    t.head(.5); t.at(0, m('l1')); t.at(1, m('l2')); t.at(2, m('l2', 2.6)); t.at(3, m('l4')); t.at(4, m('l5'));
+    box(p, 1130, 150, 380, 190, OK, m('stay'));
+    say(p, 'остаётся в клёпаном', 1320, 210, m('stay'), { size: 27, fill: OK, weight: 700 });
+    say(p, 'КБ тот же', 1320, 262, m('stay', .6), { size: 25 });
+    say(p, 'числа главы 16 прежние', 1320, 302, m('stay', 1), { size: 22, fill: COL.dim });
+    hr(p, 430, m('foe', -.3));
+    L(p, [['разбойник ', FOE], ['КБ 16', FOE], ['  · нужно выбросить не меньше', COL.chalk]], 100, 480, m('foe'), 27);
+    const F = faces(p, 150, 530, m('foe', 1), { w: 58, h: 58, size: 24 });
+    const F2 = faces(p, 150, 660, m('with', -.6), { w: 58, h: 58, size: 24 });
+    say(p, 'без рун', 140, 566, m('foe', 1), { size: 21, fill: COL.dim, anchor: 'end' });
+    say(p, 'с рунами', 140, 696, m('with', -.6), { size: 21, fill: ITEM, anchor: 'end' });
+    for (let f = 5; f <= 20; f++) F.paint(f, 's', m('foe', 3 + (f - 5) * .08));
+    for (let f = 4; f <= 20; f++) F2.paint(f, 's', m('with', .3 + (f - 4) * .06));
+    L(p, [['+11: 5 и выше, ', COL.chalk], ['80 %', COL.chalk]], 100, 770, m('foe', 5), 26);
+    L(p, [['+12: 4 и выше, ', COL.chalk], ['85 %', OK], ['  · каждый +1 даёт 5 %, одну грань из двадцати', COL.dim]], 100, 825, m('with', 2.8), 26);
+    pill(p, 'урон при попадании вдвое', ITEM, 1230, 790, m('dmg'), 24);
+  }],
+  ['move', 'Перенос и улучшение рун', (m) => {
+    const p = panel(0);
+    title(p, 'Перенос и улучшение рун');
+    say(p, 'Перенос', 100, 140, .4, { size: 30, fill: RULE, weight: 700, anchor: 'start' });
+    pillsC(p, [['1 день · Создание предмета', DOWN, .6], ['10 % цены руны', GOLD, 3.2]], 400, 205, 22);
+    pill(p, 'рунный камень: бесплатно, камень трескается', ITEM, 420, 275, m('stone'), 22);
+    L(p, [['фундаментальная ↔ фундаментальная', COL.chalk]], 100, 350, m('rules'), 24);
+    L(p, [['атрибутивная ↔ атрибутивная', COL.chalk]], 100, 395, m('rules', 1.6), 24);
+    L(p, [['ближний бой → дальнобойное: ', COL.chalk], ['нельзя', NO]], 100, 440, m('rules', 3.4), 24);
+    box(p, 100, 490, 700, 150, NO, m('sleep'), true);
+    say(p, 'руна усиления ушла:', 130, 535, m('sleep'), { size: 24, fill: NO, weight: 700, anchor: 'start' });
+    say(p, 'атрибутивные руны без бонуса засыпают', 130, 580, m('sleep', 1), { size: 24, anchor: 'start' });
+    say(p, 'и оживут с новой руной усиления', 130, 620, m('sleep', 3), { size: 24, anchor: 'start' });
+    // example on the right: bars of 35 gp vs 3.5 gp
+    say(p, 'Руна +1 усиления оружия', 900, 140, m('ex'), { size: 26, fill: ITEM, weight: 700, anchor: 'start' });
+    const bar = (y, w, s, c, t0) => { const g = G(p, { o: 0 }); mk('rect', { x: 900, y, width: w, height: 50, rx: 8, fill: c, 'fill-opacity': .55, stroke: c, 'stroke-width': 2.5 }, g); T(g, s, { x: 900 + w + 14, y: y + 35, size: 24, weight: 600 }); show(g, t0); };
+    bar(170, 350, 'вырезать заново: 35 зм', GOLD, m('ex', 2));
+    bar(240, 35, 'перенос: 3,5 зм', OK, m('ex', 6.5));
+    say(p, 'в десять раз дешевле', 900, 335, m('ex', 8), { size: 23, fill: COL.dim, anchor: 'start' });
+    hr(p, 665, m('up', -.3), 80, 1520);
+    say(p, 'Улучшение: платят разницу', 100, 715, m('up'), { size: 30, fill: RULE, weight: 700, anchor: 'start' });
+    L(p, [['+2 стоит ', COL.chalk], ['935', GOLD], [', уже есть +1 за ', COL.chalk], ['35', GOLD], [' → доплата ', COL.chalk], ['900 зм', OK]], 100, 770, m('up', 3), 28);
+    L(p, [['ступени пропускать можно: ', COL.chalk], ['+1 → +3', ITEM]], 100, 825, m('skip'), 28);
+  }],
+  ['cons', 'Одноразовые предметы', (m) => {
+    const p = panel(0);
+    title(p, 'Одноразовые предметы');
+    pill(p, 'работают один раз и исчезают', COL.chalk, 800, 125, .5, 24);
+    say(p, 'Зелье исцеления', 100, 205, m('pot'), { size: 30, fill: ITEM, weight: 700, anchor: 'start' });
+    L(p, [['выпить из руки: ', COL.chalk], ['1 действие', RULE]], 100, 255, m('pot', 1.2), 24);
+    L(p, [['достать: ещё ', COL.chalk], ['Взаимодействие', RULE]], 100, 295, m('pot', 3.6), 24);
+    const t = tbl(p, 100, 340, [190, 150, 140, 220], ['зелье', 'уровень', 'цена', 'лечит'], [
+      ['низшее', '1', ['4 зм', GOLD], '1d8'], ['малое', '3', ['12 зм', GOLD], '2d8 + 5']], { rh: 52, size: 24 });
+    t.head(m('tbl', -.3)); t.at(0, m('tbl')); t.at(1, m('tbl', 3.5));
+    L(p, [['малое: 9 + 5 = ', COL.chalk], ['14 ПЗ', OK]], 100, 540, m('avg'), 28);
+    say(p, 'Свиток', 900, 205, m('scr'), { size: 30, fill: ITEM, weight: 700, anchor: 'start' });
+    ['одно заклинание, без ячейки', 'заклинание — из вашего списка', 'ваша атака заклинанием и СЛ', 'после — исчезает'].forEach((s, i) =>
+      say(p, s, 900, 255 + i * 40, m('scr', .8 + i * 2.6), { size: 24, anchor: 'start' }));
+    const t2 = tbl(p, 900, 430, [200, 150, 150], ['свиток', 'уровень', 'цена'], [['1-й круг', '1', ['4 зм', GOLD]], ['2-й круг', '3', ['12 зм', GOLD]], ['3-й круг', '5', ['30 зм', GOLD]]], { rh: 48, size: 24 });
+    t2.head(m('st', -.3)); t2.at(0, m('st')); t2.at(1, m('st', 1.4)); t2.at(2, m('st', 2.6));
+    pill(p, 'Шиппа: любое заклинание из списка барда', HERO, 1200, 665, m('sh'), 22);
+    box(p, 100, 720, 1400, 120, RULE, m('no'));
+    say(p, 'исчезают после использования → в график рун не входят', 800, 775, m('no'), { size: 28, weight: 700 });
+    say(p, 'их берут из монет партии', 800, 815, m('no', 2.4), { size: 24, fill: COL.dim });
+  }],
+  ['money', 'Откуда деньги и вещи', (m) => {
+    const p = panel(0);
+    title(p, 'Откуда деньги и вещи');
+    pillsC(p, [['враги', COL.chalk, .4], ['тайники', COL.chalk, .7], ['награды за дело', COL.chalk, 1], ['подарки', COL.chalk, 1.3]], 800, 120, 22);
+    pillsC(p, [['продать: половина цены', RULE, 4], ['камни, искусство, материалы: полная', OK, m('full')]], 800, 185, 22);
+    const t = tbl(p, 100, 225, [180, 330, 560, 330], ['уровень', 'всего на партию', 'постоянные вещи', 'монеты партии'], [
+      [['1', RULE], '175 зм', '2 вещи 2-го ур., 2 вещи 1-го', ['40 зм', GOLD]], [['2', RULE], '300 зм', '2 вещи 3-го, 2 вещи 2-го', ['70 зм', GOLD]],
+      [['3', RULE], '500 зм', '2 вещи 4-го, 2 вещи 3-го', ['120 зм', GOLD]], [['4', RULE], '850 зм', '2 вещи 5-го, 2 вещи 4-го', ['200 зм', GOLD]]], { rh: 52, size: 24 });
+    t.head(m('tbl')); [3.8, 10.3, 12.8, 15].forEach((o, k) => t.at(k, m('tbl', o)));
+    hr(p, 500, m('sum', -.3));
+    L(p, [['монеты: 40 + 70 + 120 + 200 = ', COL.chalk], ['430 зм', GOLD], [' на партию · ', COL.chalk], ['107,5', GOLD], [' на героя', COL.chalk]], 100, 550, m('sum'), 27);
+    L(p, [['три руны Шиппы: ', COL.chalk], ['260 зм', ITEM], [' > ', COL.chalk], ['107,5', GOLD], [' → монет на покупку не хватит', NO]], 100, 605, m('sum', 4.5), 27);
+    hr(p, 650, m('where', -.3));
+    say(p, 'руны приходят вещами из таблицы:', 100, 695, m('where'), { size: 25, fill: COL.dim, anchor: 'start' });
+    pillsC(p, [['вещь 2-го ур. → награды 1-го', ITEM, m('where', 3)], ['4-го → 3-го', ITEM, m('where', 6)], ['5-го → 4-го', ITEM, m('where', 8)]], 800, 755, 23);
+    say(p, 'ненужное: продать за половину и купить нужное', 800, 835, m('sell'), { size: 25, fill: OK, weight: 600 });
+  }],
+  ['q3', 'Быстрая проверка', () => { panel(0); }, { ask: done => quiz(WIDE, [{
+    id: 'c-money', prompt: ['Перенос, зелья и деньги.'], build: blanks(Q_MONEY),
+  }, {
+    id: 'c-money-tf', prompt: ['Верно или неверно?'], build: grid(Q_MONEY_TF, TF, { multi: false, text: true }),
+  }], done) }],
+  ['todo', 'Что сделать сейчас', (m) => {
+    const p = panel(0), sh = charSheet(p, .3);
+    sh.page(2);
+    sh.fill('st1', 'Рапира', '+7 · 1d6 колющий');
+    title(p, 'Что сделать сейчас', .2, 550);
+    const x = 90;
+    step(p, 1, 'допишите клетки под руны', x, 140, m('box'), 27);
+    [['рапира', [['+1', 70], ['разящая', 120], ['', 70]], 130], ['доспех', [['+1', 70], ['', 70]], 640]].forEach(([l, n, x0]) => {
+      const t0 = m('box', .8); say(p, l, x0, 215, t0, { size: 22, fill: COL.dim, anchor: 'start' });
+      let xx = x0 + 100; n.forEach(([lab, w], i) => { rslot(p, xx, 185, w, 44, t0 + .2 + i * .3, lab); xx += w + 12; });
+    });
+    L(p, [['место для атрибутивной руны', COL.dim]], 90, 275, m('box', 2.6), 21);
+    step(p, 2, 'пересчитайте атаку на 2-м уровне', x, 340, m('calc'), 27);
+    L(p, [['бонус предмета прибавляется ко всему остальному: ', COL.chalk], ['+7 → +8', ITEM]], 90, 390, m('calc', 2.6), 24);
+    sh.set('st1', 'Рапира', m('calc', 4), '+8 · 1d6 колющий');
+    step(p, 3, 'выпишите уровень каждой руны', x, 470, m('lv'), 27);
+    L(p, [['усиление оружия ', COL.chalk], ['2', RULE], [' · разящая ', COL.chalk], ['4', RULE], [' · усиление брони ', COL.chalk], ['5', RULE]], 90, 520, m('lv', 2.2), 24);
+    step(p, 4, 'спросите ведущего: в награде или в продаже, кто нанесёт', x, 600, m('gm'), 26);
+    step(p, 5, 'заведите счётчик настроенных предметов', x, 720, m('cnt'), 27);
+    pill(p, 'настроено: 0 из 10', HERO, 330, 790, m('cnt', 2), 24);
+    pill(p, 'с первой магической бронёй: 1 из 10', ITEM, 770, 790, m('cnt', 4.6), 24);
+  }],
+  ['wrap', 'Итоги', (m) => {
+    const p = panel(0);
+    numbered(p, [['Руна даёт бонус предмета: к атаке, КБ или испытаниям.', 'w0'],
+      ['Разящая удваивает кубики урона; в лимит атрибутивных рун не входит.', 'w1'],
+      ['Настроить можно не больше 10 предметов в день, снятый тоже считается.', 'w2'],
+      ['Руны Шиппы: 260 зм, приходят вещами из наград.', 'w3']], k => k === 'w0' ? .4 : m(k), 220, 140, 29);
+  }],
+  ['final1', 'Практика главы', () => { panel(0); }, { ask: done => quiz(SCREEN, [{
+    id: 'p-tf', prompt: ['Верно или неверно?'], build: grid(P_TF, TF, { multi: false, text: true }),
+  }], done, 'Практика главы   1 из 3') }],
+  ['final2', 'Практика главы', () => {}, { ask: done => quiz(SCREEN, [{
+    id: 'p-num', prompt: ['Посчитайте.'], build: blanks(P_NUM),
+  }], done, 'Практика главы   2 из 3') }],
+  ['final3', 'Практика главы', () => {}, { ask: done => quiz(SCREEN, [{
+    id: 'p-lv5', prompt: ['Шиппа, 5-й уровень: Ловкость +4, умение рапиры +7, три руны нанесены.'], build: blanks(P_LV5),
+  }], done, 'Практика главы   3 из 3') }],
+  ['finish', 'Готово', () => {}, { ask: finishCard }],
+].map(([id, title, run, extra]) => ({ id, title, run, ...extra }));
+
+/* ---------- question data ---------- */
+const Q_INV = [
+  { parts: ['Герой настроил за день 6 предметов. Ещё можно настроить: ', { box: '4' }], why: '10 − 6 = 4.', hint: 'Предел 10 предметов в день.' },
+  { parts: ['Герой настроил 4 предмета и снял один. В пределе занято: ', { box: '4' }], why: 'Снятая вещь всё равно считается.', hint: 'Снятое тоже считается.' },
+];
+const Q_INV_TF = [
+  { parts: ['Герой 3-го уровня может пользоваться вещью 4-го уровня.'], ans: ['t'], why: 'Пользоваться можно предметом любого уровня.' },
+  { parts: ['Герой 3-го уровня может создать предмет 4-го уровня.'], ans: ['f'], why: 'Создать можно не выше своего уровня.' },
+  { parts: ['Если уровень предмета не указан, он равен 0.'], ans: ['t'], why: 'Обычная рапира и обычный доспех — уровень 0.' },
+  { parts: ['Настроенный предмет активируют, даже если он не настроен на вас.'], ans: ['f'], why: 'Только если он настроен на вас.' },
+];
+const Q_RUNE = [
+  { parts: ['На оружие с руной +2 можно нанести атрибутивных рун: ', { box: '2' }], why: 'Столько, сколько указано в руне усиления.', hint: 'Сколько указано в руне усиления.' },
+  { parts: ['Рапира с разящей руной бьёт кубиками дэ шесть в числе: ', { box: '2' }], why: 'Один кубик превращается в два.', hint: 'Один кубик превращается в…' },
+  { parts: ['Средний урон 2d6: ', { box: '7' }], why: '3,5 × 2 = 7.', hint: 'Среднее одного d6 — 3,5.' },
+  { parts: ['Критическое попадание, на двух d6 выпало 4 и 6. После удвоения: ', { box: '20' }], why: '(4 + 6) × 2 = 20, смертоносный кубик добавится потом.', hint: 'Сумма кубиков, потом удвоить.' },
+];
+const Q_RUNE_TF = [
+  { parts: ['Бонус предмета от руны прибавляется к умению, уровню и Ловкости.'], ans: ['t'], why: 'Это отдельный вид бонуса.' },
+  { parts: ['Разящая руна входит в лимит атрибутивных рун.'], ans: ['f'], why: 'Разящая фундаментальная и в лимит не входит.' },
+  { parts: ['Разящая руна удваивает и кубик Атакующего исподтишка.'], ans: ['f'], why: 'Этот кубик руна не удваивает.' },
+  { parts: ['+1 разящая булава 4-го уровня с ледяной руной 8-го уровня — предмет 8-го уровня.'], ans: ['t'], why: 'Берётся самый высокий уровень.' },
+];
+const Q_MONEY = [
+  { parts: ['+2 усиления оружия стоит 935 зм, на рапире уже +1 за 35 зм. Доплата за улучшение, зм: ', { box: '900' }], why: '935 − 35 = 900.', hint: 'Платят только разницу цен.' },
+  { parts: ['Руна стоит 60 зм. Перенос за 10 % цены стоит, зм: ', { box: '6' }], why: '10 % от 60 — это 6.', hint: 'Одна десятая цены.' },
+  { parts: ['Малое зелье исцеления 2d8 + 5 лечит в среднем ПЗ: ', { box: '14' }], why: '9 + 5 = 14.', hint: 'Среднее 2d8 — 9.' },
+  { parts: ['Монеты партии за уровни 1–4, зм: ', { box: '430' }], why: '40 + 70 + 120 + 200 = 430.', hint: 'Сложите колонку монет.' },
+];
+const Q_MONEY_TF = [
+  { parts: ['Свиток можно прочесть без ячейки, если заклинание есть в вашем списке.'], ans: ['t'], why: 'Ячейка не нужна, важен только список.' },
+  { parts: ['Из рунного камня руну переносят бесплатно.'], ans: ['t'], why: 'Камень при этом трескается.' },
+  { parts: ['Камни и предметы искусства продают за половину цены.'], ans: ['f'], why: 'Камни, искусство и материалы идут за полную.' },
+  { parts: ['Фундаментальную руну можно поменять на атрибутивную.'], ans: ['f'], why: 'Фундаментальную меняют только с фундаментальной.' },
+];
+const P_TF = [
+  { parts: ['Герой может пользоваться предметом любого уровня.'], ans: ['t'], why: 'Строгое ограничение только на создание.' },
+  { parts: ['Снятая настроенная вещь больше не считается в предел.'], ans: ['f'], why: 'Настройка слетает, но вещь считается.' },
+  { parts: ['Разящая руна в лимит атрибутивных рун не входит.'], ans: ['t'], why: 'Она фундаментальная.' },
+  { parts: ['Предел Ловкости доспеха режет бонус предмета от руны.'], ans: ['f'], why: 'Он режет модификатор Ловкости.' },
+  { parts: ['Руну на другой предмет переносят за 10 % её цены.'], ans: ['t'], why: 'Один день и десятая часть цены.' },
+  { parts: ['Зелья и свитки входят в график постоянных рун Шиппы.'], ans: ['f'], why: 'Они исчезают после использования.' },
+  { parts: ['Руны Шиппы лучше купить на монеты партии.'], ans: ['f'], why: 'Монет на героя меньше цены рун: руны приходят вещами.' },
+];
+const P_NUM = [
+  { parts: ['Шиппа 3-го уровня с руной усиления оружия: рапира +', { box: '9' }], why: '8 + 1 = 9.', hint: 'Рапира +8 на 3-м уровне без руны, плюс бонус предмета.' },
+  { parts: ['Шиппа 4-го уровня с разящей руной: средний урон рапиры ', { box: '7' }], why: '2d6 даёт в среднем 7.', hint: 'Два кубика d6.' },
+  { parts: ['КБ Шиппы на 5-м уровне с руной усиления брони: ', { box: '23' }], why: '22 + 1 = 23.', hint: 'КБ без руны 22.' },
+  { parts: ['Три руны Шиппы стоят вместе, зм: ', { box: '260' }], why: '35 + 65 + 160 = 260.', hint: 'Сложите цены трёх рун.' },
+  { parts: ['Рапира +12 против КБ 16: попадание, если на кубике не меньше ', { box: '4' }], why: '4 + 12 = 16.', hint: '16 − 12.' },
+];
+const P_LV5 = [
+  { parts: ['Рапира: Ловкость 4 + уровень и умение 7 + бонус предмета 1. Атака +', { box: '12' }], why: '4 + 7 + 1 = 12.', hint: 'Сложите три слагаемых.' },
+  { parts: ['При критическом попадании с простой разящей руной смертоносных кубиков: ', { box: '1' }], why: 'Простая разящая: один кубик.', hint: 'Простая, улучшенная, высшая: 1, 2, 3.' },
+  { parts: ['Улучшение руны усиления оружия с +1 (35 зм) до +3 (8 935 зм): доплата, зм: ', { box: '8900' }], why: '8 935 − 35 = 8 900.', hint: 'Платят только разницу цен.' },
+  { parts: ['Шиппа настроила один доспех. В пределе настройки занято: ', { box: '1' }], why: 'Один предмет из десяти.', hint: 'Сколько предметов настроено?' },
+  { parts: ['Рапира с руной +1 (2-й уровень) и разящей (4-й): уровень рапиры как рунного предмета: ', { box: '4' }], why: 'Берётся самый высокий уровень из основы и рун.', hint: 'Самый высокий из уровней.' },
+];
+boot();
+</script>
+</body>
+</html>

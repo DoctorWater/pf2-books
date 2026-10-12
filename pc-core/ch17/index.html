@@ -1,0 +1,521 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Черты: какие бывают и когда их берут — Первый герой</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%231d2b27'/%3E%3Ctext x='32' y='45' text-anchor='middle' font-size='48' fill='%23f0b45a'%3E∞%3C/text%3E%3C/svg%3E">
+<link rel="stylesheet" href="../lib/engine.css">
+<link rel="expect" href="#bar" blocking="render"><!-- hold the first frame until the player exists, so the page transition can run -->
+</head>
+<body>
+<script src="../lib/engine.js"></script>
+<script src="../lib/pf.js"></script>
+<script src="audio/ru/timings.js"></script>
+<script>
+'use strict';
+const CHAPTER = { number: 17, title: 'Черты: какие бывают и когда их берут', minutes: 12, language: 'ru', next: '../ch18/' };
+
+/* ---------- chapter drawing helpers (shared ones: lib/pf.js) ---------- */
+// Four kinds of feats: ancestry violet, class yellow, general blue, skill pink; rule terms: criteria RULE, requirements REQ.
+const FK = { anc: COL.real, cls: COL.int, gen: COL.whole, skl: COL.rat };
+const FN = { anc: 'народ', cls: 'класс', gen: 'общая', skl: 'навык' };
+const REQ = COL.nat;
+const kp = (p, k, x, y, t0, size = 22) => pill(p, FN[k], FK[k], x, y, t0, size);
+const hr = (p, y, t0, x1 = 80, x2 = 1520) => draw(path(p, `M${x1} ${y}H${x2}`, { stroke: COL.faint, 'stroke-width': 2 }, { d: 0 }), t0, .5);
+const title = (p, s, t0 = .2, x = 800) => say(p, s, x, 62, t0, { size: 36, weight: 600 });
+const L = (p, parts, x, y, t0, size = 26) => colorLine(p, parts, x, y, t0, { size, anchor: 'start' });
+const txt = (g, s, x, y, size = 26, fill = COL.chalk, weight = 500, anchor = 'start') => T(g, s, { x, y, size, fill, weight, anchor });
+const pw = (s, size) => s.length * size * .56 + 44;
+// A card: a group with a rounded rectangle, hidden until t0 (children are added by the caller).
+const pcard = (p, x, y, w, h, colr, t0) => {
+  const g = G(p, { o: 0 });
+  mk('rect', { x, y, width: w, height: h, rx: 18, fill: '#22322d', stroke: colr, 'stroke-width': 2.5 }, g);
+  if (t0 != null) show(g, t0);
+  return g;
+};
+// An outline that lights up at t0 and goes out at t1 (null: stays).
+function flashBox(p, x, y, w, h, colr, t0, t1) {
+  const r = mk('rect', { x, y, width: w, height: h, rx: 12, fill: 'none', stroke: colr, 'stroke-width': 3.5 }, p);
+  put(r, { o: 0 }); tw(r, { o: 1 }, t0, .25); if (t1 != null) tw(r, { o: 0 }, t1, .35);
+  return r;
+}
+// A numbered step: amber disc with n, text after it (as in ch16).
+function step(p, n, str, x, y, t0, size = 27) {
+  const g = G(p, { x: -20, o: 0 });
+  mk('circle', { cx: x, cy: y - size * .36, r: 22, fill: mix(COL.board, RULE, .3), stroke: RULE, 'stroke-width': 2.5 }, g);
+  T(g, String(n), { x, y: y - size * .36 + 9, size: 24, fill: RULE, weight: 700, anchor: 'middle' });
+  const e = T(g, '', { x: x + 40, y, size, weight: 500 });
+  [].concat(str).forEach(s => { const [t, c = COL.chalk] = [].concat(s); mk('tspan', { fill: c }, e).textContent = t; });
+  tw(g, { o: 1, x: 0 }, t0, .5, out);
+  return g;
+}
+// A feat chip: pill of the kind's colour with the feat name.
+const fchip = (p, name, k, x, y, t0, size = 24) => pill(p, name, FK[k], x, y, t0, size);
+
+/* ---------- Shippa's sheet at level 1 (page 1), as in ch16 ---------- */
+const SH1 = [['name', 'Шиппа'], ['lvl', '1'], ['anc', 'гоблин'], ['her', 'небьющийся гоблин'], ['bg', 'трактирщик'], ['cls', 'бард'],
+  ['a0', '0'], ['a1', '+3'], ['a2', '+2'], ['a3', '0'], ['a4', '0'], ['a5', '+4'], ['hp', '20', '10+8+2'], ['ac', '18', '10+3+3+2'],
+  ['per', '+5', 'эксперт'], ['will', '+5', 'эксперт'], ['fort', '+5', 'изучен'], ['ref', '+6', 'изучен'],
+  ['sk0', 'Дипломатия', 'изучен · +7'], ['sk1', 'Знание (выпивка)', 'изучен · +3'], ['sk2', 'Оккультизм', 'изучен · +3'], ['sk3', 'Исполнение', 'изучен · +7'],
+  ['sk4', 'Обман, Общество, Религия, Скрытность', ''], ['ft_anc', 'Гоблинская песня'], ['ft_skill', 'Неформальное общение'], ['ft_cls', 'Продолжительная композиция'],
+  ['size', 'Небольшой'], ['spd', '25 футов'], ['sense', 'ночное зрение'], ['lang', 'всеобщий, гоблинский'], ['prof', 'изучен']];
+const SHX = 560;   // centre of the picture left of the sheet
+// The ten feats of Shippa by level 5: level, name, kind, note, chapter 18 (archetype).
+const FEATS = [[1, 'Гоблинская песня', 'anc', ''], [1, 'Продолжительная композиция', 'cls', 'от музы'], [1, 'Неформальное общение', 'skl', 'от происхождения'],
+  [2, 'Посвящение в плуты', 'cls', 'архетип'], [2, 'Обаятельный лжец', 'skl', ''], [2, 'Быстрая угроза', 'skl', 'от Посвящения'],
+  [3, 'Живучесть', 'gen', ''], [4, 'Атакующий исподтишка', 'cls', 'архетип'], [4, 'Краснобай', 'skl', ''], [5, 'Горлопан', 'anc', '']];
+const CH18 = [3, 5, 7];
+
+/* ---------- beats: [id, title, run(m, D), { ask }?] ---------- */
+const BEATS = [
+  ['intro', 'Черты', (m, D) => {
+    const g = G(scene, { o: 0, y: 24 });
+    T(g, 'Раздел 8 «Развитие» · Глава 17', { x: 800, y: 330, size: 28, fill: COL.dim, anchor: 'middle' });
+    T(g, 'Черты: какие бывают', { x: 800, y: 430, size: 66, weight: 600, anchor: 'middle' });
+    T(g, 'и когда их берут', { x: 800, y: 515, size: 66, weight: 600, anchor: 'middle' });
+    tw(g, { o: 1, y: 0 }, .2, 1.1, out);
+    const r = say(scene, 'виды черт, уровни, блок черты, выбор', 800, 620, Math.max(m('sub'), 1.2), { size: 34, fill: COL.dim });
+    tw(g, { o: 0, y: -24 }, D - .9, .8); hide(r, D - .9, .8);
+  }],
+  ['kinds', 'Что такое черта', (m) => {
+    const p = panel(0);
+    title(p, 'Что такое черта');
+    [[100, '«Гоблинская песня»', 'новое действие', 'a', 1], [820, '«Живучесть»', 'число: ПЗ + уровень', 'b', 0]].forEach(([x, name, sub, mk_, gl]) => {
+      const g = pcard(p, x, 100, 680, 120, COL.faint, m(mk_));
+      txt(g, name, x + 30, 150, 34, COL.chalk, 700);
+      txt(g, sub, x + 30, 194, 26, RULE, 600);
+      if (gl) put(actGlyph(g, 1, x + 610, 160, RULE, 0), { o: 1, s: .8 });
+    });
+    say(p, 'вид черты', 250, 290, m('tbl'), { size: 21, fill: COL.dim });
+    say(p, 'кто может взять', 440, 290, m('tbl'), { size: 21, fill: COL.dim, anchor: 'start' });
+    say(p, 'примеры', 1010, 290, m('tbl'), { size: 21, fill: COL.dim, anchor: 'start' });
+    [['anc', 'только герои этого народа', '«Гоблинская песня», «Горлопан»', 'anc'],
+      ['cls', 'только герои этого класса', '«Продолжительная композиция»', 'cls'],
+      ['gen', 'любой герой', '«Живучесть», «Блок щитом»', 'gen'],
+      ['skl', 'любой герой, изучивший нужный навык', '«Обаятельный лжец», «Краснобай»', 'sk']].forEach(([k, who_, ex, mk_], i) => {
+      const y = 360 + i * 105, t0 = m(mk_);
+      const g = G(p, { o: 0 });
+      mk('rect', { x: 100, y: y - 40, width: 1400, height: 80, rx: 14, fill: 'none', stroke: COL.faint, 'stroke-width': 1.5 }, g);
+      kp(g, k, 250, y, null, 28); put(g.lastChild, { o: 1, s: 1 });
+      txt(g, who_, 440, y + 10, 28, COL.chalk, 500);
+      txt(g, ex, 1010, y + 9, 25, COL.dim, 500);
+      show(g, t0);
+    });
+    L(p, [['от вида зависит, ', COL.chalk], ['из какого списка выбирать', RULE]], 100, 840, m('why'), 32);
+  }],
+  ['when', 'Когда герой получает черты', (m) => {
+    const p = panel(0);
+    title(p, 'Таблица развития барда: черты, уровни 1–5');
+    const cx = { anc: 420, cls: 700, skl: 980, gen: 1260 };
+    say(p, 'уровень', 170, 148, m('tb'), { size: 20, fill: COL.dim });
+    Object.keys(cx).forEach(k => kp(p, k, cx[k], 140, m('tb'), 22));
+    [{ anc: '', cls: 'от музы', skl: 'от происхождения' }, { cls: '', skl: '' }, { gen: '' }, { cls: '', skl: '' }, { anc: '' }].forEach((c, r) => {
+      const y = 222 + r * 68, g = G(p, { o: 0 });
+      mk('rect', { x: 100, y: y - 30, width: 1400, height: 60, rx: 12, fill: 'none', stroke: COL.faint, 'stroke-width': 1.5 }, g);
+      txt(g, String(r + 1), 170, y + 12, 34, COL.chalk, 700, 'middle');
+      Object.keys(c).forEach(k => {
+        mk('circle', { cx: cx[k], cy: y, r: 17, fill: FK[k], 'fill-opacity': .55, stroke: FK[k], 'stroke-width': 2 }, g);
+        path(g, `M${cx[k] - 8} ${y}L${cx[k] - 2} ${y + 7}L${cx[k] + 9} ${y - 7}`, { stroke: COL.chalk, 'stroke-width': 3.5 });
+        if (c[k]) txt(g, c[k], cx[k] + 28, y + 7, 19, COL.dim);
+      });
+      show(g, m('l' + (r + 1)));
+    });
+    const X0 = 440, W = 52, H = 40;
+    const evens = [2, 4, 6, 8, 10, 12, 14, 16, 18, 20];
+    [['народ', 'anc', 612, [1, 5, 9, 13, 17], 'rh', [2.0, 3.3, 4.1, 4.9, 5.7]],
+      ['класс и навык', 'cls', 678, evens, 'ev', evens.map((_, j) => 1.2 + j * .25)],
+      ['общая', 'gen', 744, [3, 7, 11, 15, 19], 'gn', [2.0, 4.3, 5.0, 5.8, 6.5]]].forEach(([s, k, y, on, mark, offs]) => {
+      const t0 = m(mark);
+      say(p, s, X0 - 22, y + 28, t0, { size: 24, fill: FK[k], anchor: 'end', weight: 600 });
+      const base = G(p, { o: 0 });
+      for (let n = 1; n <= 20; n++) {
+        mk('rect', { x: X0 + (n - 1) * W, y, width: W - 4, height: H, rx: 7, fill: 'none', stroke: COL.faint, 'stroke-width': 1.5, 'stroke-dasharray': '5 4' }, base);
+        txt(base, String(n), X0 + (n - 1) * W + (W - 4) / 2, y + 27, 18, COL.dim, 500, 'middle');
+      }
+      show(base, t0);
+      on.forEach((n, j) => {
+        const g = G(p, { o: 0 });
+        mk('rect', { x: X0 + (n - 1) * W, y, width: W - 4, height: H, rx: 7, fill: FK[k], 'fill-opacity': .6, stroke: FK[k], 'stroke-width': 2.5 }, g);
+        txt(g, String(n), X0 + (n - 1) * W + (W - 4) / 2, y + 27, 20, COL.chalk, 700, 'middle');
+        show(g, m(mark, offs[j]), .3);
+      });
+    });
+    say(p, 'у других классов ритм другой: смотрите таблицу своего класса', 800, 836, m('oth'), { size: 26, fill: RULE, weight: 600 });
+  }],
+  ['shippa', 'Черты Шиппы', (m) => {
+    const p0 = panel(0), sh = charSheet(p0, .3);
+    SH1.forEach(a => sh.fill(...a));
+    const p = G(p0);
+    title(p, 'Черты Шиппы: с 1-го по 5-й уровень', .2, SHX);
+    say(p, 'уровень', 122, 128, .4, { size: 17, fill: COL.dim });
+    say(p, 'черта', 190, 128, .4, { size: 19, fill: COL.dim, anchor: 'start' });
+    say(p, 'вид', 900, 128, .4, { size: 19, fill: COL.dim });
+    const rows = FEATS.map(([lv, name, k, note], i) => {
+      const y = 175 + i * 62, g = G(p, { o: 0, x: -16 });
+      mk('rect', { x: 90, y: y - 29, width: 1000, height: 54, rx: 12, fill: 'none', stroke: COL.faint, 'stroke-width': 1.5 }, g);
+      txt(g, lv + '-й', 125, y + 8, 26, COL.dim, 600, 'middle');
+      txt(g, name, 170, y + 9, 28, COL.chalk, 600);
+      if (note) txt(g, note, 625, y + 8, 20, COL.dim);
+      kp(g, k, 900, y, null, 21); put(g.lastChild, { o: 1, s: 1 });
+      return g;
+    });
+    const at = i => i < 3 ? m(['s1', 's2', 's3'][i]) : m('ten', .3 + (i - 3) * .4);
+    rows.forEach((g, i) => tw(g, { o: 1, x: 0 }, at(i), .5, out));
+    sh.flash('ft_anc', m('s1')); sh.flash('ft_cls', m('s2')); sh.flash('ft_skill', m('s3'));
+    flashBox(p, 90, 175 + 6 * 62 - 29, 1000, 54, RULE, m('ten', 4.2), m('ten', 6));
+    CH18.forEach((i, j) => {
+      const t0 = m('arch', 2.6 + j * .9);
+      L(p, [['глава 18', RULE]], 990, 175 + i * 62 + 8, t0, 22);
+      tw(rows[i], { o: .4 }, m('rest'), .5);
+    });
+    [0, 1, 2, 4, 6, 8, 9].forEach((i, j) => flashBox(p, 90, 175 + i * 62 - 29, 1000, 54, OK, m('rest', .3 + j * .35), m('rest', 1.2 + j * .35)));
+  }],
+  ['q1', 'Быстрая проверка', () => { panel(0); }, { ask: done => quiz(WIDE, [{
+    id: 'c-kind', prompt: ['Какой это вид черты?'], build: grid(Q_KIND, KCOLS, { multi: false, text: true }),
+  }, {
+    id: 'c-when', prompt: ['Когда дают черты.'], build: blanks(Q_WHEN),
+  }], done) }],
+  ['block', 'Как читать блок черты', (m) => {
+    const p = panel(0);
+    title(p, 'Блок черты', .2, 520);
+    const card = pcard(p, 90, 110, 860, 470, COL.faint, .3);
+    txt(card, 'Обаятельный лжец', 130, 190, 38, COL.chalk, 700);
+    txt(card, 'Черта 1', 910, 190, 30, COL.dim, 600, 'end');
+    txt(card, 'Дескрипторы:', 130, 280, 26, COL.dim, 600);
+    pill(card, 'общая', FK.gen, 380, 270, null, 20); put(card.lastChild, { o: 1, s: 1 });
+    pill(card, 'навык', FK.skl, 490, 270, null, 20); put(card.lastChild, { o: 1, s: 1 });
+    L(card, [['Критерии: ', COL.dim], ['изучен Обман', COL.chalk]], 130, 360, null, 26);
+    put(card.lastChild, { o: 1 });
+    path(card, 'M130 400H910', { stroke: COL.faint, 'stroke-width': 1.5 });
+    ['Если «Ложь» даёт критический успех, отношение собе-', 'седника к вам улучшается на одну ступень, как после',
+      '«Улучшения впечатления». Срабатывает раз за разговор.'].forEach((s, i) => txt(card, s, 130, 450 + i * 42, 25, COL.chalk));
+    const F = [['nm', [120, 148, 480, 60], 'nm'], ['lv', [770, 148, 160, 60], 'lv'], ['tr', [120, 234, 440, 60], 'tr'], ['pr', [120, 322, 500, 60], 'pr'], ['tx', [120, 420, 800, 150], 'tx']];
+    const CO = {
+      nm: ['Название', COL.chalk, [['значок действия:', 0], ['одно действие', 1], ['свободное действие', 'f'], ['ответное действие', 'r']], 'нет значка: черта работает постоянно'],
+      lv: ['Уровень черты', COL.chalk, [['«Черта 1» — уровень самой черты', 0], ['брать можно черту не выше уровня героя', 0], ['Шиппа берёт её на 2-м уровне', 0]], ''],
+      tr: ['Дескрипторы', COL.chalk, [['метки черты', 0], ['навык → клетка черты навыка', 0], ['гоблин → берут только гоблины', 0]], ''],
+      pr: ['Критерии', RULE, [['что нужно иметь, чтобы взять черту', 0], ['здесь: изучен Обман', 0]], ''],
+      tx: ['Текст', COL.chalk, [['что черта делает', 0], ['и в каких числах', 0]], ''],
+    };
+    F.forEach(([k, [x, y, w, h]], i) => {
+      const t0 = m(k), t1 = i < F.length - 1 ? m(F[i + 1][0]) : null;
+      flashBox(p, x, y, w, h, RULE, t0, t1);
+      const g = G(p, { o: 0 }), [head, colr, lines, foot] = CO[k];
+      txt(g, head, 1000, 190, 34, k === 'pr' ? RULE : COL.chalk, 700);
+      lines.forEach(([s, ic], j) => {
+        const yy = 270 + j * 64;
+        if (ic === 0) txt(g, s, 1000, yy, 26, j === 0 && k === 'nm' ? COL.dim : COL.chalk);
+        else if (ic === 1) { put(actGlyph(g, 1, 1040, yy - 8, RULE, 0), { o: 1, s: .6 }); txt(g, s, 1090, yy, 26); }
+        else { put(actGlyph(g, ic, 1040, yy - 8, RULE, 0), { o: 1, s: .6 }); txt(g, s, 1090, yy, 26); }
+      });
+      if (foot) txt(g, foot, 1000, 270 + lines.length * 64 + 20, 26, RULE, 600);
+      tw(g, { o: 1 }, t0, .4); if (t1 != null) tw(g, { o: 0 }, t1 - .1, .3);
+    });
+    L(p, [['дескриптор', COL.dim], [' = trait', COL.faint]], 100, 700, m('tr', 1.5), 24);
+  }],
+  ['cells', 'Общая клетка и клетка навыка', (m) => {
+    const p = panel(0);
+    title(p, 'Клетка черты навыка и клетка общей черты');
+    const A = pcard(p, 100, 100, 640, 330, FK.skl, .5), B = pcard(p, 860, 100, 640, 330, FK.gen, m('r2', .2));
+    txt(A, 'Клетка черты навыка', 130, 155, 32, FK.skl, 700);
+    txt(A, 'только общие черты с дескриптором «навык»', 130, 202, 24, COL.dim);
+    txt(B, 'Клетка общей черты', 890, 155, 32, FK.gen, 700);
+    txt(B, 'любая общая черта, в том числе навыка', 890, 202, 24, COL.dim);
+    const put2 = (name, k, x, y, ok, t0) => { fchip(p, name, k, x, y, t0, 25); yesNo(p, ok, x + pw(name, 25) / 2 + 40, y, t0 + .2, .8); };
+    put2('«Обаятельный лжец»', 'skl', 330, 290, true, m('r1', 4.5));
+    put2('«Живучесть»', 'gen', 300, 365, false, m('r1', 7.2));
+    put2('«Живучесть»', 'gen', 1060, 290, true, m('r2', 5.0));
+    put2('«Обаятельный лжец»', 'skl', 1120, 365, true, m('r2', 7.2));
+    say(p, 'общая клетка шире', 800, 475, m('wide'), { size: 30, fill: RULE, weight: 600 });
+    hr(p, 515, m('lvl', -.2), 100, 1500);
+    say(p, 'уровень черты навыка — самый ранний уровень, на котором есть нужный ранг', 800, 570, m('lvl'), { size: 28, fill: COL.dim });
+    [['изучен', '1-й', 'rk1'], ['эксперт', '2-й', 'rk2'], ['мастер', '7-й', 'rk3'], ['легенда', '15-й', 'rk4']].forEach(([rank, lv, mark], i) => {
+      const x = 270 + i * 353, t0 = m(mark);
+      pill(p, 'критерий: ' + rank, RULE, x, 660, t0, 26);
+      say(p, lv, x, 770, t0 + .2, { size: 64, weight: 700 });
+      say(p, 'уровень', x, 815, t0 + .2, { size: 22, fill: COL.dim });
+    });
+  }],
+  ['q2', 'Быстрая проверка', () => { panel(0); }, { ask: done => quiz(WIDE, [{
+    id: 'c-cells', prompt: ['Верно или неверно?'], build: grid(Q_CELLS, TF, { multi: false, text: true }),
+  }, {
+    id: 'c-rank', prompt: ['Самый ранний уровень черты навыка.'], build: blanks(Q_RANK),
+  }], done) }],
+  ['req', 'Требования, частота, условие', (m) => {
+    const p = panel(0);
+    title(p, 'Ещё строки блока');
+    const C = [['Требования', REQ, '«Цепкость»', ['последним действием был успешный Удар,', 'и свободна рука'], 100, 100, 'rq'],
+      ['Частота', COL.chalk, '«Безумство храбрых»', ['раз в день'], 820, 100, 'fr'],
+      ['Условие', COL.chalk, '«Блок щитом»', ['физический урон от атаки, который вы', 'вот-вот получите при поднятом щите'], 100, 320, 'tg'],
+      ['Особое', COL.chalk, 'строка в конце', ['например, можно ли брать черту повторно'], 820, 320, 'sp']];
+    C.forEach(([head, colr, feat, lines, x, y, mark]) => {
+      const g = pcard(p, x, y, 680, 190, colr === COL.chalk ? COL.faint : colr, m(mark, .2));
+      txt(g, head, x + 30, y + 52, 34, colr, 700);
+      txt(g, feat, x + 650, y + 52, 26, COL.dim, 600, 'end');
+      lines.forEach((s, i) => txt(g, s, x + 30, y + 108 + i * 40, 26, COL.chalk));
+    });
+    const row = (y, label, colr, t0) => { say(p, label, 100, y + 8, t0, { size: 30, fill: colr, weight: 700, anchor: 'start' }); draw(path(p, `M330 ${y}H1500`, { stroke: COL.faint, 'stroke-width': 3 }, { d: 0 }), t0, .6); };
+    const dot = (x, y, colr, t0) => { const c = mk('circle', { cx: x, cy: y, r: 13, fill: colr }, p); put(c, { o: 0 }); show(c, t0, .3); };
+    const t2 = m('rq', 6.6), t1 = m('vs', .3);
+    row(640, 'Критерии', RULE, t1);
+    dot(430, 640, RULE, t1 + .5);
+    say(p, 'выбор черты: один раз', 800, 618, t1 + .5, { size: 26, fill: RULE, weight: 600, anchor: 'start' });
+    row(760, 'Требования', REQ, t2);
+    [560, 800, 1040, 1280].forEach((x, i) => dot(x, 760, REQ, t2 + .5 + i * .35));
+    say(p, 'каждое применение действия', 800, 738, t2 + .5, { size: 26, fill: REQ, weight: 600, anchor: 'start' });
+    say(p, 'Не путайте: критерии — при выборе, требования — при применении', 800, 845, m('vs', 2), { size: 26, fill: COL.dim });
+  }],
+  ['prereq', 'Что бывает в критериях', (m) => {
+    const p = panel(0);
+    title(p, 'Критерии: что бывает');
+    const R = [['ранг навыка', 'rk', [['изучен Обман', ' → «Обаятельный лжец»'], ['эксперт в Обмане', ' → «Краснобай»']]],
+      ['характеристика', 'at', [['Ловкость +2', ' → «Лёгкая поступь»'], ['Выносливость +2', ' → «Быстрое восстановление»']]],
+      ['другая черта', 'ft', [['«Гоблинская песня»', ' → «Горлопан»'], ['', 'сначала черта 1-го уровня, потом её усиление']]],
+      ['несколько условий', 'many', [['ранг + другая черта', ': выполнять надо всё']]]];
+    R.forEach(([label, mark, ex], i) => {
+      const y = 170 + i * 125, g = G(p, { o: 0 });
+      mk('rect', { x: 100, y: y - 52, width: 1400, height: 104, rx: 14, fill: 'none', stroke: COL.faint, 'stroke-width': 1.5 }, g);
+      pill(g, label, RULE, 290, y, null, 26); put(g.lastChild, { o: 1, s: 1 });
+      ex.forEach(([a, b], j) => {
+        const yy = ex.length > 1 ? y - 12 + j * 44 : y + 8, e = T(g, '', { x: 520, y: yy + (ex.length > 1 ? 0 : 0), size: 28, weight: 500 });
+        mk('tspan', { fill: RULE }, e).textContent = a; mk('tspan', { fill: COL.chalk }, e).textContent = b;
+      });
+      show(g, m(mark, .2));
+    });
+    const g = pcard(p, 100, 640, 1400, 120, NO, m('lost', .2));
+    txt(g, 'потеряли критерий (например, отдали ранг при переподготовке):', 140, 692, 28, COL.chalk);
+    txt(g, 'черту пока использовать нельзя', 140, 736, 30, NO, 700);
+    put(yesNo(g, false, 1440, 700, 0, 1.2), { o: 1 });
+  }],
+  ['q3', 'Быстрая проверка', () => { panel(0); }, { ask: done => quiz(WIDE, [{
+    id: 'c-req', prompt: ['Верно или неверно?'], build: grid(Q_REQ, TF, { multi: false, text: true }),
+  }, {
+    id: 'c-crit', prompt: ['Какой это критерий?'], build: grid(Q_CRIT, CCOLS, { multi: false, text: true }),
+  }], done) }],
+  ['choose', 'Как выбирать', (m) => {
+    const p = panel(0);
+    title(p, 'Как выбирать черту');
+    say(p, 'Что мой герой делает за столом и что ему для этого нужно?', 800, 170, .5, { size: 38, fill: HERO, weight: 600 });
+    const bad = pcard(p, 100, 250, 680, 170, NO, m('bad', .2)), good = pcard(p, 820, 250, 680, 170, OK, m('good', .2));
+    txt(bad, 'искать черту с самыми большими числами', 130, 330, 28, COL.chalk, 600);
+    txt(bad, 'черты редко дают много', 130, 380, 24, COL.dim);
+    put(yesNo(bad, false, 720, 290, 0, 1), { o: 1 });
+    txt(good, 'закрыть слабое место героя', 850, 320, 28, COL.chalk, 600);
+    txt(good, 'или усилить то, что он делает для отряда', 850, 368, 26, COL.chalk);
+    put(yesNo(good, true, 1450, 290, 0, 1), { o: 1 });
+    say(p, 'Роли Шиппы в отряде', 800, 515, m('roles'), { size: 30, fill: COL.dim, weight: 600 });
+    [['лицо', 'говорит с незнакомцами', 'r1'], ['лгунья', 'врёт, когда правда не поможет', 'r2'], ['бард-поддержка', 'поёт и колдует на союзников', 'r3']].forEach(([n, d, mark], i) => {
+      const x = 100 + i * 480, g = pcard(p, x, 560, 440, 190, HERO, m(mark, .1));
+      txt(g, n, x + 30, 625, 36, HERO, 700);
+      txt(g, d, x + 30, 690, 24, COL.chalk);
+    });
+  }],
+  ['liar', 'Обаятельный лжец и Живучесть', (m) => {
+    const p = panel(0);
+    const A = pcard(p, 100, 100, 700, 640, FK.skl, m('l2', .3)), B = pcard(p, 840, 100, 660, 640, FK.gen, m('l3', .3));
+    kp(A, 'skl', 200, 170, null, 24); put(A.lastChild, { o: 1, s: 1 });
+    txt(A, '2-й уровень', 700, 180, 30, COL.dim, 600, 'end');
+    txt(A, '«Обаятельный лжец»', 130, 270, 40, COL.chalk, 700);
+    L(A, [['критерий: ', COL.dim], ['изучен Обман', RULE]], 130, 350, null, 28); put(A.lastChild, { o: 1 });
+    txt(A, 'Обман есть с создания героя', 130, 396, 24, COL.dim);
+    path(A, 'M130 430H770', { stroke: COL.faint, 'stroke-width': 1.5 });
+    ['критический успех «Лжи»', 'улучшает отношение собеседника', 'на одну ступень'].forEach((s, i) => txt(A, s, 130, 490 + i * 46, 28, COL.chalk));
+    kp(B, 'gen', 940, 170, null, 24); put(B.lastChild, { o: 1, s: 1 });
+    txt(B, '3-й уровень', 1460, 180, 30, COL.dim, 600, 'end');
+    txt(B, '«Живучесть»', 870, 270, 40, COL.chalk, 700);
+    txt(B, 'критериев нет', 870, 350, 28, RULE, 600);
+    path(B, 'M870 430H1470', { stroke: COL.faint, 'stroke-width': 1.5 });
+    txt(B, 'максимум ПЗ + уровень', 870, 490, 28, COL.chalk);
+    [[3, 'на 3-м уровне'], [5, 'на 5-м уровне']].forEach(([n, lab], i) => {
+      const g = G(p, { o: 0 }), y = 560 + i * 80;
+      for (let j = 0; j < n; j++) mk('rect', { x: 870 + j * 46, y, width: 38, height: 44, rx: 6, fill: HERO, 'fill-opacity': .6, stroke: HERO, 'stroke-width': 2 }, g);
+      txt(g, '+' + n, 870 + 5 * 46 + 12, y + 33, 34, HERO, 700);
+      txt(g, lab, 1280, y + 31, 22, COL.dim);
+      show(g, m('add', 1.2 + i * 2.4));
+    });
+  }],
+  ['glib', 'Краснобай', (m) => {
+    const p = panel(0);
+    title(p, '«Краснобай» · 4-й уровень');
+    kp(p, 'skl', 1130, 62, m('l4'), 22);
+    say(p, 'собеседник не поверил лжи или Шиппа уже отвлекала его: у него ситуативный бонус против её следующих попыток', 800, 150, m('l4', 1.2), { size: 25, fill: COL.dim });
+    const bar = (y, label, n, colr, t0, lab2) => {
+      const g = G(p, { o: 0 });
+      txt(g, label, 140, y + 44, 28, COL.chalk, 600);
+      for (let j = 0; j < 4; j++) {
+        const on = j < n;
+        mk('rect', { x: 520 + j * 90, y, width: 76, height: 66, rx: 8, fill: on ? colr : 'none', 'fill-opacity': .6, stroke: on ? colr : COL.faint, 'stroke-width': 2.5, ...(on ? {} : { 'stroke-dasharray': '6 5' }) }, g);
+      }
+      txt(g, lab2, 520 + 4 * 90 + 24, y + 50, 44, colr, 700);
+      show(g, t0);
+    };
+    bar(210, 'без черты', 4, NO, m('l4', 4));
+    bar(320, 'с «Краснобаем»', 2, OK, m('cut'));
+    L(p, [['критерий: ', COL.dim], ['эксперт в Обмане', RULE]], 140, 470, m('crit'), 30);
+    [['1-й', 'изучен'], ['2-й', 'изучен'], ['3-й', 'эксперт'], ['4-й', 'эксперт']].forEach(([lv, rk], i) => {
+      const x = 140 + i * 350, g = pcard(p, x, 520, 320, 170, i > 1 ? OK : COL.faint, m('crit', .6 + i * .4));
+      txt(g, lv + ' уровень', x + 24, 575, 28, COL.dim, 600);
+      txt(g, 'Обман: ' + rk, x + 24, 628, 28, i > 1 ? OK : COL.chalk, 600);
+    });
+    L(p, [['ранг получен', OK]], 140 + 2 * 350 + 24, 668, m('crit', 4.0), 24);
+    L(p, [['недоступна', NO]], 140 + 350 + 24, 668, m('crit', 6.3), 24);
+    L(p, [['подходит', OK]], 140 + 3 * 350 + 24, 668, m('crit', 8.1), 24);
+    L(p, [['повтор лжи тем же слушателям: без черты ', COL.dim], ['+4', NO], [', с ней ', COL.dim], ['+2', OK]], 140, 790, m('why', 3), 30);
+  }],
+  ['loud', 'Горлопан', (m) => {
+    const p = panel(0);
+    title(p, '«Горлопан» · 5-й уровень');
+    kp(p, 'anc', 1120, 62, m('l5'), 22);
+    const cx = 400, cy = 530;
+    const ring = (r, colr, t0, dash) => { const c = mk('circle', { cx, cy, r, fill: 'none', stroke: colr, 'stroke-width': 3.5, ...(dash ? { 'stroke-dasharray': '10 8' } : {}) }, p); put(c, { o: 0 }); show(c, t0, .6); return c; };
+    const r30 = ring(150, HERO, m('l5', 4.6)), r60 = ring(300, OK, m('rng', .2), true);
+    say(p, '30 фт', cx, cy - 158, m('l5', 4.6), { size: 22, fill: HERO, weight: 600 });
+    say(p, '60 фт', cx, cy - 308, m('rng', .4), { size: 24, fill: OK, weight: 700 });
+    tw(r30, { o: .4 }, m('rng'), .5);
+    who(p, 'Шиппа', HERO, cx, cy, m('l5', 3.2), 40);
+    const foes = [[cx + 95, cy - 55, 'l5', 5.2], [cx - 105, cy - 50, 'l5', 5.5], [cx + 230, cy - 20, 'tg', .3]];
+    foes.forEach(([x, y, mark, off], i) => who(p, 'враг', FOE, x, y, m(mark, off), 32));
+    foes.forEach(([x, y], i) => {
+      const t0 = m('eff', 4.6 + i * .3);
+      const g = G(p, { x: x + 44, y: y + 10, o: 0 });
+      T(g, '−1', { size: 30, fill: NO, weight: 700 });
+      show(g, t0, .3);
+    });
+    L(p, [['критерий: ', COL.dim], ['«Гоблинская песня»', FK.anc], ['  ✓', OK]], 860, 200, m('l5', 1.0), 28);
+    L(p, [['дистанция: ', COL.dim], ['30 фт', COL.chalk], [' → ', COL.dim], ['60 фт', OK]], 860, 330, m('rng', .3), 34);
+    L(p, [['цели: ', COL.dim], ['2', COL.chalk], [' → ', COL.dim], ['3', OK], ['  (эксперт в Исполнении)', COL.dim]], 860, 430, m('tg', .4), 30);
+    L(p, [['успех: ', COL.dim], ['−1', NO], [' к Вниманию и Воле', COL.chalk]], 860, 560, m('eff', 4.4), 30);
+    L(p, [['критический успех: то же на минуту', COL.dim]], 860, 615, m('eff', 6.3), 26);
+    say(p, 'союзники дерутся, Шиппа поёт издали', 860 + 270, 750, m('eff', .4), { size: 26, fill: COL.dim });
+  }],
+  ['knee', 'Коленодроб и выбор', (m) => {
+    const p = panel(0);
+    title(p, 'Чего Шиппа не берёт на 5-м уровне');
+    const g = pcard(p, 100, 120, 700, 300, FK.anc, m('kn', .2));
+    kp(g, 'anc', 200, 175, null, 22); put(g.lastChild, { o: 1, s: 1 });
+    txt(g, '«Коленодроб»', 140, 260, 40, COL.chalk, 700);
+    txt(g, 'удар без урона', 140, 320, 28, COL.chalk);
+    txt(g, 'Скорость цели −10 футов на раунд', 140, 368, 28, RULE, 600);
+    const y = 340;
+    who(p, 'Шиппа', HERO, 960, y, m('nope', -.3), 40); who(p, 'союзник', HERO, 1200, y, m('nope', -.3), 40); who(p, 'враг', FOE, 1430, y, m('nope', -.3), 40);
+    arrowTo(p, 1000, 215, 1390, 215, NO, m('nope', .2));
+    say(p, 'лезть в ближний бой', 1195, 185, m('nope', .4), { size: 24, fill: NO, weight: 600 });
+    yesNo(p, false, 1195, 275, m('nope', 1.4), .7);
+    say(p, 'её место за спинами союзников', 1195, 485, m('nope', 1.6), { size: 26, fill: COL.dim });
+    hr(p, 540, m('ch', -.3), 100, 1500);
+    say(p, 'между эффектным и нужным', 800, 620, m('ch'), { size: 36, weight: 600 });
+    L(p, [['берите то, чем герой ', COL.chalk], ['пользуется на каждой игре', RULE]], 330, 700, m('ch', 3.4), 38);
+  }],
+  ['general', 'Общие черты без навыка', (m) => {
+    const p = panel(0);
+    title(p, 'Общие черты без навыка');
+    const R = [['Живучесть', 'ПЗ + уровень', 't'], ['Блок щитом', 'ответное действие: щит гасит часть урона', 'sb'], ['Быстроногий', 'Скорость +5 футов', 'fl'],
+      ['Невероятная инициатива', '+2 к инициативе', 'ii'], ['Дальновидность', 'эксперт в одном испытании или во Внимании', 'ca']];
+    R.forEach(([name, d, mark], i) => {
+      const y = 170 + i * 92, g = G(p, { o: 0 });
+      mk('rect', { x: 100, y: y - 36, width: 1400, height: 72, rx: 14, fill: 'none', stroke: COL.faint, 'stroke-width': 1.5 }, g);
+      txt(g, name, 130, y + 11, 32, COL.chalk, 700);
+      txt(g, d, 640, y + 10, 28, COL.dim);
+      if (i === 1) put(actGlyph(g, 'r', 1450, y, RULE, 0), { o: 1, s: .6 });
+      show(g, m(mark));
+    });
+    flashBox(p, 100, 170 + 3 * 92 - 36, 1400, 72, HERO, m('sh', 3.0), m('pick', -.2));
+    L(p, [['3-й уровень: годилась бы и «Невероятная инициатива»', COL.chalk]], 100, 700, m('sh', 3.2), 29);
+    L(p, [['бард ходит первым — раньше включает композицию', COL.dim]], 100, 748, m('sh', 6.2), 27);
+    flashBox(p, 100, 170 - 36, 1400, 72, OK, m('pick'));
+    pill(p, 'выбор Шиппы', OK, 1300, 170, m('pick', .3), 22);
+    L(p, [['берёт «Живучесть»: ', OK], ['барду в лёгком доспехе запас ПЗ нужнее', COL.chalk]], 100, 810, m('pick', 1.2), 29);
+  }],
+  ['todo', 'Что сделать сейчас', (m) => {
+    const p = panel(0);
+    title(p, 'Что сделать сейчас');
+    const x = 120;
+    step(p, 1, 'таблица развития класса: обвести строки с чертами, уровни 1–5', x, 200, .6, 28);
+    step(p, 2, [['для каждой строки вписать ', COL.chalk], ['вид черты', RULE]], x, 325, m('k'), 28);
+    step(p, 3, [['черта героя 1-го уровня: найти в блоке ', COL.chalk], ['уровень, дескрипторы, критерии, текст', RULE]], x, 450, m('b'), 28);
+    step(p, 4, [['есть ', COL.chalk], ['частота или условие', RULE], [' — выписать', COL.chalk]], x, 575, m('fq'), 28);
+    step(p, 5, [['для черты навыка: есть ли у героя ', COL.chalk], ['нужный ранг', RULE], ['; если нет — другая черта', COL.chalk]], x, 700, m('sk'), 28);
+  }],
+  ['wrap', 'Итоги', (m) => {
+    const p = panel(0);
+    numbered(p, [['Четыре вида: народ, класс, общая, навык.', 'w1'],
+      ['Клетка навыка: общие черты с «навык»; клетка общей: любая общая.', 'w2'],
+      ['Критерии — при выборе, требования — при каждом применении.', 'w3'],
+      ['Черту выбирают под роль героя, а не по размеру числа.', 'w4']], m, 220, 140, 29);
+  }],
+  ['final1', 'Практика главы', () => { panel(0); }, { ask: done => quiz(SCREEN, [{
+    id: 'p-tf', prompt: ['Верно или неверно?'], build: grid(P_TF, TF, { multi: false, text: true }),
+  }], done, 'Практика главы   1 из 3') }],
+  ['final2', 'Практика главы', () => {}, { ask: done => quiz(SCREEN, [{
+    id: 'p-num', prompt: ['Посчитайте.'], build: blanks(P_NUM),
+  }], done, 'Практика главы   2 из 3') }],
+  ['final3', 'Практика главы', () => {}, { ask: done => quiz(SCREEN, [{
+    id: 'p-kind', prompt: ['Какой это вид черты?'], build: grid(P_KIND, KCOLS, { multi: false, text: true }),
+  }], done, 'Практика главы   3 из 3') }],
+  ['finish', 'Готово', () => {}, { ask: finishCard }],
+].map(([id, title, run, extra]) => ({ id, title, run, ...extra }));
+
+/* ---------- question data ---------- */
+const KCOLS = [['anc', 'Народ', FK.anc], ['cls', 'Класс', FK.cls], ['gen', 'Общая', FK.gen], ['skl', 'Навык', FK.skl]];
+const CCOLS = [['rk', 'Ранг навыка'], ['at', 'Характеристика'], ['ft', 'Другая черта']];
+const Q_KIND = [
+  { parts: ['«Гоблинская песня»'], ans: ['anc'], why: 'Её берут только гоблины: черта народа.' },
+  { parts: ['«Продолжительная композиция»'], ans: ['cls'], why: 'Черта барда, классовая.' },
+  { parts: ['«Живучесть»'], ans: ['gen'], why: 'Общая черта, не связана с навыком.' },
+  { parts: ['«Неформальное общение»'], ans: ['skl'], why: 'Черта навыка от происхождения.' },
+];
+const Q_WHEN = [
+  { parts: ['Общая черта барда: на 3-м уровне и затем каждые ', { box: '4' }, ' уровня.'], why: '3, 7, 11, 15, 19.', hint: 'Сколько между 3-м и 7-м?' },
+  { parts: ['Черту народа бард получает на 1-м, 5-м, 9-м и следующий раз на ', { box: '13' }, '-м уровне.'], why: 'Каждые 4 уровня: 1, 5, 9, 13, 17.', hint: '9 + 4.' },
+  { parts: ['Черт народа у Шиппы к 5-му уровню: ', { box: '2' }], why: '«Гоблинская песня» на 1-м и «Горлопан» на 5-м.', hint: 'Смотрите на таблицу черт Шиппы.' },
+];
+const Q_CELLS = [
+  { parts: ['В клетку черты навыка можно поставить «Живучесть».'], ans: ['f'], why: 'Туда идут только общие черты с дескриптором «навык».' },
+  { parts: ['В клетку общей черты можно поставить черту навыка.'], ans: ['t'], why: 'Общая клетка принимает любую общую черту.' },
+  { parts: ['Герой 1-го уровня может взять черту 3-го уровня.'], ans: ['f'], why: 'Уровень черты не выше уровня героя.' },
+];
+const Q_RANK = [
+  { parts: ['Черта навыка с критерием «эксперт» открывается с ', { box: '2' }, '-го уровня.'], why: 'Эксперт — со 2-го уровня.', hint: 'Изучен — 1-й.' },
+  { parts: ['Черта навыка с критерием «мастер» открывается с ', { box: '7' }, '-го уровня.'], why: 'Мастер — с 7-го уровня.', hint: 'Между экспертом и легендой.' },
+];
+const Q_REQ = [
+  { parts: ['Требования проверяют при каждом применении действия.'], ans: ['t'], why: 'Это условие применения, как свободная рука у «Цепкости».' },
+  { parts: ['Критерии проверяют при каждом применении черты.'], ans: ['f'], why: 'Критерии проверяют один раз, когда выбирают черту.' },
+  { parts: ['У «Блока щитом» есть условие, которое запускает ответное действие.'], ans: ['t'], why: 'Физический урон от атаки при поднятом щите.' },
+  { parts: ['У «Безумства храбрых» частота: раз в день.'], ans: ['t'], why: 'Частота говорит, как часто можно применять.' },
+];
+const Q_CRIT = [
+  { parts: ['изучен Обман'], ans: ['rk'], why: 'Ранг в навыке.' },
+  { parts: ['Ловкость +2'], ans: ['at'], why: 'Значение характеристики.' },
+  { parts: ['«Гоблинская песня» для «Горлопана»'], ans: ['ft'], why: 'Другая черта.' },
+];
+const P_TF = [
+  { parts: ['Черта навыка — это общая черта с дескриптором «навык».'], ans: ['t'], why: 'Поэтому в клетку навыка идут только такие черты.' },
+  { parts: ['На 2-м уровне «Живучесть» можно взять в клетку черты навыка.'], ans: ['f'], why: 'У «Живучести» нет дескриптора «навык».' },
+  { parts: ['На 3-м уровне в клетку общей черты Шиппа могла бы взять черту навыка.'], ans: ['t'], why: 'Общая клетка принимает любую общую черту.' },
+  { parts: ['Критерии черты проверяют при каждом её применении.'], ans: ['f'], why: 'Один раз, при выборе. При каждом применении проверяют требования.' },
+  { parts: ['Герой 3-го уровня может взять черту 4-го уровня, если выполнил критерии.'], ans: ['f'], why: 'Уровень черты не выше уровня героя.' },
+  { parts: ['Если у черты нет значка действия, она работает постоянно.'], ans: ['t'], why: 'Тратить ничего не нужно.' },
+  { parts: ['«Горлопана» можно взять, не имея «Гоблинской песни».'], ans: ['f'], why: 'Песня — критерий «Горлопана».' },
+];
+const P_NUM = [
+  { parts: ['Бард получает черту народа на 1-м, 5-м, 9-м, 13-м и ', { box: '17' }, '-м уровнях.'], why: 'Каждые 4 уровня.', hint: '13 + 4.' },
+  { parts: ['Черта навыка с критерием «легенда» открывается с ', { box: '15' }, '-го уровня.'], why: 'Легенда — с 15-го уровня.', hint: 'Изучен 1, эксперт 2, мастер 7.' },
+  { parts: ['«Живучесть» на 4-м уровне прибавляет к максимуму ПЗ: ', { box: '4' }], why: 'Число, равное уровню.', hint: 'Столько же, сколько уровень.' },
+  { parts: ['Бонус против Шиппы после проваленной лжи с «Краснобаем»: +', { box: '2' }], why: 'Без черты +4, с ней +2.', hint: 'Черта снижает +4 вдвое.' },
+  { parts: ['Дистанция песни с «Горлопаном» (футов): ', { box: '60' }], why: 'Было 30, стало 60.', hint: 'Вдвое больше.' },
+  { parts: ['Целей песни у эксперта в Исполнении с «Горлопаном»: ', { box: '3' }], why: 'Две цели и ещё одна.', hint: 'Эксперту хватает на две, плюс одна.' },
+];
+const P_KIND = [
+  { parts: ['«Горлопан»'], ans: ['anc'], why: 'Черта народа.' },
+  { parts: ['«Живучесть»'], ans: ['gen'], why: 'Общая черта.' },
+  { parts: ['«Краснобай»'], ans: ['skl'], why: 'Черта навыка: нужен эксперт в Обмане.' },
+  { parts: ['«Продолжительная композиция»'], ans: ['cls'], why: 'Классовая черта барда.' },
+  { parts: ['«Неформальное общение»'], ans: ['skl'], why: 'Черта навыка от происхождения.' },
+  { parts: ['«Невероятная инициатива»'], ans: ['gen'], why: 'Общая черта без навыка.' },
+];
+boot();
+</script>
+</body>
+</html>

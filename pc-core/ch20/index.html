@@ -1,0 +1,481 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Шиппа до 5-го уровня — Первый герой</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%231d2b27'/%3E%3Ctext x='32' y='45' text-anchor='middle' font-size='48' fill='%23f0b45a'%3E∞%3C/text%3E%3C/svg%3E">
+<link rel="stylesheet" href="../lib/engine.css">
+<link rel="expect" href="#bar" blocking="render"><!-- hold the first frame until the player exists, so the page transition can run -->
+</head>
+<body>
+<script src="../lib/engine.js"></script>
+<script src="../lib/pf.js"></script>
+<script src="audio/ru/timings.js"></script>
+<script>
+'use strict';
+const CHAPTER = { number: 20, title: 'Шиппа до 5-го уровня', minutes: 14, language: 'ru', next: null };
+
+/* ---------- chapter drawing helpers (shared ones: lib/pf.js) ---------- */
+// Level LVL (pink: no GM here), feats/ranks/numbers RULE, attributes HERO, spells MAG, items/runes ITEM, the party's jobs HERO pills,
+// good OK, refusals/weak spots NO, enemies FOE; in HP: ancestry ANC, class CLS, Toughness TOUGH.
+const LVL = COL.rat, ANC = COL.dim, CLS = COL.int, TOUGH = COL.real, MAG = COL.real, ITEM = COL.real;
+const hr = (p, y, t0, x1 = 80, x2 = 1520) => draw(path(p, `M${x1} ${y}H${x2}`, { stroke: COL.faint, 'stroke-width': 2 }, { d: 0 }), t0, .5);
+const box = (p, x, y, w, h, colr, t0) => { const r = mk('rect', { x, y, width: w, height: h, rx: 18, fill: '#22322d', stroke: colr, 'stroke-width': 2.5 }, p); put(r, { o: 0 }); show(r, t0); return r; };
+const title = (p, s, t0 = .2, x = 800) => say(p, s, x, 62, t0, { size: 36, weight: 600 });
+const L = (p, parts, x, y, t0, size = 26) => colorLine(p, parts, x, y, t0, { size, anchor: 'start' });   // left-aligned coloured line
+const pw = (s, size) => s.length * size * .56 + 44;
+function pillsC(p, items, cx, y, size = 24) {
+  const w = items.map(([s]) => pw(s, size)), tot = w.reduce((a, b) => a + b + 16, -16);
+  let x = cx - tot / 2;
+  return items.map(([s, c, t0], i) => { const g = pill(p, s, c, x + w[i] / 2, y, t0, size); x += w[i] + 16; return g; });
+}
+// A numbered step: amber disc with n, text after it.
+function step(p, n, str, x, y, t0, size = 27, colr = COL.chalk) {
+  const g = G(p, { x: -20, o: 0 });
+  mk('circle', { cx: x, cy: y - size * .36, r: 22, fill: mix(COL.board, RULE, .3), stroke: RULE, 'stroke-width': 2.5 }, g);
+  T(g, String(n), { x, y: y - size * .36 + 9, size: 24, fill: RULE, weight: 700, anchor: 'middle' });
+  if (typeof str === 'string') T(g, str, { x: x + 40, y, size, fill: colr, weight: 500 });
+  else { const e = T(g, '', { x: x + 40, y, size, weight: 500 }); str.forEach(([s, c = COL.chalk]) => { mk('tspan', { fill: c }, e).textContent = s; }); }
+  tw(g, { o: 1, x: 0 }, t0, .5, out);
+  return g;
+}
+// The twenty faces of a d20 in a row from x0, top y; paint(f, deg, t0) colours face f (as in ch09, ch14, ch16).
+function faces(p, x0, y, t0, { w = 58, h = 80, gap = 4, size = 26 } = {}) {
+  const X = f => x0 + (f - 1) * (w + gap), cx = f => X(f) + w / 2;
+  const g = G(p, { o: 0 });
+  for (let f = 1; f <= 20; f++) {
+    mk('rect', { x: X(f), y, width: w, height: h, rx: 8, fill: 'none', stroke: COL.faint, 'stroke-width': 2, 'stroke-dasharray': '6 5' }, g);
+    T(g, String(f), { x: cx(f), y: y + h / 2 + size * .36, size, weight: 600, anchor: 'middle' });
+  }
+  show(g, t0);
+  const top = G(p);
+  return {
+    paint(f, deg, t1) {
+      const [, , colr, op] = DEG.find(d => d[0] === deg);
+      const r = mk('rect', { x: X(f), y, width: w, height: h, rx: 8, fill: colr, 'fill-opacity': op, stroke: colr, 'stroke-width': 2.5 }, top);
+      put(r, { o: 0 }); show(r, t1, .3);
+      return r;
+    },
+  };
+}
+// A choice row: kind (dim, left), name and a line under it, the party's job as a pill on the right. Slides in at t0.
+function rowCard(p, y, t0, kind, name, sub, job, { nc = COL.chalk, kc = COL.dim, h = 80 } = {}) {
+  const g = G(p, { x: -24, o: 0 });
+  mk('rect', { x: 100, y, width: 1400, height: h, rx: 16, fill: '#22322d', stroke: COL.faint, 'stroke-width': 2 }, g);
+  T(g, kind, { x: 128, y: y + h / 2 + 7, size: 20, fill: kc, weight: 600 });
+  T(g, name, { x: 380, y: y + 35, size: 29, fill: nc, weight: 700 });
+  const s = T(g, sub, { x: 380, y: y + 65, size: 21, fill: COL.dim });
+  if (job) pill(g, job, HERO, 1488 - pw(job, 21) / 2, y + h / 2, null, 21);
+  tw(g, { o: 1, x: 0 }, t0, .5, out);
+  return g;
+}
+
+/* ---------- Shippa's sheet at levels 1 and 4 (as in ch16); level 5 is written on it in this chapter ---------- */
+const SH1 = [['name', 'Шиппа'], ['lvl', '1'], ['anc', 'гоблин'], ['her', 'небьющийся гоблин'], ['bg', 'трактирщик'], ['cls', 'бард'],
+  ['a0', '0'], ['a1', '+3'], ['a2', '+2'], ['a3', '0'], ['a4', '0'], ['a5', '+4'], ['hp', '20', '10+8+2'], ['ac', '18', '10+3+3+2'],
+  ['per', '+5', 'эксперт'], ['will', '+5', 'эксперт'], ['fort', '+5', 'изучен'], ['ref', '+6', 'изучен'],
+  ['sk0', 'Дипломатия', 'изучен · +7'], ['sk1', 'Знание (выпивка)', 'изучен · +3'], ['sk2', 'Оккультизм', 'изучен · +3'], ['sk3', 'Исполнение', 'изучен · +7'],
+  ['sk4', 'Обман, Общество, Религия, Скрытность', ''], ['ft_anc', 'Гоблинская песня'], ['ft_skill', 'Неформальное общение'], ['ft_cls', 'Продолжительная композиция'],
+  ['size', 'Небольшой'], ['spd', '25 футов'], ['sense', 'ночное зрение'], ['lang', 'всеобщий, гоблинский'], ['prof', 'изучен']];
+const SH4 = [['lvl', '4'], ['hp', '54', ''], ['ac', '21', '10+3+6+2'], ['per', '+8', 'эксперт'], ['fort', '+8', 'изучен'], ['ref', '+11', 'эксперт'], ['will', '+8', 'эксперт'],
+  ['sk0', 'Обман', 'эксперт · +12'], ['sk1', 'Исполнение', 'изучен · +10'], ['sk2', 'Дипломатия', 'изучен · +10'], ['sk3', 'Скрытность', 'изучен · +8'],
+  ['sk4', 'Оккультизм, Общество и др.', 'изучен · +6']];
+// A sheet beat: the first of a run builds the sheet on a fresh panel filled with `states`; the next keeps it and replaces the left part.
+function shBeat(states) {
+  if (S.sh && S.shPanel === S.panel) {
+    hide(S.shLeft, .1, .4);
+    return [S.sh, (S.shLeft = G(S.panel)), true];
+  }
+  const p0 = panel(0), sh = S.sh = charSheet(p0, .3);
+  S.shPanel = p0;
+  states.forEach(l => l.forEach(a => sh.fill(...a)));
+  return [sh, (S.shLeft = G(p0)), false];
+}
+const SHX = 560;   // centre of the picture left of the sheet
+
+/* ---------- beats: [id, title, run(m, D), { ask }?] ---------- */
+const BEATS = [
+  ['intro', 'Шиппа до 5-го уровня', (m, D) => {
+    const g = G(scene, { o: 0, y: 24 });
+    T(g, 'Раздел 8 «Развитие» · Глава 20', { x: 800, y: 330, size: 28, fill: COL.dim, anchor: 'middle' });
+    T(g, 'Шиппа до 5-го уровня', { x: 800, y: 440, size: 70, weight: 600, anchor: 'middle' });
+    tw(g, { o: 1, y: 0 }, .2, 1.1, out);
+    const r = say(scene, 'выборы на уровнях 2–5 и лист', 800, 560, Math.max(m('sub'), 1.2), { size: 34, fill: COL.dim });
+    tw(g, { o: 0, y: -24 }, D - .9, .8); hide(r, D - .9, .8);
+  }],
+  ['team', 'Что нужно отряду', (m) => {
+    const p = panel(0);
+    title(p, 'Что нужно отряду');
+    const fig = (name, sub, x, y, t0, r = 46) => {
+      who(p, name, HERO, x, y, t0, r);
+      say(p, sub, x, y + r + 76, t0 + .2, { size: 21, fill: COL.dim });
+    };
+    fig('Тиль', 'колдует сзади', 170, 310, m('party', 5.2));
+    fig('Шиппа', 'вторая линия', 410, 310, m('jobs'), 54);
+    fig('Бронна', 'первая линия, длинный меч', 650, 310, m('party', 1));
+    arrowTo(p, 250, 310, 330, 310, COL.faint, m('jobs', .6), true);
+    arrowTo(p, 490, 310, 570, 310, COL.faint, m('jobs', .8), true);
+    const J = [['лицо', 'говорит с незнакомцами, договаривается, запугивает', 'jobs'], ['лгунья', 'врёт, когда правда не поможет', 'liar'],
+      ['бард-поддержка', 'поёт, лечит, снимает чужую магию', 'sup'], ['вторая линия', 'бьёт рапирой и пращой, стоит за Бронной', 'line']];
+    J.forEach(([n, d, mark], i) => {
+      const t0 = i ? m(mark) : m('jobs', 1.5);
+      const y = 140 + i * 110, g = G(p, { x: 30, o: 0 });
+      mk('rect', { x: 820, y, width: 680, height: 92, rx: 16, fill: '#22322d', stroke: HERO, 'stroke-width': 2.5 }, g);
+      T(g, n, { x: 850, y: y + 38, size: 29, fill: HERO, weight: 700 });
+      T(g, d, { x: 850, y: y + 74, size: 22, fill: COL.dim });
+      tw(g, { o: 1, x: 0 }, t0, .5, out);
+    });
+    box(p, 100, 600, 1400, 240, NO, m('weak', -.2));
+    say(p, 'каждый выбор усиливает одно из дел или закрывает слабое место', 140, 650, m('weak'), { size: 24, fill: COL.dim, anchor: 'start' });
+    say(p, 'слабое место: защита', 140, 716, m('weak', 4.2), { size: 34, fill: NO, weight: 700, anchor: 'start' });
+    say(p, 'лёгкий доспех и 20 ПЗ на 1-м уровне', 140, 780, m('weak', 6.2), { size: 27, anchor: 'start' });
+    arrowTo(p, 760, 745, 880, 745, OK, m('weak', 10.6));
+    pillsC(p, [['Живучесть', OK, m('weak', 11.1)], ['руна на броне', OK, m('weak', 11.7)]], 1200, 745, 26);
+  }],
+  ['chains', 'Цепочки выборов', (m) => {
+    const p = panel(0);
+    title(p, 'Цепочки: один выбор открывает другой');
+    const R = [['Посвящение в плуты', '2-й уровень', 'Атакующий исподтишка', '4-й уровень', 'c1'],
+      ['Обман: изучен с 1-го, эксперт на 3-м', '', 'Краснобай', '4-й уровень', 'c2'],
+      ['Гоблинская песня', '1-й уровень', 'Горлопан', '5-й уровень', 'c3'],
+      ['Исполнение: эксперт', '5-й уровень', 'цели песни: две, с Горлопаном три', '5-й уровень', 'c4']];
+    R.forEach(([a, al, b, bl, mark], i) => {
+      const y = 120 + i * 84, g = G(p, { x: -24, o: 0 });
+      mk('rect', { x: 100, y, width: 640, height: 66, rx: 14, fill: '#22322d', stroke: RULE, 'stroke-width': 2.5 }, g);
+      mk('rect', { x: 880, y, width: 620, height: 66, rx: 14, fill: '#22322d', stroke: OK, 'stroke-width': 2.5 }, g);
+      T(g, a, { x: 124, y: y + 31, size: 25, weight: 600 });
+      if (al) T(g, al, { x: 124, y: y + 56, size: 17, fill: COL.dim });
+      T(g, b, { x: 904, y: y + 31, size: 25, weight: 600 });
+      T(g, bl, { x: 904, y: y + 56, size: 17, fill: COL.dim });
+      tw(g, { o: 1, x: 0 }, m(mark), .5, out);
+      arrowTo(p, 750, y + 33, 870, y + 33, COL.dim, m(mark, .4));
+    });
+    // two ways to spend the level 3 skill increase
+    hr(p, 480, m('crit', -.3));
+    say(p, 'критерий проверяют при выборе: Краснобаю нужен эксперт в Обмане', 800, 524, m('crit'), { size: 27, fill: RULE, weight: 600 });
+    const cx = lv => 400 + (lv - 2) * 215;
+    [2, 3, 4, 5, 6].forEach(lv => say(p, lv + '-й', cx(lv), 580, m('crit', 1.5), { size: 21, fill: COL.dim, weight: 600 }));
+    say(p, 'уровень', 100, 580, m('crit', 1.5), { size: 21, fill: COL.dim, anchor: 'start' });
+    say(p, 'на 3-м в Обман', 100, 650, m('crit', 3), { size: 23, fill: OK, weight: 700, anchor: 'start' });
+    pill(p, 'Обман → эксперт', OK, cx(3), 645, m('crit', 5), 20);
+    pill(p, 'Краснобай', OK, cx(4), 645, m('crit', 6.6), 20);
+    yesNo(p, true, cx(4) + 110, 645, m('ob', .3), .8);
+    say(p, 'на 3-м в Исполнение', 100, 740, m('perf', -.3), { size: 23, fill: NO, weight: 700, anchor: 'start' });
+    pill(p, 'Исполнение → эксперт', COL.dim, cx(3), 735, m('perf', 1.1), 20);
+    [4, 5].forEach((lv, i) => pill(p, 'закрыт', NO, cx(lv), 735, m('perf', 3.2 + i * .6), 20));
+    pill(p, 'Краснобай', COL.dim, cx(6), 735, m('perf', 3.9), 20);
+    say(p, 'черты навыка у барда: на чётных уровнях', 800, 810, m('perf', 4.8), { size: 22, fill: COL.dim });
+  }],
+  ['q1', 'Быстрая проверка', () => { panel(0); }, { ask: done => quiz(WIDE, [{
+    id: 'c-ch', prompt: ['Цепочки выборов.'], build: blanks(Q_CH),
+  }, {
+    id: 'c-ch-tf', prompt: ['Верно или неверно?'], build: grid(Q_CH_TF, TF, { multi: false, text: true }),
+  }], done) }],
+  ['lv2', '2-й уровень', (m) => {
+    const p = panel(0);
+    title(p, '2-й уровень: вторая линия');
+    const Y = k => 120 + k * 90;
+    rowCard(p, Y(0), m('ded'), 'классовая черта', 'Посвящение в плуты', 'цена: одна классовая черта барда', 'вторая линия');
+    say(p, '→ внезапная атака, потом исподтишка', 880, Y(0) + 65, m('sneak', 3.2), { size: 21, fill: RULE, anchor: 'start' });
+    rowCard(p, Y(1), m('sk'), 'навыки', 'Воровство, Запугивание', 'замки и карманы · Запугивание делает её лицом отряда', 'лицо');
+    rowCard(p, Y(2), m('fe'), 'черта навыка', 'Быстрая угроза', 'от посвящения: угроза за один раунд разговора', 'лицо');
+    rowCard(p, Y(3), m('fe', 5.3), 'черта навыка', 'Обаятельный лжец', 'крит. успех Лжи: собеседник добрее на ступень', 'лгунья');
+    rowCard(p, Y(4), m('rune'), 'руна', '+1 руна усиления оружия', 'на рапиру · 35 зм · атака +7 → +8', 'вторая линия', { nc: ITEM });
+    rowCard(p, Y(5), m('sp'), 'заклинание', 'Приворот', '2 действия · 30 футов · Воля против СЛ 18 · дружелюбен', null, { nc: MAG });
+    pill(p, 'к 5-му уровню: только на слабых', NO, 1230, Y(5) + 40, m('weakq'), 21);
+    L(p, [['ПЗ: ', COL.chalk], ['30', OK], ['  ·  третья ячейка 1-го круга и новое заклинание в репертуар', COL.dim]], 100, 740, m('hp'), 27);
+  }],
+  ['lv3', '3-й уровень', (m) => {
+    const p = panel(0);
+    title(p, '3-й уровень: ПЗ и ложь');
+    const Y = k => 120 + k * 90;
+    rowCard(p, Y(0), m('tough'), 'общая черта', 'Живучесть', 'ПЗ 30 → 43: 10 за уровень и 3 от черты · у Бронны 10 за уровень, у Шиппы 8', 'ПЗ');
+    rowCard(p, Y(1), m('dec'), 'повышение навыка', 'Обман → эксперт', 'Обман +11 вместо +9 · не Исполнение', 'лгунья');
+    rowCard(p, Y(2), m('ref'), 'класс', 'Эксперт Реакции', 'Реакция становится экспертной: +10', null);
+    rowCard(p, Y(3), m('sig'), 'фирменное, 1-й круг', 'Умиротворение', 'единственное лечение · на 2-м круге 2d10 + 8', null, { nc: MAG });
+    rowCard(p, Y(4), m('disp'), 'фирменное, 2-й круг', 'Рассеивание магии', 'нейтрализация с бонусом +9 · круг растёт вместе с ячейкой', null, { nc: MAG });
+    rowCard(p, Y(5), m('rep'), 'в репертуар, 2-й круг', 'Невидимость', 'касание, 10 минут: Тиль проходит мимо стражи', null, { nc: MAG });
+    L(p, [['две ячейки 2-го круга: Рассеивание магии и Невидимость', COL.dim]], 100, 740, m('rep', 1.5), 24);
+    L(p, [['рун на 3-м уровне нет', NO]], 100, 790, m('none'), 28);
+  }],
+  ['q2', 'Быстрая проверка', () => { panel(0); }, { ask: done => quiz(WIDE, [{
+    id: 'c-lv', prompt: ['2-й и 3-й уровни.'], build: blanks(Q_LV),
+  }, {
+    id: 'c-lv-tf', prompt: ['Верно или неверно?'], build: grid(Q_LV_TF, TF, { multi: false, text: true }),
+  }], done) }],
+  ['lv4', '4-й уровень', (m) => {
+    const p = panel(0);
+    title(p, '4-й уровень: рапира и песня');
+    const Y = k => 120 + k * 90;
+    rowCard(p, Y(0), m('strk'), 'руна', 'Разящая руна', 'на рапиру · 65 зм · 2d6 вместо d6', 'вторая линия', { nc: ITEM });
+    rowCard(p, Y(1), m('sneak'), 'классовая черта', 'Атакующий исподтишка', 'критерий: Посвящение в плуты · +1d4 по застигнутому врасплох', 'вторая линия');
+    rowCard(p, Y(2), m('glib'), 'черта навыка', 'Краснобай', 'ситуативный бонус после проваленной лжи: +4 → +2', 'лгунья');
+    rowCard(p, Y(3), m('blur'), 'заклинание', 'Расплывчатость', 'третья ячейка 2-го круга · касание · плохая видимость цели', null, { nc: MAG });
+    box(p, 100, 500, 1400, 250, RULE, m('init', -.2));
+    say(p, 'Внезапная атака из посвящения', 140, 552, m('init'), { size: 28, fill: RULE, weight: 700, anchor: 'start' });
+    say(p, 'застигнуты врасплох те, кто ещё не ходил в 1-м раунде', 140, 600, m('init', 1.8), { size: 25, anchor: 'start' });
+    say(p, 'инициатива от:', 140, 670, m('init', 5.9), { size: 24, fill: COL.dim, anchor: 'start' });
+    pillsC(p, [['Обман', HERO, m('init', 8.2)], ['или Скрытность', HERO, m('init', 8.6)]], 560, 664, 24);
+    say(p, 'если ведущий разрешает; по умолчанию — Внимание', 140, 722, m('init', 9.4), { size: 22, fill: GMC, anchor: 'start' });
+    pill(p, 'по застигнутому: 2d6 + 1d4', OK, 1200, 664, m('init', 10.8), 24);
+  }],
+  ['lv5', '5-й уровень', (m) => {
+    const p = panel(0);
+    title(p, '5-й уровень: песня и заклинания');
+    const Y = k => 120 + k * 90;
+    rowCard(p, Y(0), m('row'), 'черта народа', 'Горлопан', 'критерий: Гоблинская песня · дистанция 60 футов вместо 30 · на цель больше', 'поддержка');
+    rowCard(p, Y(1), m('perf'), 'повышение навыка', 'Исполнение → эксперт', 'эксперт +13 вместо изученного +11 · Дипломатия остаётся +11', 'поддержка');
+    rowCard(p, Y(2), m('sp'), 'заклинание, 3-й круг', 'Захватывающая речь', '120 футов · Воля · заворожены, пока Шиппа говорит', null, { nc: MAG });
+    rowCard(p, Y(3), m('haste'), 'фирменное, 3-й круг', 'Ускорение', 'лишнее действие: Удар или Шаг · 1 минута', null, { nc: MAG });
+    // the song: 30 ft → 60 ft, two → three targets
+    const sy = 650, sx = 150, ft = 11, r0 = 'row';
+    who(p, 'Шиппа', HERO, sx, sy - 20, m(r0, 3.4), 34);
+    const tgt = (x, y, t0) => { const g = G(p, { x, y, o: 0 }); mk('circle', { r: 22, fill: COL.board, stroke: FOE, 'stroke-width': 4 }, g); show(g, t0); return g; };
+    tgt(sx + 30 * ft - 90, sy - 50, m(r0, 3.8)); tgt(sx + 30 * ft - 40, sy + 10, m(r0, 4)); tgt(sx + 60 * ft - 70, sy - 20, m(r0, 6.6));
+    draw(path(p, `M${sx + 50} ${sy + 80}H${sx + 30 * ft}`, { stroke: COL.dim, 'stroke-width': 3 }, { d: 0 }), m(r0, 3.8), .6);
+    draw(path(p, `M${sx + 30 * ft} ${sy + 80}H${sx + 60 * ft}`, { stroke: OK, 'stroke-width': 3 }, { d: 0 }), m(r0, 4.6), .7);
+    say(p, '60 футов', sx + 45 * ft, sy + 112, m(r0, 4.8), { size: 22, fill: OK, weight: 600 });
+    say(p, '30 футов', sx + 15 * ft + 25, sy + 112, m(r0, 5.8), { size: 22, fill: COL.dim });
+    pill(p, 'цели: 2', RULE, 1100, 640, m(r0, 8), 24);
+    pill(p, 'с Горлопаном: 3', OK, 1330, 640, m(r0, 9.7), 24);
+    say(p, 'при экспертном Исполнении', 1215, 700, m(r0, 8), { size: 21, fill: COL.dim });
+    who(p, 'Бронна', HERO, 1000, 790, m('haste', 7.5), 30);
+    actGlyph(p, 1, 1130, 790, OK, m('haste', 8.4));
+    say(p, '+1 Удар длинным мечом', 1330, 800, m('haste', 8.6), { size: 22, fill: OK, weight: 600 });
+  }],
+  ['boost5', 'Повышения и руна брони', (m) => {
+    const p = panel(0);
+    title(p, '5-й уровень: четыре повышения и руна брони');
+    const C = [['Ловкость', '+3 → +4', ['рапира', 'Реакция +13', 'Скрытность'], 'dex'], ['Выносливость', '+2 → +3', ['ПЗ', 'пересчёт задним числом', ''], 'con'],
+      ['Мудрость', '0 → +1', ['Внимание и Воля +10', 'Воля: от чужих чар', 'Внимание: от чужой лжи'], 'wis'], ['Харизма', '+4 и отметка', ['модификатор тот же', 'на 10-м уровне: +5', ''], 'cha']];
+    C.forEach(([n, v, ls, mark], i) => {
+      const x = 100 + i * 354, g = G(p, { y: 24, o: 0 });
+      mk('rect', { x, y: 120, width: 330, height: 220, rx: 16, fill: '#22322d', stroke: i === 3 ? RULE : HERO, 'stroke-width': 2.5 }, g);
+      T(g, n, { x: x + 165, y: 166, size: 27, fill: HERO, weight: 700, anchor: 'middle' });
+      T(g, v, { x: x + 165, y: 226, size: 40, fill: i === 3 ? RULE : COL.chalk, weight: 700, anchor: 'middle' });
+      ls.forEach((s, k) => T(g, s, { x: x + 165, y: 274 + k * 28, size: 21, fill: COL.dim, anchor: 'middle' }));
+      tw(g, { o: 1, y: 0 }, m(mark, -.2), .5, out);
+    });
+    box(p, 100, 390, 1400, 330, ITEM, m('arm', -.2));
+    say(p, 'Руна усиления брони +1', 140, 446, m('arm'), { size: 30, fill: ITEM, weight: 700, anchor: 'start' });
+    say(p, '160 зм · клёпаный доспех остаётся', 140, 490, m('arm', 3.3), { size: 24, fill: COL.dim, anchor: 'start' });
+    L(p, [['КБ ', COL.chalk], ['23', OK], [' = 10 + ', COL.chalk], ['3', HERO], [' + ', COL.chalk], ['7', RULE], [' + ', COL.chalk], ['2', ITEM], [' + ', COL.chalk], ['1', ITEM]], 140, 590, m('arm', 7.2), 42);
+    say(p, 'Ловкость (предел доспеха) · изучен · доспех · руна', 140, 640, m('arm', 8.4), { size: 22, fill: COL.dim, anchor: 'start' });
+    say(p, 'настроено', 1000, 450, m('inv'), { size: 24, fill: COL.dim, anchor: 'start' });
+    const g = G(p, { o: 0 });
+    for (let i = 0; i < 10; i++) mk('rect', { x: 1000 + i * 46, y: 480, width: 38, height: 38, rx: 6, fill: i ? 'none' : ITEM, 'fill-opacity': .6, stroke: i ? COL.faint : ITEM, 'stroke-width': 2.5, ...(i ? { 'stroke-dasharray': '6 5' } : {}) }, g);
+    show(g, m('inv', .5));
+    say(p, '1 из 10', 1230, 570, m('inv', 2.6), { size: 28, weight: 700 });
+  }],
+  ['skip', 'От чего Шиппа отказалась', (m) => {
+    const p = panel(0);
+    title(p, 'От чего Шиппа отказалась');
+    say(p, 'не взяла', 100, 126, .4, { size: 22, fill: COL.dim, anchor: 'start' });
+    say(p, 'взяла', 560, 126, .4, { size: 22, fill: COL.dim, anchor: 'start' });
+    say(p, 'цена выбора', 940, 126, .4, { size: 22, fill: COL.dim, anchor: 'start' });
+    const R = [['2-я классовая черта барда', 'Посвящение в плуты', ['приём из бардовского списка', 'не взят'], 'a'],
+      ['Невероятная инициатива', 'Живучесть', ['инициатива без бонуса,', 'зато больше ПЗ'], 'b'],
+      ['Коленодроб', 'Горлопан', ['без замедления врага,', 'зато песня на трёх'], 'c'],
+      ['Интеллект на 5-м', 'Мудрость', ['нет нового навыка и языка,', 'зато Воля и Внимание +10'], 'd'],
+      ['Героизм', 'Ускорение', ['нет +1 всей команде на 10 минут,', 'зато у Бронны лишнее действие'], 'e'],
+      ['кожаный доспех', 'клёпаный доспех', ['без +1 к Акробатике, Скрытности,', 'Воровству и Атлетике; лист цел'], 'f']];
+    R.forEach(([no, yes, price, mark], i) => {
+      const y = 150 + i * 98, g = G(p, { x: -24, o: 0 });
+      mk('rect', { x: 100, y, width: 1400, height: 84, rx: 16, fill: '#22322d', stroke: COL.faint, 'stroke-width': 2 }, g);
+      T(g, no, { x: 128, y: y + 52, size: 25, fill: NO, weight: 600 });
+      T(g, '→', { x: 520, y: y + 52, size: 28, fill: COL.dim, anchor: 'middle' });
+      T(g, yes, { x: 560, y: y + 52, size: 27, fill: OK, weight: 700 });
+      price.forEach((s, k) => T(g, s, { x: 940, y: y + 36 + k * 28, size: 22, fill: COL.dim }));
+      tw(g, { o: 1, x: 0 }, m(mark), .5, out);
+    });
+    L(p, [['выбор не навсегда: ', RULE], ['переподготовка — неделя свободного времени', COL.chalk]], 100, 790, m('g'), 28);
+  }],
+  ['q3', 'Быстрая проверка', () => { panel(0); }, { ask: done => quiz(WIDE, [{
+    id: 'c-lv5', prompt: ['4-й и 5-й уровни.'], build: blanks(Q_LV5),
+  }, {
+    id: 'c-lv5-tf', prompt: ['Верно или неверно?'], build: grid(Q_LV5_TF, TF, { multi: false, text: true }),
+  }], done) }],
+  ['sheet1', 'Лист 5-го уровня', (m) => {
+    const [sh, p] = shBeat([SH1, SH4]);
+    title(p, 'Лист Шиппы, 5-й уровень', .2, SHX);
+    const pr = (a, b, x, y, t0) => pill(p, `${a} ${b}`, HERO, x, y, t0, 22);
+    [['Сила', '0', 150, 1.4], ['Ловкость', '+4', 400, 2.1], ['Выносливость', '+3', 710, 3.4]].forEach(([a, b, x, d]) => pr(a, b, x, 130, m('ab', d)));
+    [['Интеллект', '0', 150, 4.8], ['Мудрость', '+1', 400, 5.7], ['Харизма', '+4', 640, 6.9]].forEach(([a, b, x, d]) => pr(a, b, x, 190, m('ab', d)));
+    pillsC(p, [['изучен: 5 + 2 = +7', RULE, m('ab', 8.6)], ['эксперт: 5 + 4 = +9', RULE, m('ab', 10.3)]], SHX, 262, 22);
+    sh.set('lvl', '5', m('ab', .2));
+    sh.set('a1', '+4', m('ab', 2.1)); sh.set('a2', '+3', m('ab', 3.4)); sh.set('a4', '+1', m('ab', 5.7)); sh.tag('a5', 'отметка', m('ab', 6.9));
+    L(p, [['ПЗ ', COL.chalk], ['70', OK], [' = ', COL.chalk], ['10', ANC], [' + 5 × (8 + 3)', HERO], [' + 5', TOUGH]], 100, 345, m('hp', .8), 30);
+    sh.set('hp', '70', m('hp', 4.4), '10+55+5');
+    L(p, [['КБ ', COL.chalk], ['23', OK], [' = 10 + ', COL.chalk], ['3', HERO], [' + ', COL.chalk], ['7', RULE], [' + ', COL.chalk], ['2', ITEM], [' + ', COL.chalk], ['1', ITEM]], 100, 405, m('ac', 1), 30);
+    say(p, 'Ловкость · изучен · клёпаный доспех · руна', 100, 440, m('ac', 4.5), { size: 20, fill: COL.dim, anchor: 'start' });
+    sh.set('ac', '23', m('ac', 7.6), '');
+    pillsC(p, [['Внимание +10', RULE, m('sv')], ['Стойкость +10', RULE, m('sv', 1.2)], ['Реакция +13', RULE, m('sv', 2.5)], ['Воля +10', RULE, m('sv', 3.9)]], SHX, 500, 22);
+    [['per', '+10', 'эксперт', 0], ['fort', '+10', 'изучен', 1.2], ['ref', '+13', 'эксперт', 2.5], ['will', '+10', 'эксперт', 3.9]].forEach(([k, v, s, d]) => sh.set(k, v, m('sv', d), s));
+    const tier = (v, names, y, t0) => L(p, [[v, RULE], ['   ' + names, COL.chalk]], 100, y, t0, 25);
+    tier('+13 эксперт', 'Обман, Исполнение', 570, m('sk'));
+    tier('+11 изучен', 'Дипломатия, Запугивание', 606, m('sk', 3.6));
+    tier('+10', 'Воровство, Скрытность', 642, m('sk', 6.2));
+    tier('+8', 'Религия', 678, m('sk', 12));
+    tier('+7', 'Оккультизм, Общество, Знание (выпивка)', 714, m('sk', 8.3));
+    [['sk0', 'Обман', 'эксперт · +13', 0], ['sk1', 'Исполнение', 'эксперт · +13', .6], ['sk2', 'Дипломатия', 'изучен · +11', 3.6], ['sk3', 'Запугивание', 'изучен · +11', 4.4],
+      ['sk4', 'Воровство, Скрытность', 'изучен · +10', 6.2]].forEach(([k, v, s, d]) => sh.set(k, v, m('sk', d), s));
+    L(p, [['не изучены: ', NO], ['Акробатика +3 · Атлетика −1 · Медицина, Природа, Выживание +1', COL.chalk]], 100, 770, m('un'), 24);
+    L(p, [['Мистицизм, Ремесло 0', COL.chalk]], 100, 806, m('un', 6.2), 24);
+    sh.set('ft_anc', 'ещё Горлопан', m('un', 3)); sh.set('ft_skill', 'ещё Краснобай', m('un', 3.3)); sh.set('ft_cls', 'ещё Атакующий исподтишка', m('un', 3.6));
+  }],
+  ['sheet2', 'Лист: вторая страница', (m) => {
+    const [sh, p] = shBeat([SH1, SH4]);
+    sh.page(2, .2);
+    title(p, 'Заклинания, черты и предметы', .2, SHX);
+    sh.set('st0', 'Рапира, +1 руна, разящая', m('st', 3.8), '+12 · 2d6 (+1d4)');
+    sh.set('st1', 'Кинжал', m('st', 7.6), '+11 · d4 (+1d4)');
+    sh.set('st2', 'Праща', m('st', 10.1), '+11 · d6 (+1d4)');
+    sh.set('cdc', '21', m('dc', 4.2));
+    pillsC(p, [['атака заклинанием +11', MAG, m('dc')], ['СЛ заклинаний 21', MAG, m('dc', 1.9)], ['классовая СЛ 21', RULE, m('dc', 3)]], SHX, 120, 21);
+    const T3 = [['1-й', 3, [['Силовой залп', 0, .4], ['Ужас', 0, .7], ['Умиротворение', 1, 1], ['Приворот', 0, 1.3]], 0],
+      ['2-й', 3, [['Рассеивание магии', 1, 1.6], ['Невидимость', 0, 1.9], ['Расплывчатость', 0, 2.2]], 1.6],
+      ['3-й', 2, [['Захватывающая речь', 0, 2.5], ['Ускорение', 1, 2.8]], 2.5]];
+    const sig = [];
+    T3.forEach(([c, n, sp, d], r) => {
+      const y = 170 + r * 84, g = G(p, { x: -20, o: 0 });
+      mk('rect', { x: 80, y, width: 960, height: 72, rx: 14, fill: '#22322d', stroke: COL.faint, 'stroke-width': 2 }, g);
+      T(g, c + ' круг', { x: 100, y: y + 32, size: 24, fill: LVL, weight: 700 });
+      for (let i = 0; i < n; i++) mk('rect', { x: 100 + i * 30, y: y + 44, width: 22, height: 16, rx: 4, fill: MAG, 'fill-opacity': .6 }, g);
+      let x = 270;
+      sp.forEach(([s, sg, d2]) => {
+        const w = pw(s, 20), e = pill(g, s, sg ? RULE : MAG, x + w / 2, y + 36, m('rep', d2), 20);
+        if (sg) sig.push(e);
+        x += w + 12;
+      });
+      tw(g, { o: 1, x: 0 }, m('sl', d), .5, out);
+    });
+    pill(p, '2 фокальных пункта', MAG, 200, 440, m('sl', 3.1), 21);
+    L(p, [['фокусы 3-го круга: Ступор 2d6, Телекинетический снаряд 4d6,', COL.dim]], 340, 436, m('sl', 3.9), 20);
+    L(p, [['Щит, Обнаружение магии, Вымысел', COL.dim]], 340, 464, m('sl', 4.1), 20);
+    say(p, 'янтарные — фирменные: Умиротворение, Рассеивание магии, Ускорение', 100, 515, m('sg'), { size: 21, fill: RULE, anchor: 'start' });
+    [1, 1.9, 3.1].forEach((d, i) => pulse(sig[i], m('sg', d), 1.2));
+    sh.set('it0', 'Рапира: усиление +1 и разящая', m('it', 1.1), '100 зм');
+    sh.set('it1', 'Клёпаный доспех: усиление +1', m('it', 4.3), '160 зм');
+    sh.set('it2', 'Всего', m('it', 6.7), '260 зм');
+    say(p, 'Черты (10)', 100, 580, m('ft'), { size: 26, fill: COL.chalk, weight: 700, anchor: 'start' });
+    const F = [['народ', ['Гоблинская песня', 'Горлопан']], ['класс', ['Продолжительная композиция', 'Посвящение в плуты', 'Атакующий исподтишка']],
+      ['навык', ['Неформальное общение', 'Обаятельный лжец', 'Быстрая угроза', 'Краснобай']], ['общая', ['Живучесть']]];
+    F.forEach(([k, names], r) => {
+      const y = 630 + r * 54;
+      say(p, k, 100, y + 7, m('ft', .3 + r * .2), { size: 20, fill: COL.dim, anchor: 'start' });
+      let x = 190;
+      names.forEach(s => { const w = pw(s, 19); pill(p, s, RULE, x + w / 2, y, m('ft', .3 + r * .2), 19); x += w + 10; });
+    });
+  }],
+  ['strike', 'Удар рапирой', (m) => {
+    const [sh, p] = shBeat([SH1, SH4]);
+    title(p, 'Удар рапирой', .2, SHX);
+    L(p, [['рапира: ', COL.chalk], ['+6', COL.dim], [' → ', COL.chalk], ['+12', OK]], 80, 135, m('sum'), 34);
+    L(p, [['+4 ', RULE], ['уровень', COL.dim], ['   +1 ', HERO], ['Ловкость', COL.dim], ['   +1 ', ITEM], ['руна', COL.dim]], 80, 182, m('sum', 2.7), 26);
+    hr(p, 220, m('foe', -.3), 80, 1040);
+    L(p, [['разбойник ', FOE], ['КБ 16', FOE]], 80, 262, m('foe'), 27);
+    L(p, [['застигнут врасплох: 16 − 2 = ', COL.chalk], ['14', OK]], 350, 262, m('foe', 2.1), 27);
+    const F2 = faces(p, 70, 340, m('foe', 5.4), { w: 44, h: 44, gap: 3, size: 20 });
+    say(p, 'застигнут врасплох: на 2 и выше (14 − 12)', 80, 328, m('foe', 5.4), { size: 21, fill: OK, weight: 600, anchor: 'start' });
+    for (let f = 2; f <= 20; f++) F2.paint(f, 's', m('foe', 6.4 + (f - 2) * .03));
+    const F1 = faces(p, 70, 450, m('foe', 8.8), { w: 44, h: 44, gap: 3, size: 20 });
+    say(p, 'обычный: на 4 и выше (16 − 12)', 80, 438, m('foe', 8.8), { size: 21, fill: COL.dim, anchor: 'start' });
+    for (let f = 4; f <= 20; f++) F1.paint(f, 's', m('foe', 11.8 + (f - 4) * .03));
+    const dy = 610;
+    dieShape(p, 6, 150, dy, RULE, m('dmg'), 64); dieShape(p, 6, 270, dy, RULE, m('dmg', 1), 64); say(p, '+', 355, dy + 12, m('dmg', 2), { size: 40, fill: COL.dim });
+    dieShape(p, 4, 440, dy, CLS, m('dmg', 2.5), 64);
+    say(p, 'исподтишка', 440, dy + 78, m('dmg', 2.5), { size: 20, fill: CLS });
+    L(p, [['7 + 2,5 = ', COL.chalk], ['9,5', OK], [' в среднем', COL.dim]], 560, dy + 14, m('dmg', 4.5), 34);
+    hr(p, 730, m('weak', -.3), 80, 1040);
+    L(p, [['сильное: ', OK], ['Обман, Исполнение, Реакция +13 · песня на три цели', COL.chalk]], 80, 775, m('weak'), 24);
+    L(p, [['слабое: ', NO], ['КБ 23, ПЗ 70 у второй линии · Атлетика, Ремесло', COL.chalk]], 80, 815, m('weak', 6), 24);
+  }],
+  ['todo', 'Что сделать сейчас', (m) => {
+    const p = panel(0);
+    title(p, 'Что сделать сейчас: ваш герой');
+    const x = 150, Y = k => 170 + k * 108;
+    step(p, 1, 'выпишите роль героя в отряде одной строкой', x, Y(0), m('r'), 30);
+    step(p, 2, 'составьте черты и повышения на уровни 2–5', x, Y(1), m('p'), 30);
+    step(p, 3, 'у каждого выбора: к какому делу относится, от чего отказались', x, Y(2), m('w'), 30);
+    step(p, 4, 'цепочки: критерий каждой черты выполняется на её уровне', x, Y(3), m('ch'), 30);
+    step(p, 5, 'клетка без дела: нужна черта на слабое место героя', x, Y(4), m('gap'), 30);
+    step(p, 6, 'посчитайте лист 5-го уровня по формулам главы 16', x, Y(5), m('fin'), 30);
+  }],
+  ['wrap', 'Итоги', (m) => {
+    const p = panel(0);
+    numbered(p, [['Каждый выбор усиливает дело отряда или закрывает слабое место.', 'w1'],
+      ['Критерий черты проверяют на её уровне: цепочки планируют заранее.', 'w2'],
+      ['За каждый выбор платят отказом от другого: записывайте цену.', 'w3'],
+      ['Лист 5-го уровня: ПЗ 70, КБ 23, рапира +12, Обман и Исполнение +13.', 'w4']], m, 220, 140, 29);
+  }],
+  ['final1', 'Практика главы', () => { panel(0); }, { ask: done => quiz(SCREEN, [{
+    id: 'p-tf', prompt: ['Верно или неверно?'], build: grid(P_TF, TF, { multi: false, text: true }),
+  }], done, 'Практика главы   1 из 3') }],
+  ['final2', 'Практика главы', () => {}, { ask: done => quiz(SCREEN, [{
+    id: 'p-sheet', prompt: ['Шиппа, 5-й уровень: Ловкость +4, Выносливость +3, Мудрость +1, Харизма +4. Изучен +7, эксперт +9.'], build: blanks(P_SHEET),
+  }], done, 'Практика главы   2 из 3') }],
+  ['final3', 'Практика главы', () => {}, { ask: done => quiz(SCREEN, [{
+    id: 'p-hit', prompt: ['Удар рапирой и цена рун.'], build: blanks(P_HIT),
+  }], done, 'Практика главы   3 из 3') }],
+  ['finish', 'Готово', () => {}, { ask: finishCard }],
+].map(([id, title, run, extra]) => ({ id, title, run, ...extra }));
+
+/* ---------- question data ---------- */
+const Q_CH = [
+  { parts: ['Краснобаю нужен эксперт в Обмане. Шиппа получает его на уровне: ', { box: '3' }], why: 'Повышение навыка 3-го уровня идёт в Обман.', hint: 'Первое повышение навыка у барда.' },
+  { parts: ['Посвящение в плуты со 2-го уровня открывает Атакующего исподтишка на уровне: ', { box: '4' }], why: 'Критерий один: Посвящение в плуты, черта на 4-м уровне.', hint: 'Смотрите таблицу цепочек.' },
+];
+const Q_CH_TF = [
+  { parts: ['Критерий черты проверяют при выборе.'], ans: ['t'], why: 'Черту нельзя взять, пока критерий не выполнен.' },
+  { parts: ['Выбери Шиппа на 3-м уровне Исполнение, Краснобай открылся бы только с 6-го.'], ans: ['t'], why: 'Черты навыка у барда на чётных уровнях.' },
+  { parts: ['Горлопану нужно Посвящение в плуты.'], ans: ['f'], why: 'Критерий Горлопана: Гоблинская песня.' },
+];
+const Q_LV = [
+  { parts: ['Рапира Шиппы +7. С руной усиления оружия +1 атака: +', { box: '8' }], why: '7 + 1 = 8.', hint: 'Руна прибавляет 1.' },
+  { parts: ['Живучесть на 3-м уровне: ПЗ было 30, стало ', { box: '43' }], why: '30 + 10 за уровень + 3 от черты = 43.', hint: '10 за уровень и ещё число, равное уровню.' },
+  { parts: ['Обман эксперт на 3-м уровне (Харизма +4): +', { box: '11' }], why: '4 + 3 + 4 = 11.', hint: 'Харизма + уровень + 4.' },
+];
+const Q_LV_TF = [
+  { parts: ['Фирменное заклинание повышается свободно.'], ans: ['t'], why: 'Его не нужно заводить в репертуар отдельно на каждом круге.' },
+  { parts: ['Приворот действует на сильных существ так же, как на слабых.'], ans: ['f'], why: 'Выше 2-го уровня результат лучше на ступень.' },
+  { parts: ['На 3-м уровне Шиппа получает руну.'], ans: ['f'], why: 'Рун на 3-м уровне нет.' },
+];
+const Q_LV5 = [
+  { parts: ['Разящая руна: рапира бьёт ', { box: '2' }, 'd6 вместо d6.'], why: '2d6 вместо d6.', hint: 'Сколько кубиков стало?' },
+  { parts: ['Горлопан: дистанция песни, футов: ', { box: '60' }], why: '60 футов вместо 30.', hint: 'Было 30.' },
+  { parts: ['Руна усиления брони стоит золотых монет: ', { box: '160' }], why: '160 зм.', hint: 'Дороже разящей руны.' },
+];
+const Q_LV5_TF = [
+  { parts: ['Ускорение даёт лишнее действие на любое действие.'], ans: ['f'], why: 'Только на Удар или Шаг.' },
+  { parts: ['Выносливость на 5-м уровне пересчитывает ПЗ задним числом.'], ans: ['t'], why: 'Из четырёх повышений только Выносливость.' },
+  { parts: ['Харизма Шиппы на 5-м уровне стала +5.'], ans: ['f'], why: 'Частичное повышение: +4 остаётся, +5 на 10-м.' },
+  { parts: ['Мудрость взята вместо Интеллекта: Воля и Внимание +10.'], ans: ['t'], why: 'Зато нет нового навыка и языка.' },
+];
+const P_TF = [
+  { parts: ['На 3-м уровне повышение навыка Шиппы идёт в Исполнение.'], ans: ['f'], why: 'В Обман: иначе Краснобай закрыт до 6-го.' },
+  { parts: ['Атакующему исподтишка нужно Посвящение в плуты.'], ans: ['t'], why: 'Критерий один: Посвящение в плуты.' },
+  { parts: ['Внезапная атака делает застигнутыми врасплох тех, кто ещё не ходил в 1-м раунде.'], ans: ['t'], why: 'Для этого Шиппа бросает на инициативу Обман или Скрытность.' },
+  { parts: ['Разящая руна и руна усиления оружия — одна и та же руна.'], ans: ['f'], why: 'Это две разные руны, обе на рапире.' },
+  { parts: ['Руна усиления брони прибавляет +2 к КБ.'], ans: ['f'], why: '+1 к КБ.' },
+  { parts: ['При экспертном Исполнении и Горлопане песня действует на три цели.'], ans: ['t'], why: 'Две цели от эксперта, одна от Горлопана.' },
+  { parts: ['После руны брони Шиппа настроила два предмета.'], ans: ['f'], why: 'Один предмет из десяти возможных.' },
+];
+const P_SHEET = [
+  { parts: ['ПЗ: 10 + 5 × 11 + 5 = ', { box: '70' }], why: '10 от народа, 5 уровней по 8 + 3 и 5 от Живучести.', hint: '10 + 55 + 5.' },
+  { parts: ['КБ: 10 + 3 + 7 + 2 + руна 1 = ', { box: '23' }], why: '10 + 3 + 7 + 2 + 1 = 23.', hint: 'Сложите всё.' },
+  { parts: ['Реакция, эксперт: Ловкость +4 и ранг +9: +', { box: '13' }], why: '4 + 9 = 13.', hint: 'Ловкость плюс бонус эксперта.' },
+  { parts: ['Воля, эксперт: Мудрость +1 и ранг +9: +', { box: '10' }], why: '1 + 9 = 10.', hint: 'Мудрость плюс бонус эксперта.' },
+  { parts: ['Дипломатия, изучен: Харизма +4 и ранг +7: +', { box: '11' }], why: '4 + 7 = 11.', hint: 'Харизма плюс бонус изучен.' },
+];
+const P_HIT = [
+  { parts: ['Рапира: Ловкость +4, изучен +7, руна +1. Атака: +', { box: '12' }], why: '4 + 7 + 1 = 12.', hint: 'Сложите три числа.' },
+  { parts: ['КБ разбойника 16. Застигнут врасплох: ', { box: '14' }], why: '16 − 2 = 14.', hint: 'Минус 2.' },
+  { parts: ['Рапира +12 попадает по КБ 14 на кубике от ', { box: '2' }, ' и выше.'], why: '14 − 12 = 2.', hint: 'КБ минус бонус атаки.' },
+  { parts: ['Все три руны вместе: 35 + 65 + 160 = ', { box: '260' }, ' зм.'], why: '35 + 65 + 160 = 260.', hint: 'Усиление оружия, разящая, усиление брони.' },
+  { parts: ['Средний урон 2d6 рапиры без исподтишка: ', { box: '7' }], why: 'Два d6 в среднем дают 7; с исподтишка ещё 2,5: всего 9,5.', hint: 'Среднее одного d6 равно 3,5.' },
+];
+boot();
+</script>
+</body>
+</html>

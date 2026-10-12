@@ -1,0 +1,492 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Архетипы — Первый герой</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%231d2b27'/%3E%3Ctext x='32' y='45' text-anchor='middle' font-size='48' fill='%23f0b45a'%3E∞%3C/text%3E%3C/svg%3E">
+<link rel="stylesheet" href="../lib/engine.css">
+<link rel="expect" href="#bar" blocking="render"><!-- hold the first frame until the player exists, so the page transition can run -->
+</head>
+<body>
+<script src="../lib/engine.js"></script>
+<script src="../lib/pf.js"></script>
+<script src="audio/ru/timings.js"></script>
+<script>
+'use strict';
+const CHAPTER = { number: 18, title: 'Архетипы', minutes: 14, language: 'ru', next: '../ch19/' };
+
+/* ---------- chapter drawing helpers (shared ones: lib/pf.js) ---------- */
+// Archetype and dedication ARC (purple), slots, rules and numbers RULE, Shippa HERO, GM GMC, the rogue FOE, right OK, wrong NO.
+const ARC = COL.real;
+const hr = (p, y, t0, x1 = 80, x2 = 1520) => draw(path(p, `M${x1} ${y}H${x2}`, { stroke: COL.faint, 'stroke-width': 2 }, { d: 0 }), t0, .5);
+const box = (p, x, y, w, h, colr, t0, dash) => { const r = mk('rect', { x, y, width: w, height: h, rx: 18, fill: dash ? 'none' : '#22322d', stroke: colr, 'stroke-width': 2.5, ...(dash ? { 'stroke-dasharray': '10 8' } : {}) }, p); put(r, { o: 0 }); show(r, t0); return r; };
+const title = (p, s, t0 = .2, x = 800) => say(p, s, x, 62, t0, { size: 36, weight: 600 });
+const L = (p, parts, x, y, t0, size = 26) => colorLine(p, parts, x, y, t0, { size, anchor: 'start' });   // left-aligned coloured line
+const setText = (e, s, t0) => { prog(() => { e.textContent = s; }, t0, 0); pulse(e, t0, 1.3); };
+const pw = (s, size) => s.length * size * .56 + 44;
+// Pills of their own colours [[text, colour, t0], …] in a row centred on cx.
+function pillsC(p, items, cx, y, size = 24) {
+  const w = items.map(([s]) => pw(s, size)), tot = w.reduce((a, b) => a + b + 16, -16);
+  let x = cx - tot / 2;
+  return items.map(([s, c, t0], i) => { const g = pill(p, s, c, x + w[i] / 2, y, t0, size); x += w[i] + 16; return g; });
+}
+// A numbered step: amber disc with n, text after it (and a dim second line); returns the group (hidden until t0).
+function step(p, n, str, x, y, t0, size = 27, sub) {
+  const g = G(p, { x: -20, o: 0 });
+  mk('circle', { cx: x, cy: y - size * .36, r: 22, fill: mix(COL.board, RULE, .3), stroke: RULE, 'stroke-width': 2.5 }, g);
+  T(g, String(n), { x, y: y - size * .36 + 9, size: 24, fill: RULE, weight: 700, anchor: 'middle' });
+  if (typeof str === 'string') T(g, str, { x: x + 40, y, size, fill: COL.chalk, weight: 500 });
+  else { const e = T(g, '', { x: x + 40, y, size, weight: 500 }); str.forEach(([s, c = COL.chalk]) => { mk('tspan', { fill: c }, e).textContent = s; }); }
+  if (sub) (Array.isArray(sub) ? sub : [sub]).forEach((s, i) => T(g, s, { x: x + 40, y: y + 36 + i * 30, size: 22, fill: COL.dim }));
+  tw(g, { o: 1, x: 0 }, t0, .5, out);
+  return g;
+}
+// A square token for the feat count: D dedication, F other feat, E empty (dashed).
+function sq(p, x, y, kind, t0, s = 64) {
+  const g = G(p, { x, y, o: 0 });
+  const c = kind === 'D' ? ARC : RULE;
+  mk('rect', { x: 0, y: 0, width: s, height: s, rx: 10, fill: kind === 'E' ? 'none' : c, 'fill-opacity': kind === 'E' ? 1 : .5, stroke: kind === 'E' ? COL.faint : c, 'stroke-width': 2.5,
+    ...(kind === 'E' ? { 'stroke-dasharray': '7 6' } : {}) }, g);
+  if (kind !== 'E') T(g, kind === 'D' ? 'П' : 'Ч', { x: s / 2, y: s / 2 + 10, size: 30, fill: COL.chalk, weight: 700, anchor: 'middle' });
+  show(g, t0);
+  return g;
+}
+// The twenty faces of a d20 in a row from x0, top y; paint(f, deg, t0) colours face f (as in ch09, ch14, ch16).
+function faces(p, x0, y, t0, { w = 58, h = 80, gap = 4, size = 26 } = {}) {
+  const X = f => x0 + (f - 1) * (w + gap), cx = f => X(f) + w / 2;
+  const g = G(p, { o: 0 });
+  for (let f = 1; f <= 20; f++) {
+    mk('rect', { x: X(f), y, width: w, height: h, rx: 8, fill: 'none', stroke: COL.faint, 'stroke-width': 2, 'stroke-dasharray': '6 5' }, g);
+    T(g, String(f), { x: cx(f), y: y + h / 2 + size * .36, size, weight: 600, anchor: 'middle' });
+  }
+  show(g, t0);
+  const top = G(p);
+  return {
+    X, cx, w, h,
+    paint(f, deg, t1) {
+      const [, , colr, op] = DEG.find(d => d[0] === deg);
+      const r = mk('rect', { x: X(f), y, width: w, height: h, rx: 8, fill: colr, 'fill-opacity': op, stroke: colr, 'stroke-width': 2.5 }, top);
+      put(r, { o: 0 }); show(r, t1, .3);
+      return r;
+    },
+  };
+}
+
+/* ---------- Shippa's sheet (page 1) at levels 1 and 2 ---------- */
+const SH1 = [['name', 'Шиппа'], ['lvl', '1'], ['anc', 'гоблин'], ['her', 'небьющийся гоблин'], ['bg', 'трактирщик'], ['cls', 'бард'],
+  ['a0', '0'], ['a1', '+3'], ['a2', '+2'], ['a3', '0'], ['a4', '0'], ['a5', '+4'], ['hp', '20', '10+8+2'], ['ac', '18', '10+3+3+2'],
+  ['per', '+5', 'эксперт'], ['will', '+5', 'эксперт'], ['fort', '+5', 'изучен'], ['ref', '+6', 'изучен'],
+  ['sk0', 'Дипломатия', 'изучен · +7'], ['sk1', 'Знание (выпивка)', 'изучен · +3'], ['sk2', 'Оккультизм', 'изучен · +3'], ['sk3', 'Исполнение', 'изучен · +7'],
+  ['sk4', 'Обман, Общество, Религия, Скрытность', ''], ['ft_anc', 'Гоблинская песня'], ['ft_skill', 'Неформальное общение'], ['ft_cls', 'Продолжительная композиция'],
+  ['size', 'Небольшой'], ['spd', '25 футов'], ['sense', 'ночное зрение'], ['lang', 'всеобщий, гоблинский'], ['prof', 'изучен']];
+const SH2 = [['lvl', '2'], ['hp', '30', '20+8+2'], ['ac', '19', '10+3+4+2'], ['per', '+6', 'эксперт'], ['sk0', 'Дипломатия', 'изучен · +8'],
+  ['sk1', 'Знание (выпивка)', 'изучен · +4'], ['sk2', 'Оккультизм', 'изучен · +4'], ['sk3', 'Исполнение', 'изучен · +8'],
+  ['fort', '+6', 'изучен'], ['ref', '+7', 'изучен'], ['will', '+6', 'эксперт']];
+const SH2F = [['ft_cls', 'Посвящение в плуты'], ['ft_skill', 'Обаятельный лжец']];
+const SHSK = [['sk0', 'Запугивание', 'изучен · +8'], ['sk1', 'Воровство', 'изучен · +6'], ['sk2', 'Дипломатия', 'изучен · +8'], ['sk3', 'Исполнение', 'изучен · +8'],
+  ['sk4', 'Обман, Скрытность, Оккультизм и др.', ''], ['ft_skill', 'Быстрая угроза, Лжец']];
+// A sheet beat: the first one of a run builds the sheet on a fresh panel filled with `states`; the next keeps it and replaces the left part.
+function shBeat(states) {
+  if (S.sh && S.shPanel === S.panel) {
+    hide(S.shLeft, .1, .4);
+    return [S.sh, (S.shLeft = G(S.panel)), true];
+  }
+  const p0 = panel(0), sh = S.sh = charSheet(p0, .3);
+  S.shPanel = p0;
+  states.forEach(l => l.forEach(a => sh.fill(...a)));
+  return [sh, (S.shLeft = G(p0)), false];
+}
+const SHX = 560;   // centre of the picture left of the sheet
+
+/* ---------- beats: [id, title, run(m, D), { ask }?] ---------- */
+const BEATS = [
+  ['intro', 'Архетипы', (m, D) => {
+    const g = G(scene, { o: 0, y: 24 });
+    T(g, 'Раздел 8 «Развитие» · Глава 18', { x: 800, y: 330, size: 28, fill: COL.dim, anchor: 'middle' });
+    T(g, 'Архетипы', { x: 800, y: 440, size: 70, weight: 600, anchor: 'middle' });
+    tw(g, { o: 1, y: 0 }, .2, 1.1, out);
+    const r = say(scene, 'чужие приёмы при своём классе', 800, 560, Math.max(m('sub'), 1.2), { size: 34, fill: COL.dim });
+    tw(g, { o: 0, y: -24 }, D - .9, .8); hide(r, D - .9, .8);
+  }],
+  ['what', 'Что такое архетип', (m) => {
+    const p = panel(0);
+    title(p, 'Что такое архетип');
+    pillsC(p, [['плутовские приёмы', ARC, m('cl', -5.4)], ['медицина', ARC, m('cl', -3.6)], ['тяжёлая броня', ARC, m('cl', -2.2)]], 800, 140, 24);
+    say(p, 'набор черт вокруг одной темы', 800, 205, m('cl', -6), { size: 24, fill: COL.dim });
+    box(p, 100, 260, 640, 300, HERO, m('cl', -.4));
+    say(p, 'Класс: бард', 140, 325, m('cl'), { size: 34, fill: HERO, weight: 700, anchor: 'start' });
+    say(p, 'класс один и растёт по своей таблице', 140, 365, m('cl', 1.2), { size: 22, fill: COL.dim, anchor: 'start' });
+    ['пункты здоровья', 'бонус умения', 'заклинания', 'классовые особенности'].forEach((s, i) => say(p, s, 140, 420 + i * 36, m('cl', 5 + i * 1), { size: 26, anchor: 'start' }));
+    say(p, '+', 800, 430, m('ar'), { size: 80, fill: RULE, weight: 700 });
+    box(p, 860, 260, 640, 300, ARC, m('ar', -.2));
+    say(p, 'Архетип', 900, 325, m('ar'), { size: 34, fill: ARC, weight: 700, anchor: 'start' });
+    say(p, 'не второй класс', 900, 365, m('ar', .6), { size: 22, fill: COL.dim, anchor: 'start' });
+    ['отдельные черты', 'пара навыков'].forEach((s, i) => say(p, s, 900, 430 + i * 44, m('ar', .8 + i * .9), { size: 26, anchor: 'start' }));
+    box(p, 100, 640, 1400, 150, HERO, m('sh'));
+    say(p, 'Шиппа', 140, 700, m('sh'), { size: 32, fill: HERO, weight: 700, anchor: 'start' });
+    L(p, [['бард 2-го уровня, ', COL.chalk], ['30 ПЗ', COL.chalk]], 300, 700, m('sh', .3), 30);
+    pill(p, '+ Посвящение в плуты', ARC, 1160, 692, m('sh', 5.5), 28);
+    say(p, 'хочет красться и колоть в спину', 140, 755, m('sh', 2.5), { size: 24, fill: COL.dim, anchor: 'start' });
+  }],
+  ['slot', 'Слот классовой черты', (m) => {
+    const [sh, p] = shBeat([SH1, SH2]);
+    title(p, 'Посвящение занимает слот', .2, SHX);
+    say(p, 'слот классовой черты · 2-й уровень барда', 80, 150, .6, { size: 23, fill: COL.dim, anchor: 'start' });
+    box(p, 80, 175, 560, 100, RULE, .8, true);
+    const tok = G(p, { x: 100, y: 190, o: 0 });
+    mk('rect', { width: 520, height: 70, rx: 35, fill: '#22322d', stroke: ARC, 'stroke-width': 2.5 }, tok);
+    const tt = T(tok, 'черта посвящения', { x: 260, y: 46, size: 28, fill: ARC, weight: 600, anchor: 'middle' });
+    show(tok, m('ded'));
+    setText(tt, 'Посвящение в плуты', m('sh'));
+    sh.set('ft_cls', 'Посвящение в плуты', m('sh', 1.2));
+    pill(p, 'черта барда 2-го уровня', COL.dim, 880, 225, m('sh', 2.2), 22);
+    yesNo(p, false, 690, 225, m('sh', 3), .9);
+    say(p, 'слот один', 360, 322, m('sh', 3.4), { size: 25, fill: NO, weight: 600 });
+    hr(p, 360, m('all', -.3), 80, 1040);
+    say(p, 'после посвящения — любая черта архетипа по критериям', 80, 410, m('all'), { size: 25, anchor: 'start' });
+    pill(p, 'классовая черта архетипа', ARC, 300, 480, m('all', 4.5), 24);
+    say(p, 'занимает слот классовой черты', 560, 488, m('all', 6), { size: 23, fill: COL.dim, anchor: 'start' });
+    hr(p, 540, m('lim', -.3), 80, 1040);
+    say(p, 'слот с ограничением', 80, 585, m('lim'), { size: 25, anchor: 'start' });
+    box(p, 80, 610, 960, 80, RULE, m('lim', 1), true);
+    pillsC(p, [['не выше 4-го уровня', RULE, m('lim', 1.6)], ['дескриптор «дварф»', RULE, m('lim', 3)]], 560, 650, 24);
+    const t1 = pill(p, 'черта архетипа: 4-й уровень, «дварф»', ARC, 460, 740, m('dw'), 24);
+    yesNo(p, true, 800, 740, m('dw', 1), .9);
+    pill(p, 'черта архетипа: 6-й уровень', ARC, 400, 810, m('dw', 3), 24);
+    yesNo(p, false, 740, 810, m('dw', 4), .9);
+  }],
+  ['two', 'Посвящение и две другие черты', (m) => {
+    const p = panel(0);
+    title(p, 'Посвящение и две другие черты');
+    say(p, 'новое посвящение — после двух других черт текущего архетипа; само посвящение не считается', 800, 130, m('rule'), { size: 24, fill: COL.dim });
+    [['только посвящение', 'D', 'r1', 1, false], ['посвящение и одна другая черта', 'DF', 'r2', 2, false], ['посвящение и две другие черты', 'DFF', 'r3', 3, true]].forEach(([s, kinds, mark, n, good], i) => {
+      const y = 190 + i * 95, t0 = m(mark);
+      [...kinds].forEach((k, j) => sq(p, 120 + j * 80, y, k, t0 + j * .25));
+      say(p, s, 420, y + 44, t0, { size: 27, anchor: 'start' });
+      pill(p, good ? 'можно' : 'нельзя', good ? OK : NO, 1280, y + 32, t0 + .6, 26);
+    });
+    hr(p, 500, m('sh', -.3));
+    const X3 = [260, 800, 1340];
+    path(p, 'M140 600H1460', { stroke: COL.faint, 'stroke-width': 3 });
+    [['2-й уровень', 'D', 'Посвящение', 'другие черты: 0', m('sh', .3)], ['4-й уровень', 'F', 'черта архетипа', 'другие черты: 1', m('sh', 3.5)], ['6-й уровень', 'E', 'вторая другая черта', 'другие черты: 2', m('sh', 9.5)]].forEach(([lv, k, s, c, t0], i) => {
+      say(p, lv, X3[i], 545, t0, { size: 26, fill: COL.dim, weight: 600 });
+      sq(p, X3[i] - 32, 570, k, t0);
+      say(p, s, X3[i], 670, t0 + .3, { size: 25, fill: k === 'E' ? COL.dim : COL.chalk });
+      say(p, c, X3[i], 705, t0 + .6, { size: 22, fill: k === 'E' ? OK : COL.dim });
+    });
+    pill(p, 'теперь можно другой архетип', OK, 1340, 770, m('sh', 13), 22);
+    hr(p, 800, m('rt', -.3));
+    L(p, [['посвящение нельзя переподготовить (глава 16), пока есть другие черты архетипа', COL.chalk]], 100, 840, m('rt'), 25);
+  }],
+  ['q1', 'Быстрая проверка', () => { panel(0); }, { ask: done => quiz(WIDE, [{
+    id: 'a-tf', prompt: ['Верно или неверно?'], build: grid(Q_TF1, TF, { multi: false, text: true }),
+  }, {
+    id: 'a-num', prompt: ['Посчитайте.'], build: blanks(Q_N1),
+  }], done) }],
+  ['limits', 'Три ограничения', (m) => {
+    const p = panel(0);
+    title(p, 'Три ограничения посвящения');
+    const col = (i, head, mark, lines) => {
+      const x = 100 + i * 490, t0 = m(mark);
+      box(p, x, 130, 440, 400, RULE, t0 - .2);
+      say(p, head, x + 28, 190, t0, { size: 29, fill: RULE, weight: 700, anchor: 'start' });
+      lines.forEach(([s, c, d, size = 24], k) => say(p, s, x + 28, 260 + k * 56, t0 + d, { size, fill: c ?? COL.chalk, anchor: 'start' }));
+    };
+    col(0, '1. Не раньше 2-го уровня', 'l1', [['у большинства уровень черты 2', COL.chalk, .6], ['бывает 4 или 6', COL.chalk, 3], ['на 1-м уровне посвящений нет', NO, 6, 24]]);
+    col(1, '2. Критерии', 'l2', [['плут: Ловкость +2', COL.chalk, .6], ['у Шиппы Ловкость +3', OK, 3.4], ['проверяют по текущим числам,', COL.chalk, 6.6, 23], ['а не по числам при создании', COL.chalk, 6.9, 23]]);
+    col(2, '3. «Мультикласс»', 'l3', [['нельзя взять посвящение', COL.chalk, .6], ['класса, в котором вы уже состоите', COL.chalk, .9, 23]]);
+    const bx = 100 + 2 * 490 + 28;
+    pill(p, 'бард: Посвящение в барды', NO, bx + 190, 410, m('mc'), 22);
+    pill(p, 'воин: Посвящение в воины', NO, bx + 190, 480, m('mc', 1.2), 22);
+    yesNo(p, false, bx + 395, 410, m('mc', .3), .7); yesNo(p, false, bx + 395, 480, m('mc', 1.5), .7);
+    say(p, 'Шиппе открыты посвящения любых классов, кроме барда', 800, 620, m('mc', 3.5), { size: 27 });
+    pillsC(p, [['в плуты', OK, m('mc', 6.6)], ['в воины', OK, m('mc', 7.4)], ['в волшебники', OK, m('mc', 8.4)]], 800, 700, 26);
+  }],
+  ['multi', 'Мультиклассовые архетипы', (m) => {
+    const p = panel(0);
+    title(p, 'Мультиклассовые архетипы');
+    const grp = (cx, head, names, mark) => {
+      say(p, head, cx, 130, m(mark), { size: 25, fill: COL.dim, weight: 600 });
+      return names.map((s, i) => pill(p, s, ARC, cx + (i % 2 ? 115 : -115), 190 + Math.floor(i / 2) * 58, m(mark, .3 + i * .25), 22));
+    };
+    const a = grp(430, 'Основные правила · 8 классов', ['бард', 'жрец', 'друид', 'воин', 'следопыт', 'плут', 'ведьма', 'волшебник'], 'pc1');
+    const b = grp(1170, 'вторая книга · ещё 8', ['алхимик', 'варвар', 'поборник', 'следователь', 'монах', 'оракул', 'чародей', 'сорвиголова'], 'pc2');
+    pulse(a[0], m('bard'), 1.3); pulse(b[3], m('inv'), 1.3);
+    const card = (x, mark, head, lines) => {
+      box(p, x, 450, 690, 220, RULE, m(mark, -.2));
+      say(p, head, x + 28, 500, m(mark), { size: 28, fill: RULE, weight: 700, anchor: 'start' });
+      lines.forEach(([s, c = COL.chalk], i) => say(p, s, x + 28, 550 + i * 40, m(mark, .8 + i * 1.8), { size: 24, fill: c, anchor: 'start' }));
+    };
+    card(100, 'bard', 'Бард · критерий: Харизма +2', [['Харизма — ключевая для заклинаний'], ['два оккультных фокуса'], ['изучены Оккультизм и Исполнение']]);
+    card(810, 'inv', 'Следователь · критерий: Интеллект +2', [['занятие «Рассмотрение зацепки»'], ['изучено Общество и ещё один навык'], ['Общество уже есть — другой навык', COL.dim]]);
+    const lad = [['посвящение: набор', ARC], ['4-й: простые черты', RULE], ['6-й: продвинутые', RULE], ['выше: мастерские', RULE]];
+    lad.forEach(([s, c], i) => {
+      const x = 110 + i * 366, t0 = m('step', .2 + i * .9);
+      box(p, x, 730, 300, 90, c, t0);
+      say(p, s, x + 150, 784, t0, { size: 22, fill: c, weight: 600 });
+      if (i) arrowTo(p, x - 62, 775, x - 6, 775, COL.dim, t0);
+    });
+  }],
+  ['others', 'Остальные архетипы', (m) => {
+    const p = panel(0);
+    title(p, 'Остальные архетипы');
+    pill(p, 'больше тридцати без «мультикласс» · у каждого своя тема', ARC, 800, 140, .5, 24);
+    box(p, 100, 200, 660, 420, COL.int, m('sen', -.3));
+    say(p, 'Страж', 130, 255, m('sen'), { size: 32, fill: COL.int, weight: 700, anchor: 'start' });
+    say(p, 'Посвящение в стражи', 300, 255, m('sen'), { size: 22, fill: COL.dim, anchor: 'start' });
+    say(p, 'изучены лёгкая и средняя броня', 130, 330, m('sen', 1.2), { size: 26, anchor: 'start' });
+    say(p, 'обе уже изучены → изучена тяжёлая', 130, 385, m('sen', 3.8), { size: 26, anchor: 'start' });
+    say(p, 'для тех, кто хочет броню тяжелее, чем даёт класс', 130, 450, m('sen', 6.2), { size: 22, fill: COL.dim, anchor: 'start' });
+    box(p, 840, 200, 660, 420, HERO, m('med', -.3));
+    say(p, 'Медик', 870, 255, m('med'), { size: 32, fill: HERO, weight: 700, anchor: 'start' });
+    say(p, 'Посвящение в медики', 1030, 255, m('med'), { size: 22, fill: COL.dim, anchor: 'start' });
+    say(p, 'критерии: Медицина изучена и «Медицина в бою»', 870, 315, m('med', .6), { size: 23, anchor: 'start' });
+    say(p, 'эксперт в Медицине', 870, 360, m('med', 7), { size: 26, anchor: 'start' });
+    say(p, 'лечение сильнее: цель восстанавливает больше', 870, 415, m('med', 9), { size: 23, fill: COL.dim, anchor: 'start' });
+    [['СЛ 20', '+5 ПЗ', 11.5], ['СЛ 30', '+10 ПЗ', 14.5], ['СЛ 40', '+15 ПЗ', 17.5]].forEach(([a, b, d], i) => {
+      pill(p, a, RULE, 960 + i * 190, 470, m('med', d), 24);
+      say(p, b, 960 + i * 190, 535, m('med', d + .4), { size: 28, fill: OK, weight: 700 });
+    });
+    say(p, 'воин Бронна уже лечит в бою — на 2-м уровне подошло бы', 870, 584, m('med', 21), { size: 21, fill: COL.dim, anchor: 'start' });
+    box(p, 100, 670, 1400, 170, RULE, m('rl', -.3));
+    say(p, 'правила те же: посвящение и две другие черты', 140, 730, m('rl'), { size: 28, anchor: 'start' });
+    say(p, 'запрет на архетип своего класса не действует: дескриптора «мультикласс» нет', 140, 795, m('rl', 2.4), { size: 25, fill: COL.dim, anchor: 'start' });
+    yesNo(p, true, 1430, 765, m('rl', 3.5), 1);
+  }],
+  ['q2', 'Быстрая проверка', () => { panel(0); }, { ask: done => quiz(WIDE, [{
+    id: 'b-tf', prompt: ['Верно или неверно?'], build: grid(Q_TF2, TF, { multi: false, text: true }),
+  }, {
+    id: 'b-num', prompt: ['Посчитайте.'], build: blanks(Q_N2),
+  }], done) }],
+  ['free', 'Бесплатный архетип', (m) => {
+    const p = panel(0);
+    title(p, 'Бесплатный архетип');
+    pill(p, 'вариант правил · включает ведущий', GMC, 800, 135, .5, 26);
+    const xl = l => 140 + (l - 1) * 72;
+    path(p, `M${xl(1)} 250H${xl(20)}`, { stroke: COL.faint, 'stroke-width': 3 });
+    for (let l = 1; l <= 20; l++) say(p, String(l), xl(l), 292, m('two'), { size: 18, fill: COL.dim });
+    for (let l = 2; l <= 20; l += 2) {
+      const g = G(p, { x: xl(l), y: 250, o: 0, s: .6 });
+      mk('circle', { r: 14, fill: RULE }, g);
+      pop(g, m('two', .3 + (l / 2) * .25));
+    }
+    say(p, 'со 2-го уровня и на каждом чётном: ещё одна классовая черта, только для черт архетипа', 800, 345, m('two', 1), { size: 24, fill: RULE, weight: 600 });
+    say(p, 'решает ведущий', 800, 410, m('gm'), { size: 28, fill: GMC, weight: 700 });
+    pillsC(p, [['любой архетип', GMC, m('gm', 1.8)], ['один общий на группу', GMC, m('gm', 3.4)], ['список по теме: магические', GMC, m('gm', 5.2)]], 800, 470, 24);
+    say(p, 'может снять правило двух черт — и для общего архетипа, и для списка', 800, 540, m('gm', 8), { size: 25 });
+    box(p, 180, 610, 540, 150, COL.faint, m('sh'), true);
+    say(p, 'обычный слот', 210, 660, m('sh', .3), { size: 26, fill: COL.dim, anchor: 'start' });
+    say(p, 'остаётся барду', 210, 705, m('sh', 5), { size: 28, anchor: 'start' });
+    box(p, 880, 610, 540, 150, ARC, m('sh', 1.5));
+    say(p, 'бесплатный слот', 910, 660, m('sh', 1.8), { size: 26, fill: ARC, anchor: 'start' });
+    say(p, 'Посвящение в плуты', 910, 705, m('sh', 3.5), { size: 28, anchor: 'start' });
+    say(p, 'Шиппа на 2-м уровне: два слота', 800, 800, m('sh', .6), { size: 24, fill: COL.dim });
+    pill(p, 'спросите ведущего до создания героя', GMC, 800, 850, m('ask'), 26);
+  }],
+  ['choose', 'Как выбрать архетип', (m) => {
+    const p = panel(0);
+    title(p, 'Как выбрать архетип');
+    [['Начните с образа: чего нет у вашего класса', 'c1', 'Шиппа хочет красться и бить исподтишка → плут'],
+      ['Проверьте критерии', 'c2', 'нет нужной характеристики — нет и посвящения (плут: Ловкость +2)'],
+      ['Прочтите посвящение целиком', 'c3', 'перенесите на лист всё, что оно даёт: навыки и ранги'],
+      ['Найдите две следующие черты', 'c4', 'на 4-м и 6-м уровне есть что взять? Если нет — не подходит'],
+      ['Сравните выгоду', 'c5', 'лучше то, что за один слот даёт больше'],
+      ['Спросите ведущего', 'c6', 'часть архетипов из дополнительных книг может быть закрыта']]
+      .forEach(([s, mark, sub], i) => step(p, i + 1, s, 120, 160 + i * 106, m(mark), 29, sub));
+    box(p, 100, 790, 1400, 80, ARC, m('fst', -.2));
+    say(p, 'первый архетип: без заклинаний, с навыками и приёмом — как у плута', 800, 842, m('fst'), { size: 27, fill: ARC, weight: 600 });
+  }],
+  ['rogue', 'Посвящение в плуты', (m) => {
+    const p = panel(0);
+    title(p, 'Посвящение в плуты');
+    pillsC(p, [['черта 2-го уровня', RULE, .5], ['«архетип»', ARC, 1.4], ['«посвящение»', ARC, 2.3], ['«мультикласс»', ARC, 3.2]], 800, 135, 24);
+    L(p, [['критерий: Ловкость +2 · у Шиппы ', COL.chalk], ['+3', OK]], 380, 205, 5.5, 28);
+    yesNo(p, true, 1140, 193, 7, .9);
+    step(p, 1, [['Черта навыка', COL.chalk]], 140, 290, m('sk'), 29, 'ещё одна, сверх положенной по таблице барда');
+    step(p, 2, [['Внезапная атака', COL.chalk], [' (Surprise Attack)', COL.dim]], 140, 400, m('sa'), 29,
+      ['в 1-м раунде боя: бросили Обман или Скрытность на инициативу →', 'существа, которые ещё не ходили, застигнуты врасплох против вас']);
+    step(p, 3, 'Лёгкая броня изучена', 140, 540, m('ar'), 29, 'у Шиппы с 1-го уровня: ничего не меняется');
+    step(p, 4, 'Скрытность или Воровство, плюс навык на выбор', 140, 650, m('sk2'), 29, 'оба уже изучены → вместо них дополнительный навык');
+    step(p, 5, 'Классовая СЛ плута: изучена', 140, 760, m('dc'), 29, 'ни одна черта Шиппы её пока не использует: считать не нужно');
+  }],
+  ['picks', 'Выбор Шиппы', (m) => {
+    const [sh, p] = shBeat([SH1, SH2, SH2F]);
+    title(p, 'Выбор Шиппы', .2, SHX);
+    const row = (y, name, sub, tag, tc, t0, dim) => {
+      box(p, 80, y, 960, 84, dim ? COL.faint : HERO, t0 - .2);
+      say(p, name, 110, y + 53, t0, { size: 31, fill: dim ? COL.dim : HERO, weight: 700, anchor: 'start' });
+      say(p, sub, 330, y + 52, t0 + .3, { size: 22, fill: COL.dim, anchor: 'start' });
+      return pill(p, tag, tc, 920, y + 42, t0 + 1, 22);
+    };
+    row(140, 'Скрытность', 'уже изучена, поэтому берёт другой', 'уже есть', COL.dim, m('th', .2), true);
+    row(240, 'Воровство', 'карманы, замки, ловушки · Ловкость +3', 'берёт', OK, m('th', 3));
+    sh.set('sk1', 'Воровство', m('th', 3.4), 'изучен · +6');
+    row(340, 'Запугивание', 'свободный навык · Харизма +4, ранга не было', 'берёт', OK, m('in', .8));
+    sh.set('sk0', 'Запугивание', m('in', 1.2), 'изучен · +8');
+    sh.set('sk4', 'Обман, Скрытность, Оккультизм и др.', m('in', 1.8), '');
+    say(p, 'теперь Шиппа может быть лицом отряда', 700, 462, m('in', 6), { size: 22, fill: OK });
+    row(480, 'Ремесло', 'Интеллект 0 · бонус +0 на любом уровне', 'не изучено', NO, m('cr', .4), true);
+    box(p, 80, 600, 960, 160, ARC, m('qc', -.2));
+    say(p, 'Черта навыка: Быстрая угроза', 110, 650, m('qc'), { size: 30, fill: ARC, weight: 700, anchor: 'start' });
+    say(p, '(Quick Coercion)', 700, 650, m('qc'), { size: 22, fill: COL.dim, anchor: 'start' });
+    L(p, [['критерий: изучено Запугивание ', COL.chalk], ['✓', OK]], 110, 696, m('qc', 1.2), 25);
+    say(p, 'изученный навык и черту из одного посвящения выбирают вместе', 110, 736, m('qc', 5), { size: 22, fill: COL.dim, anchor: 'start' });
+    sh.set('ft_skill', 'Быстрая угроза, Лжец', m('qc', 4));
+    say(p, 'Угрожать — после одного раунда разговора, а не минуты · в бою нельзя', 80, 800, m('ct'), { size: 24, anchor: 'start' });
+    say(p, 'Обаятельный лжец остаётся обычной чертой навыка 2-го уровня', 80, 846, m('cl'), { size: 24, fill: COL.dim, anchor: 'start' });
+  }],
+  ['nums', 'Числа на 2-м уровне', (m) => {
+    const p = panel(0);
+    title(p, 'Числа на 2-м уровне');
+    L(p, [['ранг «изучен» на 2-м уровне: ', COL.chalk], ['2 + 2 = +4', RULE]], 100, 135, .5, 28);
+    const cx = [100, 560, 830, 1080];
+    ['навык', 'без посвящения', 'с посвящением', 'расчёт'].forEach((s, i) => say(p, s, cx[i], 195, .5, { size: 21, fill: COL.dim, anchor: 'start' }));
+    hr(p, 212, .6);
+    [['Воровство', '+2 · не изучено', '+6', '4 + Ловкость 3 − 1', 'v', 0, OK], ['Запугивание', '+4 · не изучено', '+8', '4 + Харизма 4', 'z', 0, OK],
+      ['Скрытность', '+6', '+6', 'уже была изучена', 's', 0, COL.chalk], ['Ремесло', '+0', '+0', 'не изучено', 's', 3, NO]].forEach(([n, a, b, c, mark, d, col], i) => {
+      const y = 260 + i * 62, t0 = m(mark, d);
+      say(p, n, cx[0], y, t0, { size: 28, weight: 700, anchor: 'start' });
+      say(p, a, cx[1], y, t0 + .4, { size: 25, fill: COL.dim, anchor: 'start' });
+      say(p, b, cx[2], y, t0 + .8, { size: 30, fill: col, weight: 700, anchor: 'start' });
+      say(p, c, cx[3], y, t0 + 1.2, { size: 23, anchor: 'start' });
+    });
+    say(p, 'штраф клёпаного доспеха −1 действует на Воровство так же, как на Скрытность', 100, 520, m('v', 5), { size: 22, fill: COL.dim, anchor: 'start' });
+    hr(p, 560, m('lv', -.3));
+    const lx = [560, 760, 960, 1160];
+    say(p, 'уровень', 100, 605, m('lv'), { size: 21, fill: COL.dim, anchor: 'start' });
+    [2, 3, 4, 5].forEach((lv, i) => say(p, lv + '-й', lx[i], 605, m('lv', .2 + i * .1), { size: 26, fill: COL.rat, weight: 700 }));
+    [['Воровство', ['+6', '+7', '+8', '+10'], 660, .6], ['Запугивание', ['+8', '+9', '+10', '+11'], 725, 6.3]].forEach(([n, vs, y, d]) => {
+      say(p, n, 100, y, m('lv', d), { size: 27, weight: 700, anchor: 'start' });
+      vs.forEach((v, i) => say(p, v, lx[i], y, m('lv', d + .3 + i * .9), { size: 32, fill: i === 3 && n === 'Воровство' ? OK : COL.chalk, weight: 700 }));
+    });
+    L(p, [['5-й: Воровство ', COL.chalk], ['+2', OK], [' — уровень и Ловкость +4', COL.dim]], 100, 800, m('five'), 25);
+    L(p, [['Запугивание ', COL.chalk], ['+1', OK], [' — у Харизмы отметка, модификатор остался +4', COL.dim]], 100, 845, m('five', 5), 25);
+  }],
+  ['feat4', 'Черта архетипа на 4-м уровне', (m) => {
+    const p = panel(0);
+    title(p, '4-й уровень: черта архетипа');
+    pill(p, 'Простые трюки · могла бы взять', COL.dim, 420, 150, 1.5, 24);
+    pill(p, 'Атакующий исподтишка (Sneak Attacker)', ARC, 1100, 150, 5, 28);
+    L(p, [['черта 4-го уровня · критерий: Посвящение в плуты ', COL.chalk], ['✓', OK]], 140, 230, m('cr'), 26);
+    hr(p, 270, m('sa', -.3));
+    const d4 = dieShape(p, 4, 220, 380, RULE, m('sa', 1.5), 50, '1d4');
+    const d6 = dieShape(p, 6, 560, 380, RULE, m('sa', 6), 46, '1d6');
+    arrowTo(p, 300, 380, 470, 380, COL.dim, m('sa', 5.6));
+    say(p, 'с 6-го уровня', 385, 345, m('sa', 5.8), { size: 21, fill: COL.dim });
+    say(p, 'число кубиков не растёт', 390, 520, m('sa', 8.5), { size: 24, fill: NO });
+    say(p, 'ещё урон, если цель застигнута врасплох:', 760, 340, m('sa', 1), { size: 24, fill: RULE, anchor: 'start', weight: 600 });
+    say(p, 'фехтовальное оружие в ближнем бою', 760, 395, m('sa', 3), { size: 26, anchor: 'start' });
+    say(p, 'или дальнобойное оружие', 760, 440, m('sa', 4.6), { size: 26, anchor: 'start' });
+    pill(p, 'рапира · «фехтовальное»', HERO, 420, 600, m('wp'), 24); yesNo(p, true, 720, 600, m('wp', .5), .8);
+    pill(p, 'праща · дальнобойное', HERO, 1000, 600, m('wp', 1.5), 24); yesNo(p, true, 1280, 600, m('wp', 2), .8);
+    const ch = [[['Обман или Скрытность', 'на инициативу'], 'init', 0], [['Внезапная атака'], 'init', 1.8], [['враг застигнут', 'врасплох в 1-м раунде'], 'init', 3.2], [['первый удар:', 'ещё 1d4 урона'], 'init', 5.5]];
+    ch.forEach(([ls, mark, d], i) => {
+      const x = 100 + i * 366, t0 = m(mark, d);
+      box(p, x, 700, 300, 110, i === 3 ? OK : RULE, t0);
+      ls.forEach((s, k) => say(p, s, x + 150, (ls.length > 1 ? 740 : 762) + k * 32, t0, { size: 23, fill: i === 3 ? OK : COL.chalk, weight: 600 }));
+      if (i) arrowTo(p, x - 62, 755, x - 6, 755, COL.dim, t0);
+    });
+  }],
+  ['strike', 'Первый удар Шиппы', (m) => {
+    const p = panel(0);
+    title(p, 'Шиппа 4-го уровня: первый удар');
+    L(p, [['инициатива: Внимание +8  →  Обман ', COL.chalk], ['+12', OK]], 100, 140, m('ini'), 29);
+    say(p, 'ведущий считает, что Обман подходит: она сама затеяла разговор, который перешёл в драку', 100, 190, m('ini', 3.4), { size: 22, fill: COL.dim, anchor: 'start' });
+    pill(p, 'ходит раньше → Внезапная атака', ARC, 560, 245, m('ini', 8), 24);
+    pill(p, 'разбойник КБ 16', FOE, 260, 330, m('foe'), 26);
+    L(p, [['застигнут врасплох: 16 − 2 = ', COL.chalk], ['14', FOE]], 480, 340, m('foe', 3.5), 28);
+    L(p, [['рапира ', COL.chalk], ['+10', RULE], [' (усиления +1, разящая) · урон ', COL.chalk], ['2d6', RULE]], 100, 408, m('atk'), 26);
+    const F = faces(p, 180, 460, m('atk', 3.5), { w: 56, h: 56, size: 22 });
+    say(p, 'кубик', 160, 496, m('atk', 3.5), { size: 20, fill: COL.dim, anchor: 'end' });
+    for (let f = 4; f <= 20; f++) F.paint(f, 's', m('atk', 7 + (f - 4) * .05));
+    say(p, 'попадание: 14 − 10 = 4 и выше', 800, 560, m('atk', 8), { size: 25, fill: OK, weight: 600 });
+    const mk8 = G(p, { x: F.cx(8), y: 458, o: 0 });
+    path(mk8, 'M0 0V-22M-10 -12L0 0L10 -12', { stroke: RULE, 'stroke-width': 4 });
+    show(mk8, m('roll'));
+    L(p, [['на кубике 8: 8 + 10 = ', COL.chalk], ['18', OK], [' — попадание', OK]], 100, 620, m('roll', .6), 27);
+    colorLine(p, [['2d6: 3 + 4 = 7', RULE], ['   +   ', COL.chalk], ['1d4: 3', ARC], ['   =   ', COL.chalk], ['10 урона', OK]], 800, 710, m('dmg'), { size: 36 });
+    say(p, 'без архетипа в среднем 7, с ним 7 + 2,5 = 9,5', 800, 800, m('cmp'), { size: 28, fill: COL.dim });
+  }],
+  ['q3', 'Быстрая проверка', () => { panel(0); }, { ask: done => quiz(WIDE, [{
+    id: 'c-tf', prompt: ['Верно или неверно?'], build: grid(Q_TF3, TF, { multi: false, text: true }),
+  }, {
+    id: 'c-num', prompt: ['Посчитайте.'], build: blanks(Q_N3),
+  }], done) }],
+  ['wrap', 'Итоги', (m) => {
+    const p = panel(0);
+    numbered(p, [['Класс один. Посвящение и черты архетипа занимают слоты черт.', 'w1'],
+      ['Новое посвящение — после двух других черт текущего архетипа.', 'w2'],
+      ['Посвящение своего класса нельзя, критерии — по текущим числам.', 'w3'],
+      ['Плут: навыки и Внезапная атака, а на 4-м уровне ещё урон.', 'w4']], m, 220, 140, 29);
+  }],
+  ['final1', 'Практика главы', () => { panel(0); }, { ask: done => quiz(SCREEN, [{
+    id: 'p-tf', prompt: ['Верно или неверно?'], build: grid(P_TF, TF, { multi: false, text: true }),
+  }], done, 'Практика главы   1 из 3') }],
+  ['final2', 'Практика главы', () => {}, { ask: done => quiz(SCREEN, [{
+    id: 'p-num', prompt: ['Посчитайте.'], build: blanks(P_NUM),
+  }], done, 'Практика главы   2 из 3') }],
+  ['final3', 'Практика главы', () => {}, { ask: done => quiz(SCREEN, [{
+    id: 'p-sh', prompt: ['Шиппа, 5-й уровень: Ловкость +4, Харизма +4 с отметкой.'], build: blanks(P_SH),
+  }], done, 'Практика главы   3 из 3') }],
+  ['finish', 'Готово', () => {}, { ask: finishCard }],
+].map(([id, title, run, extra]) => ({ id, title, run, ...extra }));
+
+/* ---------- question data ---------- */
+const Q_TF1 = [
+  { parts: ['Посвящение входит в счёт двух других черт.'], ans: ['f'], why: 'Само посвящение в счёт не идёт.' },
+  { parts: ['Архетип берут вместо обычной черты класса, а не сверх неё.'], ans: ['t'], why: 'Посвящение занимает слот классовой черты.' },
+  { parts: ['Посвящение можно переподготовить, пока остались другие черты архетипа.'], ans: ['f'], why: 'Сначала меняют остальные черты архетипа.' },
+];
+const Q_N1 = [
+  { parts: ['После посвящения до нового посвящения нужно других черт архетипа: ', { box: '2' }], why: 'Две другие черты, посвящение не считается.', hint: 'Сколько других черт нужно?' },
+  { parts: ['У Шиппы посвящение и одна черта архетипа. Ей нужно ещё других черт: ', { box: '1' }], why: '2 − 1 = 1.', hint: 'Из двух нужных одна уже есть.' },
+];
+const Q_TF2 = [
+  { parts: ['Бард может взять Посвящение в барды.'], ans: ['f'], why: 'Мультиклассовое посвящение своего класса взять нельзя.' },
+  { parts: ['Бард может взять Посвящение в медики.'], ans: ['t'], why: 'У медика нет дескриптора «мультикласс».' },
+  { parts: ['Критерии проверяют по числам, какими герой был при создании.'], ans: ['f'], why: 'Критерии проверяют по текущим числам.' },
+];
+const Q_N2 = [
+  { parts: ['Посвящений в обеих книгах игрока на 1-м уровне: ', { box: '0' }], why: 'На 1-м уровне посвящений нет.', hint: 'Не раньше 2-го уровня.' },
+  { parts: ['Мультиклассовых архетипов в двух книгах вместе: ', { box: '16' }], why: '8 + 8 = 16.', hint: 'Восемь плюс восемь.' },
+  { parts: ['Медик: при СЛ 30 цель восстанавливает ПЗ больше на ', { box: '10' }], why: 'При СЛ 30 на 10 ПЗ больше.', hint: 'СЛ 20 — 5, СЛ 40 — 15.' },
+];
+const Q_TF3 = [
+  { parts: ['Атакующий исподтишка добавляет урон по любому существу.'], ans: ['f'], why: 'Только по застигнутому врасплох.' },
+  { parts: ['Число кубиков Атакующего исподтишка растёт с уровнем.'], ans: ['f'], why: 'С 6-го уровня кубик d6 вместо d4, число кубиков то же.' },
+  { parts: ['Для Внезапной атаки нужно бросить на инициативу Обман или Скрытность.'], ans: ['t'], why: 'Это условие Внезапной атаки.' },
+];
+const Q_N3 = [
+  { parts: ['Воровство Шиппы на 4-м уровне: +', { box: '8' }], why: '6 + 3 − 1 = 8.', hint: 'По таблице: 6, 7, 8, 10.' },
+  { parts: ['КБ разбойника, застигнутого врасплох: ', { box: '14' }], why: '16 − 2 = 14.', hint: 'Застигнут врасплох: −2.' },
+  { parts: ['Рапира +10 попадает по КБ 14 при кубике от ', { box: '4' }], why: '14 − 10 = 4.', hint: 'КБ минус бонус.' },
+  { parts: ['2d6 дали 3 и 4, 1d4 дал 3. Урон всего: ', { box: '10' }], why: '3 + 4 + 3 = 10.', hint: 'Сложите все три.' },
+];
+const P_TF = [
+  { parts: ['Класс героя меняется на класс архетипа.'], ans: ['f'], why: 'Класс один и растёт по своей таблице.' },
+  { parts: ['Черта посвящения занимает слот классовой черты.'], ans: ['t'], why: 'Архетип берут вместо обычных черт.' },
+  { parts: ['Посвящение и одна другая черта открывают второй архетип.'], ans: ['f'], why: 'Нужны две другие черты.' },
+  { parts: ['Воин может взять Посвящение в воины.'], ans: ['f'], why: 'Дескриптор «мультикласс»: свой класс нельзя.' },
+  { parts: ['При бесплатном архетипе дополнительная черта идёт только на черты архетипа.'], ans: ['t'], why: 'На 2-м уровне и на каждом чётном.' },
+  { parts: ['Атакующий исподтишка работает только в ближнем бою.'], ans: ['f'], why: 'Подходит и дальнобойное оружие.' },
+  { parts: ['Ведущий может снять правило двух черт при бесплатном архетипе.'], ans: ['t'], why: 'И для общего архетипа, и для списка.' },
+];
+const P_NUM = [
+  { parts: ['Воровство на 2-м уровне: Ловкость +3, изучен, доспех −1: +', { box: '6' }], why: '4 + 3 − 1 = 6.', hint: 'Уровень плюс 2, Ловкость, минус 1.' },
+  { parts: ['Запугивание на 3-м уровне (Харизма +4): +', { box: '9' }], why: '5 + 4 = 9.', hint: 'Уровень плюс 2, плюс Харизма.' },
+  { parts: ['Рапира +10 против КБ 14: попадание при кубике от ', { box: '4' }], why: '14 − 10 = 4.', hint: 'КБ минус бонус.' },
+  { parts: ['Обман Шиппы на 4-м +12, Внимание +8. Обман выше на ', { box: '4' }], why: '12 − 8 = 4.', hint: 'Вычтите.' },
+  { parts: ['Медик: при СЛ 40 цель восстанавливает ПЗ больше на ', { box: '15' }], why: 'При СЛ 40 на 15 ПЗ больше.', hint: 'СЛ 20: 5, СЛ 30: 10.' },
+];
+const P_SH = [
+  { parts: ['Воровство на 5-м уровне: +', { box: '10' }], why: '5 + 2 + 4 − 1 = 10.', hint: 'Уровень, плюс 2, Ловкость, минус 1.' },
+  { parts: ['Запугивание на 5-м уровне: +', { box: '11' }], why: '5 + 2 + 4 = 11.', hint: 'Уровень, плюс 2, Харизма.' },
+  { parts: ['Ремесло на 5-м уровне: +', { box: '0' }], why: 'Неизученное: бонус 0.', hint: 'Ремесло не изучено.' },
+  { parts: ['С какого уровня Атакующий исподтишка даёт d6: ', { box: '6' }], why: 'С 6-го уровня.', hint: 'До 6-го d4.' },
+  { parts: ['Слотов классовой черты на 2-м уровне Шиппы при бесплатном архетипе: ', { box: '2' }], why: 'Обычный и бесплатный.', hint: 'Обычный плюс бесплатный.' },
+];
+boot();
+</script>
+</body>
+</html>
